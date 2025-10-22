@@ -1,32 +1,30 @@
 #!/bin/bash
 set -e
 
-# === Configuration – adjust these for your repo ===
+# === Configuration ===
 GITHUB_USER="gitarman94"
 GITHUB_REPO="PatchPilot"
 BRANCH="main"
 
-# Validation to prevent running with placeholder values
-if [[ "$GITHUB_USER" == "<your-github-username>" || "$GITHUB_REPO" == "<your-repo-name>" ]]; then
-  echo "❌ Please update GITHUB_USER and GITHUB_REPO variables in the script before running."
-  exit 1
-fi
-
-# The “raw” base URL for individual files
 RAW_BASE="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
-# The “archive zip” URL for entire repo
 ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.zip"
 
-# Local paths
 APP_DIR="/opt/patchpilot_server"
 VENV_DIR="${APP_DIR}/venv"
 SERVICE_NAME="patch_server.service"
 SELF_UPDATE_SCRIPT="linux_server_self_update.sh"
 SELF_UPDATE_SERVICE="patch_server_update.service"
 SELF_UPDATE_TIMER="patch_server_update.timer"
-
 SYSTEMD_DIR="/etc/systemd/system"
 
+# === Flags ===
+FORCE_REINSTALL=false
+if [[ "$1" == "--force" ]]; then
+    FORCE_REINSTALL=true
+    echo "⚠️  Force reinstallation enabled: previous installation will be deleted."
+fi
+
+# === System dependencies ===
 echo "📦 Installing system packages (python3, venv, pip, curl, unzip)..."
 
 if command -v apt-get >/dev/null 2>&1; then
@@ -37,8 +35,16 @@ elif command -v dnf >/dev/null 2>&1; then
 elif command -v yum >/dev/null 2>&1; then
     yum install -y python3 python3-venv python3-pip curl unzip
 else
-    echo "❌ Unsupported OS / package manager. Please install Python3, pip, curl, unzip manually."
+    echo "❌ Unsupported OS / package manager. Please install dependencies manually."
     exit 1
+fi
+
+# === Optional force cleanup ===
+if [ "$FORCE_REINSTALL" = true ] && [ -d "$APP_DIR" ]; then
+    echo "🧹 Removing previous installation at $APP_DIR..."
+    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    systemctl stop "$SELF_UPDATE_TIMER" 2>/dev/null || true
+    rm -rf "$APP_DIR"
 fi
 
 echo "📁 Creating application directory at ${APP_DIR}"
@@ -47,18 +53,20 @@ mkdir -p "${APP_DIR}"
 echo "🐍 Creating Python virtual environment..."
 python3 -m venv "${VENV_DIR}"
 
-echo "⬆️ Activating venv and installing Python dependencies..."
+echo "⬆️  Activating venv and installing Python dependencies..."
 source "${VENV_DIR}/bin/activate"
 pip install --upgrade pip
 pip install Flask Flask-SQLAlchemy flask_wtf
 
-echo "⬇️ Downloading repository ZIP from GitHub and extracting to ${APP_DIR}"
+# === Download repo zip ===
+echo "⬇️  Downloading repository ZIP from GitHub and extracting..."
 TMPDIR=$(mktemp -d)
 cd "${TMPDIR}"
 curl -L "${ZIP_URL}" -o latest.zip
+
 unzip -o latest.zip
-# The zip extracts to something like <repo-name>-<branch>, identify it:
 EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
+
 if [ -z "${EXTRACTED_DIR}" ]; then
     echo "❌ Failed to locate extracted repo directory."
     exit 1
@@ -67,14 +75,21 @@ fi
 echo "📂 Copying extracted files into ${APP_DIR}"
 cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 
-echo "🛠️ Setting permissions on key files"
+# === Permissions ===
+echo "🛠️  Setting permissions on key files"
 chmod +x "${APP_DIR}/server.py"
-chmod +x "${APP_DIR}/${SELF_UPDATE_SCRIPT}"
+
+if [ -f "${APP_DIR}/${SELF_UPDATE_SCRIPT}" ]; then
+    chmod +x "${APP_DIR}/${SELF_UPDATE_SCRIPT}"
+else
+    echo "⚠️  Warning: Self-update script '${SELF_UPDATE_SCRIPT}' not found. Skipping."
+fi
 
 cd /
 rm -rf "${TMPDIR}"
 
-echo "🛎️ Creating systemd service: ${SERVICE_NAME}"
+# === Systemd service ===
+echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=Patch Management Server
@@ -91,6 +106,7 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
+# === Self-update timer ===
 echo "📅 Creating self-update service & timer for daily updates"
 cat > "${SYSTEMD_DIR}/${SELF_UPDATE_SERVICE}" <<EOF
 [Unit]
@@ -116,6 +132,7 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
+# === Finalize ===
 echo "🔄 Reloading systemd daemon"
 systemctl daemon-reload
 
