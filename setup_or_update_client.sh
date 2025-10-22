@@ -34,6 +34,9 @@ update() {
     exit 1
   fi
 
+  echo "[*] Stopping PatchPilot service..."
+  systemctl stop $SERVICE_NAME
+
   echo "[*] Pulling latest source code..."
   rm -rf "$SRC_DIR"
   git clone "$RUST_REPO" "$SRC_DIR"
@@ -61,8 +64,8 @@ update() {
 
   chmod +x "$CLIENT_PATH" "$UPDATER_PATH"
 
-  echo "[*] Restarting PatchPilot service..."
-  systemctl restart $SERVICE_NAME
+  echo "[*] Starting PatchPilot service..."
+  systemctl start $SERVICE_NAME
 
   echo "Update complete."
   exit 0
