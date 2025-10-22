@@ -1,6 +1,7 @@
 # setup_or_update_client.ps1
-Param (
-    [string]$ServerUrl
+Param(
+    [string]$ServerUrl,
+    [switch]$Uninstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,7 +14,6 @@ $Branch = "main"
 $RawBase = "https://raw.githubusercontent.com/$GitHubUser/$GitHubRepo/$Branch/windows-client"
 $InstallDir = "C:\PatchPilot_Client"
 
-# Files to update/check
 $FilesToUpdate = @(
     "patchpilot_client.exe",
     "patchpilot_updater.exe",
@@ -66,7 +66,6 @@ function Update-Files {
     if ($updated) {
         Write-Host "🔁 Restarting client scheduled tasks to apply updates..."
 
-        # Restart scheduled tasks
         foreach ($taskName in @("PatchPilot_Client", "PatchPilot_Ping")) {
             if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
                 Restart-ScheduledTask -TaskName $taskName
@@ -83,7 +82,7 @@ function Update-Files {
 function Install-Client {
     Write-Host "[*] Installing dependencies..."
 
-    # Install Chocolatey if missing (optional - to get jq, git, curl)
+    # Install Chocolatey if missing (optional)
     if (-not (Get-Command choco.exe -ErrorAction SilentlyContinue)) {
         Write-Host "Installing Chocolatey..."
         Set-ExecutionPolicy Bypass -Scope Process -Force
@@ -119,15 +118,22 @@ function Install-Client {
     }
 
     # Server URL prompt if not passed as param
-    if (-not $ServerUrl) {
-        $ServerUrl = Read-Host "Enter the patch server URL (e.g., http://192.168.1.100:8080)"
-    }
-    # Strip protocol if present
-    $ServerUrl = $ServerUrl -replace '^https?://', ''
+	if (-not $ServerUrl) {
+		$ServerUrl = Read-Host "Enter the patch server URL (e.g., 192.168.1.100:8080)"
+	}
 
-    # Save server URL
-    $serverUrlPath = Join-Path $InstallDir "server_url.txt"
-    $ServerUrl | Out-File -Encoding ASCII $serverUrlPath
+	# Strip protocol if present
+	$ServerUrl = $ServerUrl -replace '^https?://', ''
+
+	# Append '/api' if not already present
+	if (-not $ServerUrl.EndsWith("/api")) {
+		$ServerUrl = "$ServerUrl/api"
+	}
+
+	# Save server URL
+	$serverUrlPath = Join-Path $InstallDir "server_url.txt"
+	$ServerUrl | Out-File -Encoding ASCII $serverUrlPath
+
 
     # Setup Scheduled Tasks for client and ping scripts
     Write-Host "[*] Creating scheduled tasks..."
@@ -142,12 +148,12 @@ function Install-Client {
         }
     }
 
-    # Create client task - runs every 10 minutes (adjust as needed)
+    # Create client task - runs every 10 minutes
     $clientAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-File `"$InstallDir\patchpilot_client.ps1`""
     $clientTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 10) -RepetitionDuration ([TimeSpan]::MaxValue)
     Register-ScheduledTask -TaskName $clientTaskName -Action $clientAction -Trigger $clientTrigger -Description "PatchPilot Client" -User "SYSTEM" -RunLevel Highest
 
-    # Create ping task - runs every 5 minutes (adjust as needed)
+    # Create ping task - runs every 5 minutes
     $pingAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-File `"$InstallDir\patchpilot_ping.ps1`""
     $pingTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration ([TimeSpan]::MaxValue)
     Register-ScheduledTask -TaskName $pingTaskName -Action $pingAction -Trigger $pingTrigger -Description "PatchPilot Ping" -User "SYSTEM" -RunLevel Highest
@@ -155,7 +161,53 @@ function Install-Client {
     Write-Host "[✓] Installation complete. Client is active."
 }
 
+# Uninstall client
+function Uninstall-Client {
+    Write-Host "[*] Uninstalling PatchPilot Client..."
+
+    # Stop & remove scheduled tasks
+    foreach ($taskName in @("PatchPilot_Client", "PatchPilot_Ping")) {
+        if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+            Write-Host "Removed scheduled task: $taskName"
+        }
+    }
+
+    # Stop & remove Windows service (replace 'PatchPilotService' with your actual service name)
+    $serviceName = "PatchPilotService"
+    if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+        try {
+            Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
+            Write-Host "Stopped Windows service: $serviceName"
+        } catch {
+            Write-Warning "Failed to stop service $serviceName or service not running."
+        }
+        sc.exe delete $serviceName | Out-Null
+        Write-Host "Removed Windows service: $serviceName"
+    }
+
+    # Remove install directory
+    if (Test-Path $InstallDir) {
+        Remove-Item -Path $InstallDir -Recurse -Force
+        Write-Host "Deleted install directory: $InstallDir"
+    }
+
+    # Remove uninstall registry key if exists
+    $uninstallKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\PatchPilot_Client"
+    if (Test-Path $uninstallKey) {
+        Remove-Item -Path $uninstallKey -Recurse -Force
+        Write-Host "Removed uninstall registry key."
+    }
+
+    Write-Host "[✓] Uninstallation complete."
+}
+
 # === Main ===
+
+if ($Uninstall) {
+    Uninstall-Client
+    exit 0
+}
 
 if (Test-Path "$InstallDir\patchpilot_client.exe") {
     Write-Host "[*] Detected existing client installation. Running update..."
