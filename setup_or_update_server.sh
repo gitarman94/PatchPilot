@@ -11,10 +11,10 @@ ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${B
 
 APP_DIR="/opt/patchpilot_server"
 VENV_DIR="${APP_DIR}/venv"
-SERVICE_NAME="patch_server.service"
+SERVICE_NAME="patchpilot_server.service"
 SELF_UPDATE_SCRIPT="linux_server_self_update.sh"
-SELF_UPDATE_SERVICE="patch_server_update.service"
-SELF_UPDATE_TIMER="patch_server_update.timer"
+SELF_UPDATE_SERVICE="patchpilot_server_update.service"
+SELF_UPDATE_TIMER="patchpilot_server_update.timer"
 SYSTEMD_DIR="/etc/systemd/system"
 
 # === Flags ===
@@ -92,7 +92,7 @@ rm -rf "${TMPDIR}"
 echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
-Description=Patch Management Server
+Description=PatchPilot Server
 After=network.target
 
 [Service]
@@ -110,7 +110,7 @@ EOF
 echo "📅 Creating self-update service & timer for daily updates"
 cat > "${SYSTEMD_DIR}/${SELF_UPDATE_SERVICE}" <<EOF
 [Unit]
-Description=Patch Server Self-Update
+Description=PatchPilot Server Self-Update
 After=network.target
 
 [Service]
@@ -122,7 +122,7 @@ EOF
 
 cat > "${SYSTEMD_DIR}/${SELF_UPDATE_TIMER}" <<EOF
 [Unit]
-Description=Run Patch Server Self-Update Daily
+Description=Run PatchPilot Server Self-Update Daily
 
 [Timer]
 OnCalendar=*-*-* 02:00:00
@@ -141,4 +141,4 @@ systemctl enable --now "${SERVICE_NAME}"
 systemctl enable --now "${SELF_UPDATE_TIMER}"
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view dashboard."
+echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
