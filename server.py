@@ -1,0 +1,266 @@
+import os
+import json
+import base64
+from datetime import datetime
+from flask import Flask, request, jsonify, render_template, abort, send_from_directory
+from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app)
+
+# == CONFIG ==
+SERVER_DIR = "/opt/patchpilot_server"
+UPDATE_CACHE_DIR = os.path.join(SERVER_DIR, "updates")
+if not os.path.isdir(UPDATE_CACHE_DIR):
+    os.makedirs(UPDATE_CACHE_DIR, exist_ok=True)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///patchpilot.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+# == MODELS ==
+class Client(db.Model):
+    id = db.Column(db.String(36), primary_key=True)
+    client_name = db.Column(db.String(100))
+    ip_address = db.Column(db.String(45))
+    approved = db.Column(db.Boolean, default=False)
+    allow_checkin = db.Column(db.Boolean, default=True)
+    force_update = db.Column(db.Boolean, default=False)
+    last_checkin = db.Column(db.DateTime)
+    token = db.Column(db.String(50), unique=True, nullable=False)
+    file_hashes = db.Column(db.Text, nullable=True)
+    updates_available = db.Column(db.Boolean, default=False)  # new flag
+
+class ClientUpdate(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.String(36), db.ForeignKey('client.id'), nullable=False)
+    kb_or_package = db.Column(db.String(200), nullable=False)
+    title = db.Column(db.String(200), nullable=True)
+    severity = db.Column(db.String(50), nullable=True)
+    status = db.Column(db.String(50), nullable=False, default='pending')  # pending/installing/installed/failed
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+with app.app_context():
+    db.create_all()
+
+# == Helpers ==
+def generate_token():
+    return base64.urlsafe_b64encode(os.urandom(24)).decode()
+
+def auth_client(client, token):
+    if token is None:
+        return False
+    # Accept token as "Bearer <token>" or just token
+    if token.startswith("Bearer "):
+        token = token[7:]
+    return token == client.token
+
+# == ROUTES ==
+@app.route('/')
+def index():
+    clients = Client.query.all()
+    return render_template('dashboard.html', clients=clients, now=datetime.utcnow())
+
+@app.route('/api/clients', methods=['POST'])
+def add_client():
+    data = request.json
+    if not data or 'id' not in data:
+        return jsonify({'error': 'Invalid data'}), 400
+
+    client = Client.query.get(data['id'])
+    if client:
+        return jsonify({'error': 'Client already exists'}), 400
+
+    token = generate_token()
+    client = Client(
+        id=data['id'],
+        client_name=data.get('client_name', 'Unnamed Client'),
+        ip_address=request.remote_addr,
+        token=token,
+        approved=False,
+        allow_checkin=True,
+        force_update=False,
+        updates_available=False
+    )
+    db.session.add(client)
+    db.session.commit()
+
+    return jsonify({'token': token})
+
+@app.route('/api/clients/<client_id>', methods=['POST'])
+def client_update(client_id):
+    data = request.json
+    if not data:
+        return jsonify({'error': 'Invalid data'}), 400
+
+    client = Client.query.get(client_id)
+    if not client:
+        return jsonify({'error': 'Client not found'}), 404
+
+    # Try token from JSON or Authorization header
+    client_token = data.get('token') or request.headers.get('Authorization')
+    if not auth_client(client, client_token):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    # Update client info and last_checkin
+    client.client_name = data.get('client_name', client.client_name)
+    client.ip_address = request.remote_addr
+    client.last_checkin = datetime.utcnow()
+    client.file_hashes = json.dumps(data.get('file_hashes', {}))
+
+    # Process reported updates availability from client
+    reported = data.get('updates', None)
+    if reported is not None:
+        # Clear old updates for this client
+        ClientUpdate.query.filter_by(client_id=client.id).delete()
+        client.updates_available = False
+
+        for upd in reported:
+            cu = ClientUpdate(
+                client_id=client.id,
+                kb_or_package=upd.get('kb_or_package'),
+                title=upd.get('title'),
+                severity=upd.get('severity'),
+                status='pending'
+            )
+            db.session.add(cu)
+            client.updates_available = True
+
+    # Check for force_update flag to tell client to force check
+    response = {'approved': client.approved, 'updates_available': client.updates_available}
+    if client.force_update and client.allow_checkin:
+        response['force_check'] = True
+        client.force_update = False
+
+    db.session.commit()
+    return jsonify(response)
+
+# --- New: ping endpoint ---
+@app.route('/api/clients/<client_id>/ping', methods=['POST'])
+def client_ping(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        return jsonify({'error': 'Client not found'}), 404
+
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_client(client, auth_header):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    client.last_checkin = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'status': 'pong'})
+
+# --- New: token endpoint to renew/get token ---
+@app.route('/api/clients/<client_id>/token', methods=['POST'])
+def client_token(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        return jsonify({'error': 'Client not found'}), 404
+
+    # Optionally, add auth here before issuing token
+    client.token = generate_token()
+    db.session.commit()
+    return jsonify({'token': client.token})
+
+# --- New: endpoint to get updates for client ---
+@app.route('/api/clients/<client_id>/updates', methods=['GET'])
+def client_updates(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        return jsonify({'error': 'Client not found'}), 404
+
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_client(client, auth_header):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    updates = ClientUpdate.query.filter_by(client_id=client_id).all()
+    updates_list = [{
+        'kb_or_package': u.kb_or_package,
+        'title': u.title,
+        'severity': u.severity,
+        'status': u.status,
+        'timestamp': u.timestamp.isoformat()
+    } for u in updates]
+
+    return jsonify({'updates': updates_list})
+
+@app.route('/api/clients/<client_id>/commands', methods=['POST'])
+def send_command(client_id):
+    data = request.json
+    if not data or 'token' not in data or 'action' not in data:
+        return jsonify({'error': 'Invalid command'}), 400
+
+    client = Client.query.get(client_id)
+    if not client:
+        return jsonify({'error': 'Client not found'}), 404
+
+    if not auth_client(client, data.get('token')):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    action = data['action']
+    updates = data.get('updates', None)
+
+    if action == 'install_updates' and updates:
+        for kb in updates:
+            cu = ClientUpdate.query.filter_by(client_id=client.id, kb_or_package=kb).first()
+            if cu:
+                cu.status = 'installing'
+    elif action == 'install_all_updates':
+        for cu in ClientUpdate.query.filter_by(client_id=client.id, status='pending').all():
+            cu.status = 'installing'
+    else:
+        return jsonify({'error': 'Unknown action'}), 400
+
+    db.session.commit()
+    return jsonify({'status': 'command queued'})
+
+@app.route('/api/clients/force_all', methods=['POST'])
+def force_update_all():
+    data = request.json
+    if not data or 'admin_token' not in data:
+        return jsonify({'error': 'Missing admin token'}), 401
+
+    if data['admin_token'] != os.getenv('ADMIN_TOKEN'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    for client in Client.query.all():
+        client.force_update = True
+    db.session.commit()
+    return jsonify({'status': 'force update flagged for all clients'})
+
+@app.route('/updates/<path:filename>', methods=['GET'])
+def serve_update_file(filename):
+    # Serve cached update files to clients
+    # Ensure no directory traversal
+    return send_from_directory(UPDATE_CACHE_DIR, filename, as_attachment=True)
+
+@app.route('/approve/<client_id>', methods=['POST'])
+def approve_client(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    client.approved = True
+    db.session.commit()
+    return ('', 204)
+
+@app.route('/admin/force-update/<client_id>', methods=['POST'])
+def force_update_client(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    client.force_update = True
+    db.session.commit()
+    return ('', 204)
+
+@app.route('/admin/allow-checkin/<client_id>', methods=['POST'])
+def allow_checkin_client(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    client.allow_checkin = True
+    db.session.commit()
+    return ('', 204)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)

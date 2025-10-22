@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Patch Manager Dashboard</title>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+          integrity="sha384‑9ndCyUa5iZ0r+0E0vx+X2RjyQ+8XK8cYrFQp0S6Z6ZqD6A8m9aX9Q5UfjyxT279C"
+          crossorigin="anonymous">
+    <style>
+        body {
+            font-family: Arial, sans‑serif;
+            margin: 2em;
+            background-color: #f9f9f9;
+        }
+        table {
+            border‑collapse: collapse;
+            width: 100%;
+            margin‑top: 1em;
+            background‑color: #fff;
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 0.6em;
+            text‑align: left;
+        }
+        th {
+            background-color: #eee;
+        }
+        .status‑online {
+            color: green;
+            font‑weight: bold;
+        }
+        .status‑offline {
+            color: red;
+            font‑weight: bold;
+        }
+        .status‑updates {
+            color: orange;
+            font‑weight: bold;
+        }
+        .btn {
+            padding: 0.4em 0.8em;
+            margin: 0.2em;
+            border: none;
+            border‑radius: 4px;
+            cursor: pointer;
+        }
+        .btn‑approve {
+            background‑color: #007BFF;
+            color: white;
+        }
+        .btn‑force {
+            background‑color: orange;
+            color: white;
+        }
+        .btn‑update {
+            background‑color: #28a745;
+            color: white;
+        }
+        .btn‑global {
+            margin‑bottom: 1em;
+        }
+    </style>
+</head>
+<body>
+
+<h1>🛠️ Patch Manager Dashboard</h1>
+
+<!-- Global button to force all clients to update -->
+<form method="post" action="/api/clients/force_all" class="mb-3">
+    <input type="hidden" name="admin_token" value="{{ ADMIN_TOKEN or '' }}">
+    <button class="btn btn‑global btn‑update">🔁 Force Update All Clients</button>
+</form>
+
+<table class="table table-hover">
+    <thead>
+        <tr>
+            <th>Client ID</th>
+            <th>Hostname</th>
+            <th>OS</th>
+            <th>CPU</th>
+            <th>RAM</th>
+            <th>Disk</th>
+            <th>Patch Status</th>
+            <th>Uptime</th>
+            <th>Status</th>
+            <th>Updates</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for client in clients %}
+        <tr>
+            <td>{{ client.id }}</td>
+            <td>{{ client.client_name or '—' }}</td>
+            <td>{{ client.os or '—' }}</td>
+            <td>{{ client.cpu or '—' }}</td>
+            <td>{{ client.ram or '—' }}</td>
+            <td>{{ client.disk or '—' }}</td>
+            <td>{{ client.patch_status or '—' }}</td>
+            <td>{{ client.uptime or '—' }}</td>
+            <td>
+                {% if client.last_checkin and (now - client.last_checkin).total_seconds() < 600 %}
+                    <span class="status‑online">🟢 Online</span>
+                {% else %}
+                    <span class="status‑offline">🔴 Offline</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if client.updates_available %}
+                    <span class="status‑updates">⚠️ Updates Available</span>
+                {% else %}
+                    ✅ Up to date
+                {% endif %}
+            </td>
+            <td>
+                <!-- View details link -->
+                <a class="btn btn‑update" href="/client/{{ client.id }}">View</a>
+
+                {% if not client.approved %}
+                <form method="post" action="/approve/{{ client.id }}" style="display:inline-block;">
+                    <button class="btn btn‑approve">✅ Approve</button>
+                </form>
+                {% else %}
+                <!-- Button to force this specific client to check for updates/install -->
+                <form method="post" action="/admin/force-update/{{ client.id }}" style="display:inline-block;">
+                    <button class="btn btn‑force">🔄 Check for Update</button>
+                </form>
+                <form method="post" action="/admin/allow-checkin/{{ client.id }}" style="display:inline-block;">
+                    <button class="btn btn‑update">✔️ Allow Check‑In</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384‑ENjdO4Dr2bkBIFxQpeo6lOLbKz7Nx4oS9FNVoNt7M7e7ZtHiaV7KsZbtNQ7R+0V"
+        crossorigin="anonymous"></script>
+</body>
+</html>
