@@ -141,4 +141,4 @@ systemctl enable --now "${SERVICE_NAME}"
 systemctl enable --now "${SELF_UPDATE_TIMER}"
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "✅ Installation complete! Visit: http://${SERVER_IP}:5000 to view dashboard."
+echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view dashboard."
