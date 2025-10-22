@@ -6,7 +6,6 @@
     <link
         href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
         rel="stylesheet"
-        integrity="sha384‑9ndCyUa5iZ0r+0E0vx+X2RjyQ+8XK8cYrFQp0S6Z6ZqD6A8m9aX9Q5UfjyxT279C"
         crossorigin="anonymous"
     />
     <style>
@@ -27,16 +26,33 @@
         h1, h2 {
             margin-bottom: 1rem;
         }
+        .status-online {
+            color: green;
+            font-weight: bold;
+        }
+        .status-offline {
+            color: red;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
     <a href="/" class="btn btn-secondary mb-3">← Back to Dashboard</a>
 
     <h1>Client Details: {{ client.client_name or client.id }}</h1>
-    <p><strong>OS:</strong> {{ client.os or 'N/A' }}</p>
+
+    <p><strong>Status:</strong>
+        {% if client.is_online() %}
+            <span class="status-online">Online</span>
+        {% else %}
+            <span class="status-offline">Offline</span>
+        {% endif %}
+    </p>
+    <p><strong>OS:</strong> {{ client.os or 'N/A' }} {{ client.os_version or '' }}</p>
     <p><strong>CPU:</strong> {{ client.cpu or 'N/A' }}</p>
     <p><strong>RAM:</strong> {{ client.ram or 'N/A' }}</p>
     <p><strong>Disk:</strong> {{ client.disk or 'N/A' }}</p>
+    <p><strong>Uptime:</strong> {{ client.uptime() or 'N/A' }}</p>
     <p><strong>Last Check-in:</strong> {{ client.last_checkin or 'Never' }}</p>
 
     <div class="update-list">
@@ -53,11 +69,12 @@
                         class="form-check-input"
                         type="checkbox"
                         name="updates"
-                        value="{{ update.update_id }}"
-                        id="update-{{ update.update_id }}"
+                        value="{{ update.kb_or_package }}"
+                        id="update-{{ loop.index }}"
                     />
-                    <label class="form-check-label" for="update-{{ update.update_id }}">
-                        <strong>{{ update.title }}</strong> - {{ update.description }}
+                    <label class="form-check-label" for="update-{{ loop.index }}">
+                        <strong>{{ update.title or update.kb_or_package }}</strong>
+                        {% if update.severity %} - {{ update.severity }}{% endif %}
                     </label>
                 </div>
                 {% endfor %}
@@ -75,6 +92,12 @@
             <p>No updates available for this client.</p>
         {% endif %}
     </div>
+
+    {% if not client.approved %}
+        <form method="post" action="/approve/{{ client.id }}" style="margin-top:1em;">
+            <button type="submit" class="btn btn-warning">Approve Client</button>
+        </form>
+    {% endif %}
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 </body>
