@@ -1,94 +1,173 @@
 #!/bin/bash
 set -e
 
-# === Config ===
-INSTALL_DIR="/opt/patchpilot_client"
-REPO_URL="https://github.com/gitarman94/PatchPilot.git"
-CLIENT_SRC_DIR="/tmp/patchpilot_client_src"
-RUST_CLIENT_SUBDIR="patchpilot_client_rust"
-
-# Check if running as root or set sudo prefix
+# Detect if running as root
 if [[ $EUID -eq 0 ]]; then
   SUDO=""
 else
   SUDO="sudo"
 fi
 
-# Helper: Install Rust toolchain if missing
-install_rust() {
-  if ! command -v cargo >/dev/null 2>&1; then
-    echo "Rust toolchain not found. Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    export PATH="$HOME/.cargo/bin:$PATH"
-  fi
+INSTALL_DIR="/opt/patchpilot_client"
+GITHUB_USER="gitarman94"
+GITHUB_REPO="PatchPilot"
+BRANCH="main"
+
+RAW_BASE="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$BRANCH/linux-client"
+
+FILES_TO_UPDATE=(
+  "patchpilot_client"
+  "patchpilot_updater"
+  "config.json"
+  "patchpilot_client.sh"
+)
+
+CLIENT_ID_FILE="$INSTALL_DIR/client_id.txt"
+SERVER_URL_FILE="$INSTALL_DIR/server_url.txt"
+
+# Helper: Download a file
+download_file() {
+  local url=$1
+  local dest=$2
+  curl -sSL "$url" -o "$dest"
 }
 
-# Helper: Clone or update client source code
-update_source() {
-  if [[ -d "$CLIENT_SRC_DIR" ]]; then
-    echo "Updating existing client source..."
-    git -C "$CLIENT_SRC_DIR" pull
+# Helper: Compute SHA256 hash of a file
+file_hash() {
+  sha256sum "$1" | awk '{print $1}'
+}
+
+# Update files if changed
+update_files() {
+  echo "🔍 Checking for client updates..."
+
+  updated=false
+
+  for file in "${FILES_TO_UPDATE[@]}"; do
+    local local_path="$INSTALL_DIR/$file"
+    local temp_remote="/tmp/$file.remote"
+
+    local remote_url="$RAW_BASE/$file"
+    echo "📁 Checking $file"
+
+    download_file "$remote_url" "$temp_remote"
+
+    local remote_hash
+    remote_hash=$(file_hash "$temp_remote")
+
+    local local_hash=""
+    if [[ -f "$local_path" ]]; then
+      local_hash=$(file_hash "$local_path")
+    fi
+
+    if [[ "$remote_hash" != "$local_hash" ]]; then
+      echo "⬆️  $file is outdated. Updating..."
+      cp "$temp_remote" "$local_path"
+      chmod +x "$local_path"
+      updated=true
+    else
+      echo "✅ $file is up to date."
+    fi
+
+    rm -f "$temp_remote"
+  done
+
+  if $updated; then
+    echo "🔁 Client files updated."
+    # Optionally restart services or cron jobs here if needed
   else
-    echo "Cloning client source..."
-    git clone "$REPO_URL" "$CLIENT_SRC_DIR"
+    echo "🚀 No updates detected."
   fi
 }
 
-# Build Rust client binary
-build_client() {
-  echo "Building Rust client binary..."
-  cd "$CLIENT_SRC_DIR/$RUST_CLIENT_SUBDIR"
-  cargo build --release
-}
+# Full install
+install_client() {
+  echo "[*] Installing dependencies..."
 
-# Install client files
-install_files() {
-  echo "Installing client files..."
+  # Check and install build-essential or dev tools for compiling Rust code
+  if ! command -v cc >/dev/null 2>&1; then
+    echo "C compiler (cc) not found. Installing build tools..."
+    if command -v apt-get >/dev/null 2>&1; then
+      $SUDO apt-get update
+      $SUDO apt-get install -y build-essential
+    elif command -v yum >/dev/null 2>&1; then
+      $SUDO yum groupinstall -y "Development Tools"
+    elif command -v dnf >/dev/null 2>&1; then
+      $SUDO dnf groupinstall -y "Development Tools"
+    else
+      echo "Please install a C compiler toolchain (e.g. build-essential) manually."
+      exit 1
+    fi
+  else
+    echo "C compiler (cc) found."
+  fi
 
+  # Install dependencies (jq, curl) if missing
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "Installing jq..."
+    if command -v apt-get >/dev/null 2>&1; then
+      $SUDO apt-get update && $SUDO apt-get install -y jq
+    elif command -v yum >/dev/null 2>&1; then
+      $SUDO yum install -y jq
+    elif command -v dnf >/dev/null 2>&1; then
+      $SUDO dnf install -y jq
+    else
+      echo "Please install jq manually."
+      exit 1
+    fi
+  fi
+
+  echo "[*] Creating install directory..."
+  $SUDO rm -rf "$INSTALL_DIR"
   $SUDO mkdir -p "$INSTALL_DIR"
-  
-  # Copy binary
-  $SUDO cp "$CLIENT_SRC_DIR/$RUST_CLIENT_SUBDIR/target/release/patchpilot_client" "$INSTALL_DIR/"
+
+  echo "[*] Cloning client source..."
+  $SUDO rm -rf /tmp/patchpilot_client_src
+  git clone --depth=1 https://github.com/$GITHUB_USER/$GITHUB_REPO.git /tmp/patchpilot_client_src
+
+  echo "[*] Building Rust client binary..."
+  cd /tmp/patchpilot_client_src/patchpilot_client_rust
+  $SUDO cargo build --release
+
+  echo "[*] Copying built client binary..."
+  $SUDO cp target/release/patchpilot_client "$INSTALL_DIR/patchpilot_client"
   $SUDO chmod +x "$INSTALL_DIR/patchpilot_client"
 
-  # Copy config.json if exists in repo root or elsewhere
-  # Adjust this path if your config.json is somewhere else
-  if [[ -f "$CLIENT_SRC_DIR/config.json" ]]; then
-    $SUDO cp "$CLIENT_SRC_DIR/config.json" "$INSTALL_DIR/"
-  else
-    # Create an empty config.json if missing
-    echo "{}" | $SUDO tee "$INSTALL_DIR/config.json" > /dev/null
-  fi
+  # Also copy any other needed files (e.g. config.json, patchpilot_updater, patchpilot_client.sh)
+  for file in "${FILES_TO_UPDATE[@]:1}"; do
+    src="/tmp/patchpilot_client_src/linux-client/$file"
+    if [[ -f "$src" ]]; then
+      echo "Copying $file..."
+      $SUDO cp "$src" "$INSTALL_DIR/$file"
+      $SUDO chmod +x "$INSTALL_DIR/$file"
+    fi
+  done
 
-  # Generate client_id.txt if missing
-  if [[ ! -f "$INSTALL_DIR/client_id.txt" ]]; then
+  # Generate client_id.txt if missing or empty
+  if [[ ! -s "$CLIENT_ID_FILE" ]]; then
     echo "Generating client ID..."
-    uuidgen | $SUDO tee "$INSTALL_DIR/client_id.txt" > /dev/null
+    uuidgen | $SUDO tee "$CLIENT_ID_FILE" >/dev/null
   fi
-}
 
-# Save server URL (append /api automatically)
-save_server_url() {
-  local input_url="$1"
-  input_url="${input_url#http://}"
-  input_url="${input_url#https://}"
-  if [[ "$input_url" != */api ]]; then
-    input_url="${input_url}/api"
+  # Prompt for server IP if not provided as env var
+  if [[ -z "$SERVER_IP" ]]; then
+    read -rp "Enter the patch server IP address (no port, e.g., 192.168.1.100): " input_ip
+  else
+    input_ip="$SERVER_IP"
   fi
+
+  # Append port and /api path
+  input_url="${input_ip}:8080/api"
+
   echo "Saving server URL: $input_url"
-  echo "$input_url" | $SUDO tee "$INSTALL_DIR/server_url.txt" > /dev/null
-}
+  echo "$input_url" | $SUDO tee "$SERVER_URL_FILE" >/dev/null
 
-# Setup cron jobs
-setup_cron() {
-  echo "[*] Setting up cron jobs..."
-
-  # Remove old jobs for patchpilot_client (adjust if your client uses other scripts)
+  # Setup cron job for running patchpilot_client every 10 minutes
+  echo "[*] Setting up cron job..."
   $SUDO crontab -l 2>/dev/null | grep -v 'patchpilot_client' | $SUDO crontab -
-
-  # Add new cron job to run the Rust binary every 10 mins
-  # (adjust command if client requires arguments or a wrapper script)
   ( $SUDO crontab -l 2>/dev/null; echo "*/10 * * * * $INSTALL_DIR/patchpilot_client" ) | $SUDO crontab -
+
+  echo "[✓] Installation complete."
 }
 
 # Uninstall client
@@ -98,11 +177,8 @@ uninstall_client() {
   # Remove cron jobs
   $SUDO crontab -l 2>/dev/null | grep -v 'patchpilot_client' | $SUDO crontab -
 
-  # Remove install dir
+  # Remove files and directory
   $SUDO rm -rf "$INSTALL_DIR"
-
-  # Remove source dir
-  rm -rf "$CLIENT_SRC_DIR"
 
   echo "Uninstall complete."
 }
@@ -115,26 +191,8 @@ fi
 
 if [[ -f "$INSTALL_DIR/patchpilot_client" ]]; then
   echo "Existing installation detected. Running update..."
-
-  install_rust
-  update_source
-  build_client
-  install_files
-
-  echo "PatchPilot client updated."
+  update_files
 else
   echo "No installation detected. Running full install..."
-
-  install_rust
-  update_source
-  build_client
-  install_files
-
-  # Prompt for server IP (without port)
-  read -rp "Enter the patch server IP (without port): " server_ip
-  save_server_url "$server_ip"
-
-  setup_cron
-
-  echo "PatchPilot client installed."
+  install_client
 fi
