@@ -1,13 +1,6 @@
 #!/bin/bash
 set -e
 
-# Detect if running as root
-if [[ $EUID -eq 0 ]]; then
-  SUDO=""
-else
-  SUDO="sudo"
-fi
-
 INSTALL_DIR="/opt/patchpilot_client"
 GITHUB_USER="gitarman94"
 GITHUB_REPO="PatchPilot"
@@ -23,6 +16,13 @@ FILES_TO_UPDATE=(
 
 CLIENT_ID_FILE="$INSTALL_DIR/client_id.txt"
 SERVER_URL_FILE="$INSTALL_DIR/server_url.txt"
+
+# Detect if running as root
+if [[ $EUID -eq 0 ]]; then
+  SUDO=""
+else
+  SUDO="sudo"
+fi
 
 # Helper: Download a file
 download_file() {
@@ -73,6 +73,7 @@ update_files() {
 
   if $updated; then
     echo "🔁 Client files updated."
+    # Restart the Rust client if applicable (you can add logic here)
   else
     echo "🚀 No updates detected."
   fi
@@ -81,7 +82,7 @@ update_files() {
 # Full install
 install_client() {
   echo "[*] Installing dependencies..."
-  # Install jq if missing
+
   if ! command -v jq >/dev/null 2>&1; then
     echo "Installing jq..."
     if command -v apt-get >/dev/null 2>&1; then
@@ -120,41 +121,19 @@ install_client() {
     input_ip="$SERVER_URL"
   fi
 
-  # Strip protocol and port if somehow included
-  input_ip="${input_ip#http://}"
-  input_ip="${input_ip#https://}"
-  input_ip="${input_ip%%/*}" # Remove trailing slash or paths
-
-  final_url="${input_ip}:8080/api"
-  echo "Saving server URL: $final_url"
-  echo "$final_url" | $SUDO tee "$SERVER_URL_FILE" >/dev/null
-
-  echo "[*] Setting up cron jobs..."
-
-  # Remove old jobs that reference patchpilot_client or patchpilot_ping
-  current_cron="$($SUDO crontab -l 2>/dev/null | grep -v 'patchpilot_')"
-
-  # Add new cron jobs: every 10 min (client), every 5 min (ping)
-  {
-    echo "$current_cron"
-    echo "*/10 * * * * $INSTALL_DIR/patchpilot_client"
-    echo "*/5 * * * * $INSTALL_DIR/patchpilot_ping"
-  } | $SUDO crontab -
+  # Construct full server URL
+  server_url="http://$input_ip:8080/api"
+  echo "Saving server URL: $server_url"
+  echo "$server_url" | $SUDO tee "$SERVER_URL_FILE" >/dev/null
 
   echo "[✓] Installation complete."
+  echo "Run the client with: $INSTALL_DIR/patchpilot_client"
 }
 
 # Uninstall client
 uninstall_client() {
   echo "Uninstalling PatchPilot client..."
-
-  # Remove related cron jobs
-  current_cron="$($SUDO crontab -l 2>/dev/null | grep -v 'patchpilot_')"
-  echo "$current_cron" | $SUDO crontab -
-
-  # Remove files and directory
   $SUDO rm -rf "$INSTALL_DIR"
-
   echo "Uninstall complete."
 }
 
