@@ -8,6 +8,7 @@ RUST_REPO="https://github.com/gitarman94/PatchPilot.git"
 CLIENT_PATH="$INSTALL_DIR/patchpilot_client"
 UPDATER_PATH="$INSTALL_DIR/patchpilot_updater"
 CONFIG_PATH="$INSTALL_DIR/config.json"
+SERVICE_PATH="/etc/systemd/system/patchpilot_client.service"
 
 show_usage() {
   echo "Usage: $0 [--uninstall]"
@@ -15,20 +16,18 @@ show_usage() {
 }
 
 uninstall() {
-  echo "Uninstalling PatchPilot client..."
+  echo "[*] Uninstalling PatchPilot client..."
   systemctl stop patchpilot_client.service 2>/dev/null || true
   systemctl disable patchpilot_client.service 2>/dev/null || true
   rm -rf "$INSTALL_DIR"
-  rm -f /etc/systemd/system/patchpilot_client.service
+  rm -f "$SERVICE_PATH"
   systemctl daemon-reload
 
-  echo "[*] Cleaning up Rust toolchain and temporary build files..."
+  echo "[*] Cleaning Rust build artifacts and cargo cache..."
   rm -rf "$SRC_DIR"
-  rm -rf "$HOME/.cargo"
-  rm -rf "$HOME/.rustup"
-  rm -rf "$HOME/.cargo/registry"
-  rm -rf "$HOME/.cargo/git"
-
+  rm -rf /root/.cargo /root/.rustup
+  rm -rf /root/.cargo/registry
+  rm -rf /root/.cargo/git
   echo "Uninstalled and cleaned up."
   exit 0
 }
@@ -44,7 +43,8 @@ fi
 
 if [[ -d "$INSTALL_DIR" ]]; then
   echo "Existing installation detected. Running update..."
-  echo "No updates detected."  # Placeholder
+  # Placeholder for update logic
+  echo "No updates detected."
   exit 0
 fi
 
@@ -73,39 +73,31 @@ echo "[*] Cloning client source..."
 rm -rf "$SRC_DIR"
 git clone "$RUST_REPO" "$SRC_DIR"
 
-# Build the Rust client
-PROJECT_DIR="$SRC_DIR/patchpilot_client_rust"
-cd "$PROJECT_DIR" || { echo "Failed to cd into source directory"; exit 1; }
-
 echo "[*] Building Rust client binary..."
-export OPENSSL_DIR="/usr"
-export OPENSSL_LIB_DIR="/usr/lib/x86_64-linux-gnu"
-export OPENSSL_INCLUDE_DIR="/usr/include"
+export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+export OPENSSL_INCLUDE_DIR=/usr/include
+export OPENSSL_DIR=/usr
 export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
 
+cd "$SRC_DIR/patchpilot_client_rust"
 cargo clean
 cargo build --release
 
-# Copy binaries using absolute paths
 echo "[*] Copying binaries to install directory..."
-
-CLIENT_BIN="$PROJECT_DIR/target/release/rust_patch_client"
-UPDATER_BIN="$PROJECT_DIR/target/release/patchpilot_updater"
-
-if [ -f "$CLIENT_BIN" ]; then
-  cp "$CLIENT_BIN" "$CLIENT_PATH"
+if [ -f target/release/rust_patch_client ]; then
+  cp target/release/rust_patch_client "$CLIENT_PATH"
 else
-  echo "Error: Client binary not found at $CLIENT_BIN"
+  echo "Error: rust_patch_client binary not found after build."
   exit 1
 fi
 
-if [ -f "$UPDATER_BIN" ]; then
-  cp "$UPDATER_BIN" "$UPDATER_PATH"
+if [ -f target/release/patchpilot_updater ]; then
+  cp target/release/patchpilot_updater "$UPDATER_PATH"
 else
-  echo "Warning: Updater binary not found at $UPDATER_BIN"
+  echo "Warning: Updater binary not found, skipping."
 fi
 
-chmod +x "$CLIENT_PATH" "$UPDATER_PATH" 2>/dev/null || true
+chmod +x "$CLIENT_PATH" "$UPDATER_PATH"
 
 echo "[*] Creating default config.json..."
 cat > "$CONFIG_PATH" <<EOF
@@ -115,5 +107,24 @@ cat > "$CONFIG_PATH" <<EOF
 }
 EOF
 
-echo "Installation complete. You can now run: $CLIENT_PATH"
+echo "[*] Setting up systemd service..."
+cat > "$SERVICE_PATH" <<EOF
+[Unit]
+Description=PatchPilot Client Service
+After=network.target
+
+[Service]
+ExecStart=$CLIENT_PATH
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable patchpilot_client.service
+systemctl start patchpilot_client.service
+
+echo "Installation complete. Service is running and will auto-start on boot."
 exit 0
