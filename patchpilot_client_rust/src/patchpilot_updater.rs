@@ -18,10 +18,8 @@ fn main() {
 
     println!("[*] Waiting for main process to exit...");
 
-    // Wait a moment to allow main process to exit and release the file lock
     sleep(Duration::from_secs(2));
 
-    // Try multiple times in case OS still has file lock
     let mut retries = 5;
     while retries > 0 {
         match fs::rename(new_path, old_path) {
@@ -48,6 +46,6 @@ fn main() {
         .spawn()
         .expect("Failed to restart the application");
 
-    println!("[✔] Update complete.");
     let _ = status;
+    println!("[✔] Update complete.");
 }
