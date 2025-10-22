@@ -1,8 +1,3 @@
-Got it! Here’s the updated README.md with the **GPL-3.0 License** reference instead of MIT:
-
----
-
-````markdown
 # PatchPilot
 
 PatchPilot is a cross-platform patch client designed to streamline automated patching and updating of software clients. It supports Windows and Linux clients with systemd integration, self-updating capabilities, and efficient service management.
@@ -11,21 +6,21 @@ PatchPilot is a cross-platform patch client designed to streamline automated pat
 
 ## Features
 
-- Self-updating Rust-based client for reliability and performance  
-- Runs as a systemd service on Linux with timer-based scheduling  
-- Dedicated non-root user for secure execution  
-- Supports Windows as a native service  
-- Easy installation and update via shell scripts (Linux) and executable (Windows)  
-- Configurable patch server URL and client ID management  
+* Self-updating Rust-based client for reliability and performance
+* Runs as a systemd service on Linux with timer-based scheduling
+* Dedicated non-root user for secure execution
+* Supports Windows as a native service
+* Easy installation and update via shell scripts (Linux) and executable (Windows)
+* Configurable patch server URL and client ID management
 
 ---
 
 ## Repository Structure
 
-- `linux-client/` — Rust source code for the Linux patch client  
-- `windows-client/` — Rust source code and service wrapper for Windows  
-- `installer/` — Installation scripts for Linux client  
-- `README.md` — This file  
+* `linux-client/` — Rust source code for the Linux patch client
+* `windows-client/` — Rust source code and service wrapper for Windows
+* `installer/` — Installation scripts for Linux client
+* `README.md` — This file
 
 ---
 
@@ -33,9 +28,9 @@ PatchPilot is a cross-platform patch client designed to streamline automated pat
 
 ### Prerequisites
 
-- Ubuntu/Debian-based Linux distribution  
-- `sudo` privileges  
-- Internet connection  
+* Ubuntu/Debian-based Linux distribution
+* `sudo` privileges
+* Internet connection
 
 ### Installation Steps
 
@@ -44,7 +39,7 @@ PatchPilot is a cross-platform patch client designed to streamline automated pat
    ```bash
    git clone https://github.com/gitarman94/PatchPilot.git
    cd PatchPilot/installer
-````
+   ```
 
 2. Run the install/update script as root or with sudo:
 
@@ -133,20 +128,6 @@ Contributions are welcome! Please open issues or pull requests on GitHub.
 
 ---
 
-## License
-
-This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See the [LICENSE](LICENSE) file for details.
-
----
-
 ## Contact
 
-Created and maintained by [gitarman94](https://github.com/gitarman94).
 For questions or support, please open an issue on GitHub.
-
-```
-
----
-
-Would you like me to generate a proper `LICENSE` file content for GPL-3.0 as well?
-```
