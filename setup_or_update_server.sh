@@ -156,4 +156,3 @@ systemctl enable --now "${SELF_UPDATE_TIMER}"
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete!"
 echo "🌐 Visit: http://${SERVER_IP}:8080 to view dashboard."
-echo "📡 API base: http://${SERVER_IP}:8080/api"
