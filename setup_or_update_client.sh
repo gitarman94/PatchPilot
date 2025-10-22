@@ -74,7 +74,6 @@ update_files() {
 
   if $updated; then
     echo "🔁 Client files updated."
-    # Optionally restart services or cron jobs here if needed
   else
     echo "🚀 No updates detected."
   fi
@@ -84,9 +83,24 @@ update_files() {
 install_client() {
   echo "[*] Installing dependencies..."
 
-  # Check and install build-essential or dev tools for compiling Rust code
+  # Install jq if missing
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "Installing jq..."
+    if command -v apt-get >/dev/null 2>&1; then
+      $SUDO apt-get update
+      $SUDO apt-get install -y jq
+    elif command -v yum >/dev/null 2>&1; then
+      $SUDO yum install -y jq
+    else
+      echo "Please install jq manually."
+      exit 1
+    fi
+  fi
+
+  # Install build tools (gcc, make, etc) required for Rust builds
   if ! command -v cc >/dev/null 2>&1; then
-    echo "C compiler (cc) not found. Installing build tools..."
+    echo "Installing build tools..."
+
     if command -v apt-get >/dev/null 2>&1; then
       $SUDO apt-get update
       $SUDO apt-get install -y build-essential
@@ -95,77 +109,53 @@ install_client() {
     elif command -v dnf >/dev/null 2>&1; then
       $SUDO dnf groupinstall -y "Development Tools"
     else
-      echo "Please install a C compiler toolchain (e.g. build-essential) manually."
+      echo "Please install C compiler and build tools manually."
       exit 1
     fi
-  else
-    echo "C compiler (cc) found."
   fi
 
-  # Install dependencies (jq, curl) if missing
-  if ! command -v jq >/dev/null 2>&1; then
-    echo "Installing jq..."
-    if command -v apt-get >/dev/null 2>&1; then
-      $SUDO apt-get update && $SUDO apt-get install -y jq
-    elif command -v yum >/dev/null 2>&1; then
-      $SUDO yum install -y jq
-    elif command -v dnf >/dev/null 2>&1; then
-      $SUDO dnf install -y jq
-    else
-      echo "Please install jq manually."
-      exit 1
-    fi
+  # Verify compiler installed
+  if ! command -v cc >/dev/null 2>&1; then
+    echo "Error: C compiler 'cc' not found after installing build tools."
+    echo "Please install it manually and re-run this script."
+    exit 1
   fi
 
   echo "[*] Creating install directory..."
   $SUDO rm -rf "$INSTALL_DIR"
   $SUDO mkdir -p "$INSTALL_DIR"
 
-  echo "[*] Cloning client source..."
+  echo "[*] Cloning Rust client source..."
   $SUDO rm -rf /tmp/patchpilot_client_src
-  git clone --depth=1 https://github.com/$GITHUB_USER/$GITHUB_REPO.git /tmp/patchpilot_client_src
+  git clone --depth 1 https://github.com/$GITHUB_USER/$GITHUB_REPO.git /tmp/patchpilot_client_src
 
   echo "[*] Building Rust client binary..."
-  cd /tmp/patchpilot_client_src/patchpilot_client_rust
+  pushd /tmp/patchpilot_client_src/patchpilot_client_rust >/dev/null
   $SUDO cargo build --release
+  popd >/dev/null
 
-  echo "[*] Copying built client binary..."
-  $SUDO cp target/release/patchpilot_client "$INSTALL_DIR/patchpilot_client"
+  echo "[*] Copying built client to install directory..."
+  $SUDO cp /tmp/patchpilot_client_src/patchpilot_client_rust/target/release/patchpilot_client "$INSTALL_DIR/"
   $SUDO chmod +x "$INSTALL_DIR/patchpilot_client"
 
-  # Also copy any other needed files (e.g. config.json, patchpilot_updater, patchpilot_client.sh)
-  for file in "${FILES_TO_UPDATE[@]:1}"; do
-    src="/tmp/patchpilot_client_src/linux-client/$file"
-    if [[ -f "$src" ]]; then
-      echo "Copying $file..."
-      $SUDO cp "$src" "$INSTALL_DIR/$file"
-      $SUDO chmod +x "$INSTALL_DIR/$file"
-    fi
-  done
-
-  # Generate client_id.txt if missing or empty
-  if [[ ! -s "$CLIENT_ID_FILE" ]]; then
+  # Generate client_id.txt if missing
+  if [[ ! -f "$CLIENT_ID_FILE" ]]; then
     echo "Generating client ID..."
     uuidgen | $SUDO tee "$CLIENT_ID_FILE" >/dev/null
   fi
 
-  # Prompt for server IP if not provided as env var
-  if [[ -z "$SERVER_IP" ]]; then
-    read -rp "Enter the patch server IP address (no port, e.g., 192.168.1.100): " input_ip
+  # Prompt for server URL if not provided as env var
+  if [[ -z "$SERVER_URL" ]]; then
+    read -rp "Enter the patch server IP (without port): " input_ip
   else
-    input_ip="$SERVER_IP"
+    input_ip="$SERVER_URL"
   fi
 
-  # Append port and /api path
+  # Append default port and /api path
   input_url="${input_ip}:8080/api"
 
   echo "Saving server URL: $input_url"
   echo "$input_url" | $SUDO tee "$SERVER_URL_FILE" >/dev/null
-
-  # Setup cron job for running patchpilot_client every 10 minutes
-  echo "[*] Setting up cron job..."
-  $SUDO crontab -l 2>/dev/null | grep -v 'patchpilot_client' | $SUDO crontab -
-  ( $SUDO crontab -l 2>/dev/null; echo "*/10 * * * * $INSTALL_DIR/patchpilot_client" ) | $SUDO crontab -
 
   echo "[✓] Installation complete."
 }
@@ -174,10 +164,6 @@ install_client() {
 uninstall_client() {
   echo "Uninstalling PatchPilot client..."
 
-  # Remove cron jobs
-  $SUDO crontab -l 2>/dev/null | grep -v 'patchpilot_client' | $SUDO crontab -
-
-  # Remove files and directory
   $SUDO rm -rf "$INSTALL_DIR"
 
   echo "Uninstall complete."
