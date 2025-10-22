@@ -1,3 +1,5 @@
+# EARLY DEVELOPMENT - WILL HAVE MANY BUGS
+
 # PatchPilot
 
 PatchPilot is a cross-platform patch client designed to manage and report software updates on Windows and Linux systems. It includes a lightweight Python server and a Rust-based client with self-updating capabilities.
