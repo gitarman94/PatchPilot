@@ -56,7 +56,7 @@ python3 -m venv "${VENV_DIR}"
 echo "⬆️  Activating venv and installing Python dependencies..."
 source "${VENV_DIR}/bin/activate"
 pip install --upgrade pip
-pip install Flask Flask-SQLAlchemy flask_wtf
+pip install Flask Flask-SQLAlchemy flask_wtf flask_cors
 
 # === Download repo zip ===
 echo "⬇️  Downloading repository ZIP from GitHub and extracting..."
