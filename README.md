@@ -37,7 +37,6 @@ PatchPilot/
 │       ├── system_info.rs
 │       ├── updater.rs
 │       ├── commands.rs
-│       └── platform/             # OS-specific support code (optional)
 │
 └── templates/                    # Server web UI (HTML)
     ├── dashboard.html
