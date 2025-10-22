@@ -57,9 +57,10 @@ PatchPilot/
 ### Install/Update in One Command
 
 ```bash
+#remove sudo at beginning of lines if you're running as root
 sudo apt-get update
 sudo apt-get install -y curl git
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_server.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_server.sh)" -- --force
 ```
 
 This will:
