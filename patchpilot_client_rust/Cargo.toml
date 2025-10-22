@@ -18,3 +18,11 @@ lazy_static = "1.4"
 default = []
 windows = ["windows-service"]
 unix = ["sysinfo"]
+
+[[bin]]
+name = "rust_patch_client"
+path = "src/main.rs"
+
+[[bin]]
+name = "patchpilot_updater"
+path = "src/bin/patchpilot_updater.rs"
