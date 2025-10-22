@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+# Detect if running as root
+if [[ $EUID -eq 0 ]]; then
+  SUDO=""
+else
+  SUDO="sudo"
+fi
+
 INSTALL_DIR="/opt/patchpilot_client"
 GITHUB_USER="gitarman94"
 GITHUB_REPO="PatchPilot"
@@ -81,9 +88,9 @@ install_client() {
   if ! command -v jq >/dev/null 2>&1; then
     echo "Installing jq..."
     if command -v apt-get >/dev/null 2>&1; then
-      sudo apt-get update && sudo apt-get install -y jq
+      $SUDO apt-get update && $SUDO apt-get install -y jq
     elif command -v yum >/dev/null 2>&1; then
-      sudo yum install -y jq
+      $SUDO yum install -y jq
     else
       echo "Please install jq manually."
       exit 1
@@ -91,22 +98,22 @@ install_client() {
   fi
 
   echo "[*] Creating install directory..."
-  sudo rm -rf "$INSTALL_DIR"
-  sudo mkdir -p "$INSTALL_DIR"
+  $SUDO rm -rf "$INSTALL_DIR"
+  $SUDO mkdir -p "$INSTALL_DIR"
 
   echo "[*] Downloading client files..."
   for file in "${FILES_TO_UPDATE[@]}"; do
     local url="$RAW_BASE/$file"
     local dest="$INSTALL_DIR/$file"
     echo "Downloading $file..."
-    sudo curl -sSL "$url" -o "$dest"
-    sudo chmod +x "$dest"
+    $SUDO curl -sSL "$url" -o "$dest"
+    $SUDO chmod +x "$dest"
   done
 
   # Generate client_id.txt if missing
   if [[ ! -f "$CLIENT_ID_FILE" ]]; then
     echo "Generating client ID..."
-    uuidgen | sudo tee "$CLIENT_ID_FILE" >/dev/null
+    uuidgen | $SUDO tee "$CLIENT_ID_FILE" >/dev/null
   fi
 
   # Prompt for server URL if not provided as env var
@@ -126,17 +133,17 @@ install_client() {
   fi
 
   echo "Saving server URL: $input_url"
-  echo "$input_url" | sudo tee "$SERVER_URL_FILE" >/dev/null
+  echo "$input_url" | $SUDO tee "$SERVER_URL_FILE" >/dev/null
 
   # Setup cron jobs (client and ping)
   echo "[*] Setting up cron jobs..."
 
   # Remove old jobs
-  sudo crontab -l 2>/dev/null | grep -v 'patchpilot_client.sh' | grep -v 'patchpilot_ping.sh' | sudo crontab -
+  $SUDO crontab -l 2>/dev/null | grep -v 'patchpilot_client.sh' | grep -v 'patchpilot_ping.sh' | $SUDO crontab -
 
   # Add new cron jobs: client every 10 mins, ping every 5 mins
-  (sudo crontab -l 2>/dev/null; echo "*/10 * * * * $INSTALL_DIR/patchpilot_client.sh") | sudo crontab -
-  (sudo crontab -l 2>/dev/null; echo "*/5 * * * * $INSTALL_DIR/patchpilot_ping.sh") | sudo crontab -
+  ( $SUDO crontab -l 2>/dev/null; echo "*/10 * * * * $INSTALL_DIR/patchpilot_client.sh" ) | $SUDO crontab -
+  ( $SUDO crontab -l 2>/dev/null; echo "*/5 * * * * $INSTALL_DIR/patchpilot_ping.sh" ) | $SUDO crontab -
 
   echo "[✓] Installation complete."
 }
@@ -146,10 +153,10 @@ uninstall_client() {
   echo "Uninstalling PatchPilot client..."
 
   # Remove cron jobs
-  sudo crontab -l 2>/dev/null | grep -v 'patchpilot_client.sh' | grep -v 'patchpilot_ping.sh' | sudo crontab -
+  $SUDO crontab -l 2>/dev/null | grep -v 'patchpilot_client.sh' | grep -v 'patchpilot_ping.sh' | $SUDO crontab -
 
   # Remove files and directory
-  sudo rm -rf "$INSTALL_DIR"
+  $SUDO rm -rf "$INSTALL_DIR"
 
   echo "Uninstall complete."
 }
