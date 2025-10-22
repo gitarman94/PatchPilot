@@ -46,6 +46,9 @@ class Client(db.Model):
             return False
         return datetime.utcnow() - self.last_checkin <= timedelta(minutes=3)
 
+    def uptime(self):
+        return self.uptime_val or "N/A"
+
 class ClientUpdate(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     client_id = db.Column(db.String(36), db.ForeignKey('client.id'), nullable=False)
@@ -74,19 +77,96 @@ def auth_client(client, token):
 def health_check():
     return jsonify({'status': 'ok'})
 
+# --- DASHBOARD ---
 @app.route('/')
 def index():
     clients = Client.query.all()
     return render_template('client.html', clients=clients, now=datetime.utcnow())
 
+# --- CLIENT DETAIL ---
 @app.route('/clients/<client_id>')
 def client_detail(client_id):
     client = Client.query.get(client_id)
     if not client:
         abort(404)
     updates = ClientUpdate.query.filter_by(client_id=client_id).all()
-    return render_template('client_detail.html', client=client, updates=updates, ADMIN_TOKEN=os.getenv('ADMIN_TOKEN'))
+    ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'dummy_admin_token')
+    return render_template('client_detail.html', client=client, updates=updates, ADMIN_TOKEN=ADMIN_TOKEN)
 
+# --- APPROVE CLIENT ---
+@app.route('/approve/<client_id>', methods=['POST'])
+def approve_client(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    client.approved = True
+    db.session.commit()
+    return ('', 204)
+
+# --- FORCE UPDATE ---
+@app.route('/admin/force-update/<client_id>', methods=['POST'])
+def force_update_client(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    client.force_update = True
+    db.session.commit()
+    return ('', 204)
+
+# --- ALLOW CHECKIN ---
+@app.route('/admin/allow-checkin/<client_id>', methods=['POST'])
+def allow_checkin_client(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    client.allow_checkin = True
+    db.session.commit()
+    return ('', 204)
+
+# --- SERVE UPDATES ---
+@app.route('/updates/<path:filename>', methods=['GET'])
+def serve_update_file(filename):
+    return send_from_directory(UPDATE_CACHE_DIR, filename, as_attachment=True)
+
+# --- CLIENT COMMANDS FROM DASHBOARD ---
+@app.route('/api/clients/<client_id>/commands', methods=['POST'])
+def send_command(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        return jsonify({'error': 'Client not found'}), 404
+
+    # Accept either JSON or form
+    data = request.get_json() or request.form
+    admin_token = data.get('admin_token') or ''
+    if admin_token != os.getenv('ADMIN_TOKEN', 'dummy_admin_token'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    action = data.get('action')
+    updates = data.getlist('updates') if hasattr(data, 'getlist') else data.get('updates', [])
+
+    if action == 'install_selected_updates' and updates:
+        for kb in updates:
+            cu = ClientUpdate.query.filter_by(client_id=client.id, kb_or_package=kb).first()
+            if cu:
+                cu.status = 'installing'
+    elif action == 'install_all_updates':
+        for cu in ClientUpdate.query.filter_by(client_id=client.id, status='pending').all():
+            cu.status = 'installing'
+    else:
+        return jsonify({'error': 'Unknown action'}), 400
+
+    db.session.commit()
+    return jsonify({'status': 'command queued'})
+
+# --- FORCE ALL CLIENTS ---
+@app.route('/api/clients/force_all', methods=['POST'])
+def force_all_clients():
+    for client in Client.query.all():
+        client.force_update = True
+    db.session.commit()
+    return jsonify({'status': 'all clients forced to check updates'})
+
+# --- REGISTER CLIENT ---
 @app.route('/api/clients', methods=['POST'])
 def add_client():
     data = request.json
@@ -108,15 +188,16 @@ def add_client():
     db.session.commit()
     return jsonify({'token': token})
 
+# --- CLIENT UPDATE CHECKIN ---
 @app.route('/api/clients/<client_id>', methods=['POST'])
 def client_update(client_id):
-    data = request.json
-    if not data:
-        return jsonify({'error': 'Invalid data'}), 400
-
     client = Client.query.get(client_id)
     if not client:
         return jsonify({'error': 'Client not found'}), 404
+
+    data = request.json
+    if not data:
+        return jsonify({'error': 'Invalid data'}), 400
 
     client_token = data.get('token') or request.headers.get('Authorization')
     if not auth_client(client, client_token):
@@ -151,7 +232,7 @@ def client_update(client_id):
             db.session.add(cu)
             client.updates_available = True
 
-    # --- force update ---
+    # --- force update response ---
     response = {'approved': client.approved, 'updates_available': client.updates_available, 'online': client.is_online()}
     if client.force_update and client.allow_checkin:
         response['force_check'] = True
@@ -160,7 +241,7 @@ def client_update(client_id):
     db.session.commit()
     return jsonify(response)
 
-# --- ping endpoint ---
+# --- CLIENT PING ---
 @app.route('/api/clients/<client_id>/ping', methods=['POST'])
 def client_ping(client_id):
     client = Client.query.get(client_id)
@@ -172,79 +253,6 @@ def client_ping(client_id):
     client.last_checkin = datetime.utcnow()
     db.session.commit()
     return jsonify({'status': 'pong', 'online': client.is_online()})
-
-# --- approve ---
-@app.route('/approve/<client_id>', methods=['POST'])
-def approve_client(client_id):
-    client = Client.query.get(client_id)
-    if not client:
-        abort(404)
-    client.approved = True
-    db.session.commit()
-    return ('', 204)
-
-# --- force/allow checkin ---
-@app.route('/admin/force-update/<client_id>', methods=['POST'])
-def force_update_client(client_id):
-    client = Client.query.get(client_id)
-    if not client:
-        abort(404)
-    client.force_update = True
-    db.session.commit()
-    return ('', 204)
-
-@app.route('/admin/allow-checkin/<client_id>', methods=['POST'])
-def allow_checkin_client(client_id):
-    client = Client.query.get(client_id)
-    if not client:
-        abort(404)
-    client.allow_checkin = True
-    db.session.commit()
-    return ('', 204)
-
-# --- serve updates ---
-@app.route('/updates/<path:filename>', methods=['GET'])
-def serve_update_file(filename):
-    return send_from_directory(UPDATE_CACHE_DIR, filename, as_attachment=True)
-
-# --- client commands ---
-@app.route('/api/clients/<client_id>/commands', methods=['POST'])
-def send_command(client_id):
-    data = request.json
-    if not data or 'token' not in data or 'action' not in data:
-        return jsonify({'error': 'Invalid command'}), 400
-
-    client = Client.query.get(client_id)
-    if not client:
-        return jsonify({'error': 'Client not found'}), 404
-
-    if not auth_client(client, data.get('token')):
-        return jsonify({'error': 'Unauthorized'}), 401
-
-    action = data['action']
-    updates = data.get('updates', None)
-
-    if action == 'install_updates' and updates:
-        for kb in updates:
-            cu = ClientUpdate.query.filter_by(client_id=client.id, kb_or_package=kb).first()
-            if cu:
-                cu.status = 'installing'
-    elif action == 'install_all_updates':
-        for cu in ClientUpdate.query.filter_by(client_id=client.id, status='pending').all():
-            cu.status = 'installing'
-    else:
-        return jsonify({'error': 'Unknown action'}), 400
-
-    db.session.commit()
-    return jsonify({'status': 'command queued'})
-
-# --- force all clients ---
-@app.route('/api/clients/force_all', methods=['POST'])
-def force_all_clients():
-    for client in Client.query.all():
-        client.force_update = True
-    db.session.commit()
-    return jsonify({'status': 'all clients forced to check updates'})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
