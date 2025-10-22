@@ -57,6 +57,12 @@ def auth_client(client, token):
     return token == client.token
 
 # == ROUTES ==
+
+# New health check endpoint
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'ok'})
+
 @app.route('/')
 def index():
     clients = Client.query.all()
