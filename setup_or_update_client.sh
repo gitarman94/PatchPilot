@@ -36,8 +36,7 @@ fi
 
 if [[ -d "$INSTALL_DIR" ]]; then
   echo "Existing installation detected. Running update..."
-  # Placeholder for update logic, currently just checks files
-  # Could add git pull and rebuild logic here if needed
+  # Placeholder for update logic: e.g., git pull + rebuild
   echo "No updates detected."
   exit 0
 fi
@@ -56,11 +55,11 @@ if ! command -v rustc >/dev/null 2>&1; then
   curl https://sh.rustup.rs -sSf | sh -s -- -y
 fi
 
-# Source Rust environment for this script/session
-if [ -f "$HOME/.cargo/env" ]; then
-  source "$HOME/.cargo/env"
+# Source Rust environment (root user, so .cargo/env in /root)
+if [ -f "/root/.cargo/env" ]; then
+  source "/root/.cargo/env"
 else
-  echo "Warning: Rust environment file not found at $HOME/.cargo/env"
+  echo "Warning: Rust environment file not found at /root/.cargo/env"
 fi
 
 echo "[*] Cloning client source..."
@@ -69,18 +68,20 @@ git clone "$RUST_REPO" "$SRC_DIR"
 
 echo "[*] Building Rust client binary..."
 
-# Print environment info for debug
 echo "[*] PATH: $PATH"
 which pkg-config || echo "pkg-config not found"
 pkg-config --version || echo "pkg-config version check failed"
 which cargo || echo "cargo not found"
 cargo --version || echo "cargo version check failed"
 
-# Export OpenSSL environment vars if necessary (adjust path if needed)
-export OPENSSL_DIR="/usr/lib/ssl"
-export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/share/pkgconfig"
+# Set OpenSSL env vars - usually /usr works fine if libssl-dev is installed
+export OPENSSL_DIR="/usr"
+# Add common pkgconfig paths (adjust if your distro differs)
+export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
 
+# Change dir to rust client source (adjust if path is different)
 cd "$SRC_DIR/patchpilot_client_rust"
+
 cargo build --release
 
 echo "[*] Copying binaries to install directory..."
