@@ -48,12 +48,22 @@ else
 fi
 
 # === Optional cleanup ===
-if [ "$FORCE_REINSTALL" = true ] && [ -d "$APP_DIR" ]; then
-    echo "🧹 Removing previous installation at $APP_DIR..."
+if [ "$FORCE_REINSTALL" = true ]; then
+    echo "🧹 Force reinstall: cleaning previous installation..."
+
     systemctl stop "$SERVICE_NAME" 2>/dev/null || true
     systemctl stop "$SELF_UPDATE_TIMER" 2>/dev/null || true
-    rm -rf "$APP_DIR"
+
+    # Remove the app directory completely if it exists
+    if [ -d "$APP_DIR" ]; then
+        rm -rf "$APP_DIR"
+    fi
+
+    # Extra safety: remove database and updates directory in case they are outside APP_DIR (unlikely but safe)
+    rm -f "${APP_DIR}/patchpilot.db"
+    rm -rf "${APP_DIR}/updates"
 fi
+
 
 # === Create directories ===
 mkdir -p "${APP_DIR}"
