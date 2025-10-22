@@ -8,6 +8,7 @@ RUST_REPO="https://github.com/gitarman94/PatchPilot.git"
 CLIENT_PATH="$INSTALL_DIR/patchpilot_client"
 UPDATER_PATH="$INSTALL_DIR/patchpilot_updater"
 CONFIG_PATH="$INSTALL_DIR/config.json"
+SERVER_URL_FILE="$INSTALL_DIR/server_url.txt"
 SERVICE_FILE="/etc/systemd/system/patchpilot_client.service"
 
 show_usage() {
@@ -21,7 +22,7 @@ uninstall() {
   systemctl disable patchpilot_client.service 2>/dev/null || true
   rm -f "$SERVICE_FILE"
   systemctl daemon-reload
-  # Remove any cron jobs related to patchpilot_client if exist
+  # Remove cron jobs related to patchpilot_client (if any)
   crontab -l | grep -v 'patchpilot_client' | crontab - || true
   rm -rf "$INSTALL_DIR"
   echo "Uninstalled."
@@ -35,6 +36,18 @@ update() {
     exit 1
   fi
 
+  # Prompt for server IP (not full URL)
+  read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
+
+  # Strip protocol and port if somehow included
+  input_ip="${input_ip#http://}"
+  input_ip="${input_ip#https://}"
+  input_ip="${input_ip%%/*}"  # Remove trailing slash or paths
+
+  final_url="http://${input_ip}:8080/api"
+  echo "Saving server URL: $final_url"
+  echo "$final_url" > "$SERVER_URL_FILE"
+
   echo "[*] Installing dependencies..."
   apt-get update
   apt-get install -y curl git build-essential pkg-config libssl-dev
@@ -44,7 +57,7 @@ update() {
     curl https://sh.rustup.rs -sSf | sh -s -- -y
   fi
 
-  # Source Rust environment (assuming root)
+  # Load Rust environment for root
   if [ -f "/root/.cargo/env" ]; then
     source "/root/.cargo/env"
   else
@@ -69,13 +82,24 @@ update() {
   systemctl stop patchpilot_client.service || true
 
   echo "[*] Copying binaries to install directory..."
-  # Safely replace binaries by moving old files before copy
-  mv "$CLIENT_PATH" "$CLIENT_PATH.old" 2>/dev/null || true
-  mv "$UPDATER_PATH" "$UPDATER_PATH.old" 2>/dev/null || true
-
   cp target/release/rust_patch_client "$CLIENT_PATH"
   cp target/release/patchpilot_updater "$UPDATER_PATH"
   chmod +x "$CLIENT_PATH" "$UPDATER_PATH"
+
+  # Update config.json with new server URL but keep client_id intact if exists
+  if [[ -f "$CONFIG_PATH" ]]; then
+    client_id=$(jq -r '.client_id // empty' "$CONFIG_PATH")
+  else
+    client_id=""
+  fi
+
+  echo "[*] Updating config.json..."
+  cat > "$CONFIG_PATH" <<EOF
+{
+  "server_ip": "$final_url",
+  "client_id": "$client_id"
+}
+EOF
 
   echo "[*] Starting service..."
   systemctl start patchpilot_client.service || true
@@ -111,12 +135,24 @@ apt-get install -y curl git build-essential pkg-config libssl-dev
 echo "[*] Creating install directory..."
 mkdir -p "$INSTALL_DIR"
 
+# Prompt for server IP (not full URL)
+read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
+
+# Strip protocol and port if somehow included
+input_ip="${input_ip#http://}"
+input_ip="${input_ip#https://}"
+input_ip="${input_ip%%/*}"  # Remove trailing slash or paths
+
+final_url="http://${input_ip}:8080/api"
+echo "Saving server URL: $final_url"
+echo "$final_url" > "$SERVER_URL_FILE"
+
 echo "[*] Installing Rust toolchain..."
 if ! command -v rustc >/dev/null 2>&1; then
   curl https://sh.rustup.rs -sSf | sh -s -- -y
 fi
 
-# Source Rust environment (root user)
+# Source Rust environment (root user, so .cargo/env in /root)
 if [ -f "/root/.cargo/env" ]; then
   source "/root/.cargo/env"
 else
@@ -147,7 +183,7 @@ chmod +x "$CLIENT_PATH" "$UPDATER_PATH"
 echo "[*] Creating default config.json..."
 cat > "$CONFIG_PATH" <<EOF
 {
-  "server_ip": "",
+  "server_ip": "$final_url",
   "client_id": ""
 }
 EOF
