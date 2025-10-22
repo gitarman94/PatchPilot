@@ -97,12 +97,20 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPil
 * Auto-updates on re-run
 * Script will accept --force or -f to forcibly reinstall the software (this will delete customizations)
 
+### Update (Linux)
+
+To Update the Linux client:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.sh)" -- --update
+---
+
 ### Uninstallation (Linux)
 
 To uninstall the Linux client completely:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.sh)" -- -uninstall
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.sh)" -- --uninstall
 ---
 
 ## 🪟 Client Setup (Windows)
