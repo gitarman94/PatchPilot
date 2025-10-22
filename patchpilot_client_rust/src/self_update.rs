@@ -4,10 +4,8 @@ use serde::Deserialize;
 use std::{
     env,
     fs,
-    io::Write,
     path::PathBuf,
     process::{Command, exit},
-    thread,
     time::Duration,
 };
 
@@ -76,11 +74,12 @@ pub fn check_and_update() -> Result<()> {
 
     // Launch updater helper
     let updater_path = env::current_exe()?
-        .parent().unwrap().join(UPDATER_NAME);
+        .parent().expect("Executable must have a parent directory")
+        .join(UPDATER_NAME);
 
     let status = Command::new(&updater_path)
         .arg(env::current_exe()?)
-        .arg(new_exe_path)
+        .arg(&new_exe_path)
         .status()?;
 
     if !status.success() {
