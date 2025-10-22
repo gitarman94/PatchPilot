@@ -21,9 +21,9 @@ struct ReleaseInfo {
     assets: Vec<ReleaseAsset>,
 }
 
-// Adjust these constants per your repo and executable names
-const GITHUB_USER: &str = "<your-github-username>";
-const GITHUB_REPO: &str = "<your-rust-client-repo>";
+// Replace with your actual GitHub username and repo name
+const GITHUB_USER: &str = "gitarman94";
+const GITHUB_REPO: &str = "PatchPilot";
 
 #[cfg(windows)]
 const EXE_NAME: &str = "rust_patch_client.exe";
