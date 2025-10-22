@@ -239,4 +239,47 @@ def send_command(client_id):
             if cu:
                 cu.status = 'installing'
     elif action == 'install_all_updates':
-        for cu in ClientUpdate.query.filter_by(client_id=client.id, status='pending').
+        for cu in ClientUpdate.query.filter_by(client_id=client.id, status='pending').all():
+            cu.status = 'installing'
+    else:
+        return jsonify({'error': 'Unknown action'}), 400
+
+    db.session.commit()
+    return jsonify({'status': 'command queued'})
+
+@app.route('/api/clients/force_all', methods=['POST'])
+def force_update_all():
+    data = request.json
+    if not data or 'admin_token' not in data:
+        return jsonify({'error': 'Missing admin token'}), 401
+    if data['admin_token'] != os.getenv('ADMIN_TOKEN'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    for client in Client.query.all():
+        client.force_update = True
+    db.session.commit()
+    return jsonify({'status': 'force update flagged for all clients'})
+
+@app.route('/updates/<path:filename>', methods=['GET'])
+def serve_update_file(filename):
+    return send_from_directory(UPDATE_CACHE_DIR, filename, as_attachment=True)
+
+@app.route('/admin/force-update/<client_id>', methods=['POST'])
+def force_update_client(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    client.force_update = True
+    db.session.commit()
+    return ('', 204)
+
+@app.route('/admin/allow-checkin/<client_id>', methods=['POST'])
+def allow_checkin_client(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    client.allow_checkin = True
+    db.session.commit()
+    return ('', 204)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)
