@@ -19,9 +19,14 @@ SYSTEMD_DIR="/etc/systemd/system"
 
 # === Flags ===
 FORCE_REINSTALL=false
+UPGRADE_ONLY=false
+
 if [[ "$1" == "--force" ]]; then
     FORCE_REINSTALL=true
     echo "⚠️  Force reinstallation enabled: previous installation will be deleted."
+elif [[ "$1" == "--upgrade" ]]; then
+    UPGRADE_ONLY=true
+    echo "⬆️  Upgrade mode: existing config and venv will be preserved."
 fi
 
 # === System dependencies ===
@@ -47,20 +52,10 @@ if [ "$FORCE_REINSTALL" = true ] && [ -d "$APP_DIR" ]; then
     rm -rf "$APP_DIR"
 fi
 
-echo "📁 Creating application directory at ${APP_DIR}"
+# === Ensure base directories exist ===
 mkdir -p "${APP_DIR}"
 
-echo "🐍 Creating Python virtual environment..."
-python3 -m venv "${VENV_DIR}"
-
-# Ensure pip exists inside venv (some distros don't include it by default)
-"${VENV_DIR}/bin/python" -m ensurepip --upgrade
-
-echo "⬆️  Activating venv and installing Python dependencies..."
-"${VENV_DIR}/bin/pip" install --upgrade pip
-"${VENV_DIR}/bin/pip" install Flask Flask-SQLAlchemy flask_wtf flask_cors
-
-# === Download repo zip ===
+# === Download and extract repo ===
 echo "⬇️  Downloading repository ZIP from GitHub and extracting..."
 TMPDIR=$(mktemp -d)
 cd "${TMPDIR}"
@@ -77,18 +72,28 @@ fi
 echo "📂 Copying extracted files into ${APP_DIR}"
 cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 
+# === Virtual Environment Setup ===
+if [ "$UPGRADE_ONLY" = false ]; then
+    echo "🐍 Creating Python virtual environment..."
+    python3 -m venv "${VENV_DIR}"
+else
+    echo "🔁 Using existing virtual environment."
+fi
+
+# === Install dependencies ===
+echo "⬆️  Installing Python dependencies..."
+"${VENV_DIR}/bin/pip" install --upgrade pip
+"${VENV_DIR}/bin/pip" install Flask Flask-SQLAlchemy flask_wtf flask_cors
+
 # === Permissions ===
 echo "🛠️  Setting permissions on key files"
-chmod +x "${APP_DIR}/server.py"
+chmod +x "${APP_DIR}/server.py" || true
 
 if [ -f "${APP_DIR}/${SELF_UPDATE_SCRIPT}" ]; then
     chmod +x "${APP_DIR}/${SELF_UPDATE_SCRIPT}"
 else
     echo "⚠️  Warning: Self-update script '${SELF_UPDATE_SCRIPT}' not found. Skipping."
 fi
-
-cd /
-rm -rf "${TMPDIR}"
 
 # === Systemd service ===
 echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
@@ -134,7 +139,13 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-# === Finalize ===
+# === Cleanup temp files ===
+cd /
+if [ -d "$TMPDIR" ]; then
+    rm -rf "$TMPDIR"
+fi
+
+# === Enable services ===
 echo "🔄 Reloading systemd daemon"
 systemctl daemon-reload
 
@@ -143,4 +154,6 @@ systemctl enable --now "${SERVICE_NAME}"
 systemctl enable --now "${SELF_UPDATE_TIMER}"
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
+echo "✅ Installation complete!"
+echo "🌐 Visit: http://${SERVER_IP}:8080 to view dashboard."
+echo "📡 API base: http://${SERVER_IP}:8080/api"
