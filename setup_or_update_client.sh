@@ -82,6 +82,9 @@ export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/
 # Change dir to rust client source (adjust if path is different)
 cd "$SRC_DIR/patchpilot_client_rust"
 
+export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+export OPENSSL_INCLUDE_DIR=/usr/include
+export OPENSSL_DIR=/usr
 cargo build --release
 
 echo "[*] Copying binaries to install directory..."
