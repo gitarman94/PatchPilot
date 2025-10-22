@@ -21,7 +21,7 @@ uninstall() {
   systemctl disable patchpilot_client.service 2>/dev/null || true
   rm -f "$SERVICE_FILE"
   systemctl daemon-reload
-  # Remove cron jobs related to patchpilot_client (if any)
+  # Remove any cron jobs related to patchpilot_client if exist
   crontab -l | grep -v 'patchpilot_client' | crontab - || true
   rm -rf "$INSTALL_DIR"
   echo "Uninstalled."
@@ -34,6 +34,7 @@ update() {
     echo "Error: Installation not found at $INSTALL_DIR"
     exit 1
   fi
+
   echo "[*] Installing dependencies..."
   apt-get update
   apt-get install -y curl git build-essential pkg-config libssl-dev
@@ -43,7 +44,7 @@ update() {
     curl https://sh.rustup.rs -sSf | sh -s -- -y
   fi
 
-  # Load Rust environment for root
+  # Source Rust environment (assuming root)
   if [ -f "/root/.cargo/env" ]; then
     source "/root/.cargo/env"
   else
@@ -68,6 +69,10 @@ update() {
   systemctl stop patchpilot_client.service || true
 
   echo "[*] Copying binaries to install directory..."
+  # Safely replace binaries by moving old files before copy
+  mv "$CLIENT_PATH" "$CLIENT_PATH.old" 2>/dev/null || true
+  mv "$UPDATER_PATH" "$UPDATER_PATH.old" 2>/dev/null || true
+
   cp target/release/rust_patch_client "$CLIENT_PATH"
   cp target/release/patchpilot_updater "$UPDATER_PATH"
   chmod +x "$CLIENT_PATH" "$UPDATER_PATH"
@@ -111,7 +116,7 @@ if ! command -v rustc >/dev/null 2>&1; then
   curl https://sh.rustup.rs -sSf | sh -s -- -y
 fi
 
-# Source Rust environment (root user, so .cargo/env in /root)
+# Source Rust environment (root user)
 if [ -f "/root/.cargo/env" ]; then
   source "/root/.cargo/env"
 else
