@@ -57,7 +57,9 @@ PatchPilot/
 ### Install/Update in One Command
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_server.sh)"
+sudo apt-get update
+sudo apt-get install -y curl git
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_server.sh)"
 ```
 
 This will:
@@ -80,7 +82,9 @@ This will:
 ### Install/Update in One Command
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.sh)"
+sudo apt-get update
+sudo apt-get install -y curl git
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.sh)"
 ```
 
 * Installs Rust if missing
