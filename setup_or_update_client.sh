@@ -39,7 +39,7 @@ else
   echo "No installation detected. Running full install..."
   echo "[*] Installing dependencies..."
   $SUDO apt-get update
-  $SUDO apt-get install -y curl git build-essential
+  $SUDO apt-get install -y curl git build-essential pkg-config libssl-dev
 
   echo "[*] Installing Rust..."
   if ! command -v rustc >/dev/null 2>&1; then
