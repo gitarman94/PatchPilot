@@ -53,10 +53,12 @@ mkdir -p "${APP_DIR}"
 echo "🐍 Creating Python virtual environment..."
 python3 -m venv "${VENV_DIR}"
 
+# Ensure pip exists inside venv (some distros don't include it by default)
+"${VENV_DIR}/bin/python" -m ensurepip --upgrade
+
 echo "⬆️  Activating venv and installing Python dependencies..."
-source "${VENV_DIR}/bin/activate"
-pip install --upgrade pip
-pip install Flask Flask-SQLAlchemy flask_wtf flask_cors
+"${VENV_DIR}/bin/pip" install --upgrade pip
+"${VENV_DIR}/bin/pip" install Flask Flask-SQLAlchemy flask_wtf flask_cors
 
 # === Download repo zip ===
 echo "⬇️  Downloading repository ZIP from GitHub and extracting..."
