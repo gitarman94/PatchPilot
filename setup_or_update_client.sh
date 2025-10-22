@@ -19,40 +19,45 @@ FILES_TO_UPDATE=(
   "patchpilot_client"
   "patchpilot_updater"
   "config.json"
-  "patchpilot_client.sh"
-  "patchpilot_ping.sh"
 )
 
 CLIENT_ID_FILE="$INSTALL_DIR/client_id.txt"
 SERVER_URL_FILE="$INSTALL_DIR/server_url.txt"
 
-# === FUNCTIONS ===
-
+# Helper: Download a file
 download_file() {
-  url=$1
-  dest=$2
+  local url=$1
+  local dest=$2
   curl -sSL "$url" -o "$dest"
 }
 
+# Helper: Compute SHA256 hash of a file
 file_hash() {
   sha256sum "$1" | awk '{print $1}'
 }
 
+# Update files if changed
 update_files() {
   echo "🔍 Checking for client updates..."
+
   updated=false
 
   for file in "${FILES_TO_UPDATE[@]}"; do
-    local_path="$INSTALL_DIR/$file"
-    temp_remote="/tmp/$file.remote"
-    remote_url="$RAW_BASE/$file"
+    local local_path="$INSTALL_DIR/$file"
+    local temp_remote="/tmp/$file.remote"
 
+    local remote_url="$RAW_BASE/$file"
     echo "📁 Checking $file"
+
     download_file "$remote_url" "$temp_remote"
 
+    local remote_hash
     remote_hash=$(file_hash "$temp_remote")
-    local_hash=""
-    [[ -f "$local_path" ]] && local_hash=$(file_hash "$local_path")
+
+    local local_hash=""
+    if [[ -f "$local_path" ]]; then
+      local_hash=$(file_hash "$local_path")
+    fi
 
     if [[ "$remote_hash" != "$local_hash" ]]; then
       echo "⬆️  $file is outdated. Updating..."
@@ -73,13 +78,14 @@ update_files() {
   fi
 }
 
+# Full install
 install_client() {
   echo "[*] Installing dependencies..."
+  # Install jq if missing
   if ! command -v jq >/dev/null 2>&1; then
     echo "Installing jq..."
     if command -v apt-get >/dev/null 2>&1; then
-      $SUDO apt-get update
-      $SUDO apt-get install -y jq
+      $SUDO apt-get update && $SUDO apt-get install -y jq
     elif command -v yum >/dev/null 2>&1; then
       $SUDO yum install -y jq
     else
@@ -94,60 +100,65 @@ install_client() {
 
   echo "[*] Downloading client files..."
   for file in "${FILES_TO_UPDATE[@]}"; do
-    url="$RAW_BASE/$file"
-    dest="$INSTALL_DIR/$file"
+    local url="$RAW_BASE/$file"
+    local dest="$INSTALL_DIR/$file"
     echo "Downloading $file..."
     $SUDO curl -sSL "$url" -o "$dest"
     $SUDO chmod +x "$dest"
   done
 
+  # Generate client_id.txt if missing
   if [[ ! -f "$CLIENT_ID_FILE" ]]; then
     echo "Generating client ID..."
     uuidgen | $SUDO tee "$CLIENT_ID_FILE" >/dev/null
   fi
 
+  # Prompt for server IP (not full URL)
   if [[ -z "$SERVER_URL" ]]; then
-    read -rp "Enter the patch server URL (e.g., 192.168.1.100:8080): " input_url
+    read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
   else
-    input_url="$SERVER_URL"
+    input_ip="$SERVER_URL"
   fi
 
-  input_url="${input_url#http://}"
-  input_url="${input_url#https://}"
+  # Strip protocol and port if somehow included
+  input_ip="${input_ip#http://}"
+  input_ip="${input_ip#https://}"
+  input_ip="${input_ip%%/*}" # Remove trailing slash or paths
 
-  [[ "$input_url" != */api ]] && input_url="${input_url}/api"
-
-  echo "Saving server URL: $input_url"
-  echo "$input_url" | $SUDO tee "$SERVER_URL_FILE" >/dev/null
+  final_url="${input_ip}:8080/api"
+  echo "Saving server URL: $final_url"
+  echo "$final_url" | $SUDO tee "$SERVER_URL_FILE" >/dev/null
 
   echo "[*] Setting up cron jobs..."
 
-  # Remove old jobs
-  crontab_tmp=$(mktemp)
-  crontab -l 2>/dev/null | grep -v 'patchpilot_client.sh' | grep -v 'patchpilot_ping.sh' > "$crontab_tmp" || true
-  echo "*/10 * * * * $INSTALL_DIR/patchpilot_client.sh" >> "$crontab_tmp"
-  echo "*/5 * * * * $INSTALL_DIR/patchpilot_ping.sh" >> "$crontab_tmp"
-  $SUDO crontab "$crontab_tmp"
-  rm "$crontab_tmp"
+  # Remove old jobs that reference patchpilot_client or patchpilot_ping
+  current_cron="$($SUDO crontab -l 2>/dev/null | grep -v 'patchpilot_')"
+
+  # Add new cron jobs: every 10 min (client), every 5 min (ping)
+  {
+    echo "$current_cron"
+    echo "*/10 * * * * $INSTALL_DIR/patchpilot_client"
+    echo "*/5 * * * * $INSTALL_DIR/patchpilot_ping"
+  } | $SUDO crontab -
 
   echo "[✓] Installation complete."
 }
 
+# Uninstall client
 uninstall_client() {
   echo "Uninstalling PatchPilot client..."
 
-  crontab_tmp=$(mktemp)
-  crontab -l 2>/dev/null | grep -v 'patchpilot_client.sh' | grep -v 'patchpilot_ping.sh' > "$crontab_tmp" || true
-  $SUDO crontab "$crontab_tmp"
-  rm "$crontab_tmp"
+  # Remove related cron jobs
+  current_cron="$($SUDO crontab -l 2>/dev/null | grep -v 'patchpilot_')"
+  echo "$current_cron" | $SUDO crontab -
 
+  # Remove files and directory
   $SUDO rm -rf "$INSTALL_DIR"
 
   echo "Uninstall complete."
 }
 
-# === MAIN ===
-
+# === Main ===
 if [[ "$1" == "-u" || "$1" == "--uninstall" ]]; then
   uninstall_client
   exit 0
