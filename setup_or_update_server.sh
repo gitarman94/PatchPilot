@@ -11,27 +11,33 @@ ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${B
 
 APP_DIR="/opt/patchpilot_server"
 VENV_DIR="${APP_DIR}/venv"
-SERVICE_NAME="patchpilot_server.service"
+SERVICE_NAME="patch_server.service"
 SELF_UPDATE_SCRIPT="linux_server_self_update.sh"
-SELF_UPDATE_SERVICE="patchpilot_server_update.service"
-SELF_UPDATE_TIMER="patchpilot_server_update.timer"
+SELF_UPDATE_SERVICE="patch_server_update.service"
+SELF_UPDATE_TIMER="patch_server_update.timer"
 SYSTEMD_DIR="/etc/systemd/system"
 
 # === Flags ===
 FORCE_REINSTALL=false
 UPGRADE_ONLY=false
 
-if [[ "$1" == "--force" ]]; then
-    FORCE_REINSTALL=true
+for arg in "$@"; do
+    case "$arg" in
+        --force) FORCE_REINSTALL=true ;;
+        --upgrade) UPGRADE_ONLY=true ;;
+    esac
+done
+
+if [ "$FORCE_REINSTALL" = true ]; then
     echo "⚠️  Force reinstallation enabled: previous installation will be deleted."
-elif [[ "$1" == "--upgrade" ]]; then
-    UPGRADE_ONLY=true
-    echo "⬆️  Upgrade mode: existing config and venv will be preserved."
+fi
+
+if [ "$UPGRADE_ONLY" = true ]; then
+    echo "⬆️  Upgrade mode: preserving configs and database."
 fi
 
 # === System dependencies ===
 echo "📦 Installing system packages (python3, venv, pip, curl, unzip)..."
-
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update
     apt-get install -y python3 python3-venv python3-pip curl unzip
@@ -52,43 +58,42 @@ if [ "$FORCE_REINSTALL" = true ] && [ -d "$APP_DIR" ]; then
     rm -rf "$APP_DIR"
 fi
 
-# === Ensure base directories exist ===
+# === Prepare directories ===
+echo "📁 Ensuring application directory exists at ${APP_DIR}"
 mkdir -p "${APP_DIR}"
 
-# === Download and extract repo ===
-echo "⬇️  Downloading repository ZIP from GitHub and extracting..."
-TMPDIR=$(mktemp -d)
-cd "${TMPDIR}"
-curl -L "${ZIP_URL}" -o latest.zip
-
-unzip -o latest.zip
-EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
-
-if [ -z "${EXTRACTED_DIR}" ]; then
-    echo "❌ Failed to locate extracted repo directory."
-    exit 1
-fi
-
-echo "📂 Copying extracted files into ${APP_DIR}"
-cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
-
-# === Virtual Environment Setup ===
-if [ "$UPGRADE_ONLY" = false ]; then
+# === Virtual environment setup ===
+if [ ! -d "$VENV_DIR" ]; then
     echo "🐍 Creating Python virtual environment..."
-    python3 -m venv "${VENV_DIR}"
-else
-    echo "🔁 Using existing virtual environment."
+    python3 -m venv "$VENV_DIR"
 fi
 
-# === Install dependencies ===
-echo "⬆️  Installing Python dependencies..."
-"${VENV_DIR}/bin/pip" install --upgrade pip
-"${VENV_DIR}/bin/pip" install Flask Flask-SQLAlchemy flask_wtf flask_cors
+echo "⬆️  Activating venv and installing Python dependencies..."
+source "${VENV_DIR}/bin/activate"
+pip install --upgrade pip
+pip install Flask Flask-SQLAlchemy flask_cors
+
+# === Download/update repo only if not upgrade mode ===
+if [ "$UPGRADE_ONLY" != true ]; then
+    echo "⬇️  Downloading repository ZIP from GitHub and extracting..."
+    TMPDIR=$(mktemp -d)
+    cd "${TMPDIR}"
+    curl -L "${ZIP_URL}" -o latest.zip
+    unzip -o latest.zip
+    EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
+    if [ -z "${EXTRACTED_DIR}" ]; then
+        echo "❌ Failed to locate extracted repo directory."
+        exit 1
+    fi
+    echo "📂 Copying extracted files into ${APP_DIR}"
+    cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
+    cd /
+    rm -rf "${TMPDIR}"
+fi
 
 # === Permissions ===
 echo "🛠️  Setting permissions on key files"
-chmod +x "${APP_DIR}/server.py" || true
-
+chmod +x "${APP_DIR}/server.py"
 if [ -f "${APP_DIR}/${SELF_UPDATE_SCRIPT}" ]; then
     chmod +x "${APP_DIR}/${SELF_UPDATE_SCRIPT}"
 else
@@ -99,14 +104,15 @@ fi
 echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
-Description=PatchPilot Server
+Description=Patch Management Server
 After=network.target
 
 [Service]
+Type=simple
 User=root
 WorkingDirectory=${APP_DIR}
 Environment="PATH=${VENV_DIR}/bin"
-ExecStart=${VENV_DIR}/bin/python ${APP_DIR}/server.py
+ExecStart=/bin/bash -c 'cd ${APP_DIR} && ${VENV_DIR}/bin/python server.py'
 Restart=always
 
 [Install]
@@ -117,7 +123,7 @@ EOF
 echo "📅 Creating self-update service & timer for daily updates"
 cat > "${SYSTEMD_DIR}/${SELF_UPDATE_SERVICE}" <<EOF
 [Unit]
-Description=PatchPilot Server Self-Update
+Description=Patch Server Self-Update
 After=network.target
 
 [Service]
@@ -129,7 +135,7 @@ EOF
 
 cat > "${SYSTEMD_DIR}/${SELF_UPDATE_TIMER}" <<EOF
 [Unit]
-Description=Run PatchPilot Server Self-Update Daily
+Description=Run Patch Server Self-Update Daily
 
 [Timer]
 OnCalendar=*-*-* 02:00:00
@@ -139,13 +145,7 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-# === Cleanup temp files ===
-cd /
-if [ -d "$TMPDIR" ]; then
-    rm -rf "$TMPDIR"
-fi
-
-# === Enable services ===
+# === Finalize systemd ===
 echo "🔄 Reloading systemd daemon"
 systemctl daemon-reload
 
@@ -154,5 +154,4 @@ systemctl enable --now "${SERVICE_NAME}"
 systemctl enable --now "${SELF_UPDATE_TIMER}"
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "✅ Installation complete!"
-echo "🌐 Visit: http://${SERVER_IP}:8080 to view dashboard."
+echo "✅ Installation/Upgrade complete! Visit: http://${SERVER_IP}:8080 to view dashboard."
