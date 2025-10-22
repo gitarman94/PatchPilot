@@ -92,6 +92,7 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPil
 * Creates `patchpilot` system user
 * Configures systemd timers
 * Auto-updates on re-run
+* Script will accept --force or -f to forcibly reinstall the software (this will delete customizations)
 
 ---
 
