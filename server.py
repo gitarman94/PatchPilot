@@ -32,12 +32,19 @@ class Client(db.Model):
     file_hashes = db.Column(db.Text, nullable=True)
     updates_available = db.Column(db.Boolean, default=False)
 
-    # New system info fields
-    os = db.Column(db.String(50), nullable=True)
-    os_version = db.Column(db.String(50), nullable=True)
-    cpu = db.Column(db.String(100), nullable=True)
-    ram = db.Column(db.String(50), nullable=True)
-    disk = db.Column(db.String(100), nullable=True)
+    # telemetry fields
+    os_name = db.Column(db.String(50))
+    os_version = db.Column(db.String(50))
+    cpu = db.Column(db.String(100))
+    ram = db.Column(db.String(50))
+    disk_total = db.Column(db.String(50))
+    disk_free = db.Column(db.String(50))
+    uptime_val = db.Column("uptime", db.String(50))
+
+    def is_online(self):
+        if not self.last_checkin:
+            return False
+        return datetime.utcnow() - self.last_checkin <= timedelta(minutes=3)
 
 class ClientUpdate(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -62,18 +69,23 @@ def auth_client(client, token):
         token = token[7:]
     return token == client.token
 
-def client_online(client):
-    """Return True if last_checkin within 3 minutes (3 cycles of 1 minute)"""
-    if not client.last_checkin:
-        return False
-    return datetime.utcnow() - client.last_checkin <= timedelta(minutes=3)
-
 # == ROUTES ==
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'ok'})
 
 @app.route('/')
 def index():
     clients = Client.query.all()
     return render_template('client.html', clients=clients, now=datetime.utcnow())
+
+@app.route('/clients/<client_id>')
+def client_detail(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    updates = ClientUpdate.query.filter_by(client_id=client_id).all()
+    return render_template('client_detail.html', client=client, updates=updates, ADMIN_TOKEN=os.getenv('ADMIN_TOKEN'))
 
 @app.route('/api/clients', methods=['POST'])
 def add_client():
@@ -90,11 +102,7 @@ def add_client():
         id=data['id'],
         client_name=data.get('client_name', 'Unnamed Client'),
         ip_address=request.remote_addr,
-        token=token,
-        approved=False,
-        allow_checkin=True,
-        force_update=False,
-        updates_available=False
+        token=token
     )
     db.session.add(client)
     db.session.commit()
@@ -114,18 +122,20 @@ def client_update(client_id):
     if not auth_client(client, client_token):
         return jsonify({'error': 'Unauthorized'}), 401
 
-    # Update system info and last_checkin
+    # --- telemetry ---
     client.client_name = data.get('client_name', client.client_name)
     client.ip_address = request.remote_addr
     client.last_checkin = datetime.utcnow()
-    client.os = data.get('os', client.os)
+    client.os_name = data.get('os_name', client.os_name)
     client.os_version = data.get('os_version', client.os_version)
     client.cpu = data.get('cpu', client.cpu)
     client.ram = data.get('ram', client.ram)
-    client.disk = data.get('disk', client.disk)
+    client.disk_total = data.get('disk_total', client.disk_total)
+    client.disk_free = data.get('disk_free', client.disk_free)
+    client.uptime_val = data.get('uptime', client.uptime_val)
     client.file_hashes = json.dumps(data.get('file_hashes', {}))
 
-    # Handle updates from client
+    # --- updates ---
     reported = data.get('updates', None)
     if reported is not None:
         ClientUpdate.query.filter_by(client_id=client.id).delete()
@@ -141,8 +151,8 @@ def client_update(client_id):
             db.session.add(cu)
             client.updates_available = True
 
-    # Force check flag
-    response = {'approved': client.approved, 'updates_available': client.updates_available}
+    # --- force update ---
+    response = {'approved': client.approved, 'updates_available': client.updates_available, 'online': client.is_online()}
     if client.force_update and client.allow_checkin:
         response['force_check'] = True
         client.force_update = False
@@ -150,20 +160,20 @@ def client_update(client_id):
     db.session.commit()
     return jsonify(response)
 
+# --- ping endpoint ---
 @app.route('/api/clients/<client_id>/ping', methods=['POST'])
 def client_ping(client_id):
     client = Client.query.get(client_id)
     if not client:
         return jsonify({'error': 'Client not found'}), 404
-
     auth_header = request.headers.get('Authorization', '')
     if not auth_client(client, auth_header):
         return jsonify({'error': 'Unauthorized'}), 401
-
     client.last_checkin = datetime.utcnow()
     db.session.commit()
-    return jsonify({'status': 'pong'})
+    return jsonify({'status': 'pong', 'online': client.is_online()})
 
+# --- approve ---
 @app.route('/approve/<client_id>', methods=['POST'])
 def approve_client(client_id):
     client = Client.query.get(client_id)
@@ -173,10 +183,68 @@ def approve_client(client_id):
     db.session.commit()
     return ('', 204)
 
-# Serve updates
+# --- force/allow checkin ---
+@app.route('/admin/force-update/<client_id>', methods=['POST'])
+def force_update_client(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    client.force_update = True
+    db.session.commit()
+    return ('', 204)
+
+@app.route('/admin/allow-checkin/<client_id>', methods=['POST'])
+def allow_checkin_client(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    client.allow_checkin = True
+    db.session.commit()
+    return ('', 204)
+
+# --- serve updates ---
 @app.route('/updates/<path:filename>', methods=['GET'])
 def serve_update_file(filename):
     return send_from_directory(UPDATE_CACHE_DIR, filename, as_attachment=True)
 
+# --- client commands ---
+@app.route('/api/clients/<client_id>/commands', methods=['POST'])
+def send_command(client_id):
+    data = request.json
+    if not data or 'token' not in data or 'action' not in data:
+        return jsonify({'error': 'Invalid command'}), 400
+
+    client = Client.query.get(client_id)
+    if not client:
+        return jsonify({'error': 'Client not found'}), 404
+
+    if not auth_client(client, data.get('token')):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    action = data['action']
+    updates = data.get('updates', None)
+
+    if action == 'install_updates' and updates:
+        for kb in updates:
+            cu = ClientUpdate.query.filter_by(client_id=client.id, kb_or_package=kb).first()
+            if cu:
+                cu.status = 'installing'
+    elif action == 'install_all_updates':
+        for cu in ClientUpdate.query.filter_by(client_id=client.id, status='pending').all():
+            cu.status = 'installing'
+    else:
+        return jsonify({'error': 'Unknown action'}), 400
+
+    db.session.commit()
+    return jsonify({'status': 'command queued'})
+
+# --- force all clients ---
+@app.route('/api/clients/force_all', methods=['POST'])
+def force_all_clients():
+    for client in Client.query.all():
+        client.force_update = True
+    db.session.commit()
+    return jsonify({'status': 'all clients forced to check updates'})
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
+    app.run(host='0.0.0.0', port=5000, debug=True)
