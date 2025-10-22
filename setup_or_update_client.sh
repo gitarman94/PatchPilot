@@ -16,12 +16,27 @@ show_usage() {
 
 uninstall() {
   echo "Uninstalling PatchPilot client..."
+
+  # Stop and disable systemd service
   systemctl stop patchpilot_client.service 2>/dev/null || true
   systemctl disable patchpilot_client.service 2>/dev/null || true
+
+  # Remove install directory and source code
   rm -rf "$INSTALL_DIR"
+  rm -rf "$SRC_DIR"
+
+  # Remove systemd service file and reload daemon
   rm -f /etc/systemd/system/patchpilot_client.service
   systemctl daemon-reload
-  echo "Uninstalled."
+
+  # Clear Rust cargo caches for root user
+  echo "Clearing Rust cargo caches..."
+  rm -rf /root/.cargo/registry
+  rm -rf /root/.cargo/git
+  rm -rf /root/.cargo/target
+  rm -rf /root/.rustup
+
+  echo "Uninstalled and cleaned caches."
   exit 0
 }
 
