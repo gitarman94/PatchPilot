@@ -2,9 +2,15 @@
 set -e
 
 # === Configuration – adjust these for your repo ===
-GITHUB_USER="<your-github-username>"
-GITHUB_REPO="<your-repo-name>"
+GITHUB_USER="gitarman94"
+GITHUB_REPO="PatchPilot"
 BRANCH="main"
+
+# Validation to prevent running with placeholder values
+if [[ "$GITHUB_USER" == "<your-github-username>" || "$GITHUB_REPO" == "<your-repo-name>" ]]; then
+  echo "❌ Please update GITHUB_USER and GITHUB_REPO variables in the script before running."
+  exit 1
+fi
 
 # The “raw” base URL for individual files
 RAW_BASE="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
