@@ -8,26 +8,72 @@ RUST_REPO="https://github.com/gitarman94/PatchPilot.git"
 CLIENT_PATH="$INSTALL_DIR/patchpilot_client"
 UPDATER_PATH="$INSTALL_DIR/patchpilot_updater"
 CONFIG_PATH="$INSTALL_DIR/config.json"
-SERVICE_FILE="/etc/systemd/system/patchpilot_client.service"
+SERVICE_NAME="patchpilot_client.service"
 
 show_usage() {
-  echo "Usage: $0 [--uninstall]"
+  echo "Usage: $0 [--uninstall | --update]"
   exit 1
 }
 
 uninstall() {
   echo "Uninstalling PatchPilot client..."
-  systemctl stop patchpilot_client.service 2>/dev/null || true
-  systemctl disable patchpilot_client.service 2>/dev/null || true
+  systemctl stop $SERVICE_NAME 2>/dev/null || true
+  systemctl disable $SERVICE_NAME 2>/dev/null || true
   rm -rf "$INSTALL_DIR"
-  rm -f "$SERVICE_FILE"
+  rm -f /etc/systemd/system/$SERVICE_NAME
   systemctl daemon-reload
   echo "Uninstalled."
   exit 0
 }
 
+update() {
+  echo "Updating PatchPilot client..."
+
+  if [[ ! -d "$INSTALL_DIR" ]]; then
+    echo "PatchPilot is not installed. Please run full install."
+    exit 1
+  fi
+
+  echo "[*] Pulling latest source code..."
+  rm -rf "$SRC_DIR"
+  git clone "$RUST_REPO" "$SRC_DIR"
+
+  echo "[*] Building Rust client binary..."
+
+  if [ -f "/root/.cargo/env" ]; then
+    source "/root/.cargo/env"
+  else
+    echo "Warning: Rust environment file not found at /root/.cargo/env"
+  fi
+
+  cd "$SRC_DIR/patchpilot_client_rust"
+
+  export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+  export OPENSSL_INCLUDE_DIR=/usr/include
+  export OPENSSL_DIR=/usr
+
+  cargo clean
+  cargo build --release
+
+  echo "[*] Copying binaries to install directory..."
+  cp target/release/rust_patch_client "$CLIENT_PATH"
+  cp target/release/patchpilot_updater "$UPDATER_PATH"
+
+  chmod +x "$CLIENT_PATH" "$UPDATER_PATH"
+
+  echo "[*] Restarting PatchPilot service..."
+  systemctl restart $SERVICE_NAME
+
+  echo "Update complete."
+  exit 0
+}
+
 if [[ "$1" == "--uninstall" ]]; then
   uninstall
+elif [[ "$1" == "--update" ]]; then
+  update
+elif [[ -n "$1" ]]; then
+  show_usage
 fi
 
 if [[ $(id -u) -ne 0 ]]; then
@@ -36,9 +82,7 @@ if [[ $(id -u) -ne 0 ]]; then
 fi
 
 if [[ -d "$INSTALL_DIR" ]]; then
-  echo "Existing installation detected. Running update..."
-  # Placeholder for update logic: e.g., git pull + rebuild
-  echo "No updates detected."
+  echo "Existing installation detected. Run '$0 --update' to update."
   exit 0
 fi
 
@@ -56,7 +100,6 @@ if ! command -v rustc >/dev/null 2>&1; then
   curl https://sh.rustup.rs -sSf | sh -s -- -y
 fi
 
-# Source Rust environment (root user, so .cargo/env in /root)
 if [ -f "/root/.cargo/env" ]; then
   source "/root/.cargo/env"
 else
@@ -68,71 +111,50 @@ rm -rf "$SRC_DIR"
 git clone "$RUST_REPO" "$SRC_DIR"
 
 echo "[*] Building Rust client binary..."
-
-echo "[*] PATH: $PATH"
-which pkg-config || echo "pkg-config not found"
-pkg-config --version || echo "pkg-config version check failed"
-which cargo || echo "cargo not found"
-cargo --version || echo "cargo version check failed"
-
-# Set OpenSSL env vars - usually /usr works fine if libssl-dev is installed
-export OPENSSL_DIR="/usr"
-# Add common pkgconfig paths (adjust if your distro differs)
-export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
-
-# Change dir to rust client source (adjust if path is different)
 cd "$SRC_DIR/patchpilot_client_rust"
 
 export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
 export OPENSSL_INCLUDE_DIR=/usr/include
 export OPENSSL_DIR=/usr
+
 cargo clean
 cargo build --release
 
-echo "[*] Copying binary to install directory..."
+echo "[*] Copying binaries to install directory..."
 cp target/release/rust_patch_client "$CLIENT_PATH"
-chmod +x "$CLIENT_PATH"
+cp target/release/patchpilot_updater "$UPDATER_PATH"
 
-# Prompt user for server IP (mandatory)
-while true; do
-  echo -n "Enter the server IP address: "
-  read -r SERVER_IP
-  if [[ -n "$SERVER_IP" ]]; then
-    break
-  else
-    echo "Server IP cannot be empty. Please enter a valid IP."
-  fi
-done
+chmod +x "$CLIENT_PATH" "$UPDATER_PATH"
 
-echo "[*] Creating config.json with provided server IP..."
+echo "[*] Creating default config.json..."
 cat > "$CONFIG_PATH" <<EOF
 {
-  "server_ip": "$SERVER_IP",
+  "server_ip": "",
   "client_id": ""
 }
 EOF
 
-echo "[*] Creating systemd service file..."
-cat > "$SERVICE_FILE" <<EOF
+echo "[*] Creating systemd service..."
+cat > /etc/systemd/system/$SERVICE_NAME <<EOF
 [Unit]
-Description=PatchPilot Client Service
+Description=PatchPilot Client
 After=network.target
 
 [Service]
+Type=simple
 ExecStart=$CLIENT_PATH
 Restart=always
 User=root
+WorkingDirectory=$INSTALL_DIR
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-echo "[*] Reloading systemd daemon..."
+echo "[*] Enabling and starting systemd service..."
 systemctl daemon-reload
-
-echo "[*] Enabling and starting patchpilot_client service..."
-systemctl enable patchpilot_client.service
-systemctl start patchpilot_client.service
+systemctl enable $SERVICE_NAME
+systemctl start $SERVICE_NAME
 
 echo "[✔] Installation complete. PatchPilot client is running and will start on boot."
 
