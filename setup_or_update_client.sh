@@ -89,7 +89,7 @@ cargo clean
 cargo build --release
 
 echo "[*] Copying binaries to install directory..."
-cp target/release/patchpilot_client "$CLIENT_PATH"
+cp target/release/rust_patch_client "$CLIENT_PATH"
 cp target/release/patchpilot_updater "$UPDATER_PATH"
 
 chmod +x "$CLIENT_PATH" "$UPDATER_PATH"
