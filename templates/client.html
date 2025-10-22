@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>PatchPilot Dashboard</title>
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        crossorigin="anonymous"
+    />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 2em;
+            background-color: #f9f9f9;
+        }
+        table {
+            background-color: white;
+            border-radius: 6px;
+            box-shadow: 0 0 6px #ccc;
+        }
+        th, td {
+            text-align: left;
+            padding: 0.5em;
+        }
+        th {
+            background-color: #f1f1f1;
+        }
+        .status-online {
+            color: green;
+            font-weight: bold;
+        }
+        .status-offline {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>PatchPilot Dashboard</h1>
+    <p>Last updated: {{ now }}</p>
+
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Client ID</th>
+                <th>Hostname</th>
+                <th>OS</th>
+                <th>CPU</th>
+                <th>RAM</th>
+                <th>Disk</th>
+                <th>Uptime</th>
+                <th>Patch Status</th>
+                <th>Status</th>
+                <th>Updates</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for client in clients %}
+            <tr>
+                <td><a href="/clients/{{ client.id }}">{{ client.id }}</a></td>
+                <td>{{ client.client_name }}</td>
+                <td>{{ client.os or 'N/A' }} {{ client.os_version or '' }}</td>
+                <td>{{ client.cpu or 'N/A' }}</td>
+                <td>{{ client.ram or 'N/A' }}</td>
+                <td>{{ client.disk or 'N/A' }}</td>
+                <td>{{ client.uptime() or 'N/A' }}</td>
+                <td>
+                    {% if client.updates_available %}
+                        ⚠️ Updates pending
+                    {% else %}
+                        ✅ Up to date
+                    {% endif %}
+                </td>
+                <td>
+                    {% if client.is_online() %}
+                        <span class="status-online">Online</span>
+                    {% else %}
+                        <span class="status-offline">Offline</span>
+                    {% endif %}
+                </td>
+                <td>{{ client.updates_available|length }}</td>
+                <td>
+                    {% if not client.approved %}
+                        <form method="post" action="/approve/{{ client.id }}" style="display:inline;">
+                            <button type="submit" class="btn btn-warning btn-sm">Approve</button>
+                        </form>
+                    {% endif %}
+                    <form method="post" action="/admin/force-update/{{ client.id }}" style="display:inline;">
+                        <button type="submit" class="btn btn-danger btn-sm">Force Update</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+</body>
+</html>
