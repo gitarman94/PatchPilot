@@ -8,64 +8,72 @@ RUST_REPO="https://github.com/gitarman94/PatchPilot.git"
 CLIENT_PATH="$INSTALL_DIR/patchpilot_client"
 UPDATER_PATH="$INSTALL_DIR/patchpilot_updater"
 CONFIG_PATH="$INSTALL_DIR/config.json"
-SERVICE_NAME="patchpilot_client.service"
+SERVICE_FILE="/etc/systemd/system/patchpilot_client.service"
 
 show_usage() {
-  echo "Usage: $0 [--uninstall | --update]"
+  echo "Usage: $0 [--uninstall] [--update]"
   exit 1
 }
 
 uninstall() {
   echo "Uninstalling PatchPilot client..."
-  systemctl stop $SERVICE_NAME 2>/dev/null || true
-  systemctl disable $SERVICE_NAME 2>/dev/null || true
-  rm -rf "$INSTALL_DIR"
-  rm -f /etc/systemd/system/$SERVICE_NAME
+  systemctl stop patchpilot_client.service 2>/dev/null || true
+  systemctl disable patchpilot_client.service 2>/dev/null || true
+  rm -f "$SERVICE_FILE"
   systemctl daemon-reload
+  # Remove cron jobs related to patchpilot_client (if any)
+  crontab -l | grep -v 'patchpilot_client' | crontab - || true
+  rm -rf "$INSTALL_DIR"
   echo "Uninstalled."
   exit 0
 }
 
 update() {
   echo "Updating PatchPilot client..."
-
   if [[ ! -d "$INSTALL_DIR" ]]; then
-    echo "PatchPilot is not installed. Please run full install."
+    echo "Error: Installation not found at $INSTALL_DIR"
     exit 1
   fi
+  echo "[*] Installing dependencies..."
+  apt-get update
+  apt-get install -y curl git build-essential pkg-config libssl-dev
 
-  echo "[*] Stopping PatchPilot service..."
-  systemctl stop $SERVICE_NAME
+  echo "[*] Installing Rust toolchain if missing..."
+  if ! command -v rustc >/dev/null 2>&1; then
+    curl https://sh.rustup.rs -sSf | sh -s -- -y
+  fi
 
-  echo "[*] Pulling latest source code..."
-  rm -rf "$SRC_DIR"
-  git clone "$RUST_REPO" "$SRC_DIR"
-
-  echo "[*] Building Rust client binary..."
-
+  # Load Rust environment for root
   if [ -f "/root/.cargo/env" ]; then
     source "/root/.cargo/env"
   else
     echo "Warning: Rust environment file not found at /root/.cargo/env"
   fi
 
+  echo "[*] Cloning client source..."
+  rm -rf "$SRC_DIR"
+  git clone "$RUST_REPO" "$SRC_DIR"
+
   cd "$SRC_DIR/patchpilot_client_rust"
 
   export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
   export OPENSSL_INCLUDE_DIR=/usr/include
   export OPENSSL_DIR=/usr
+  export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
 
   cargo clean
   cargo build --release
 
+  echo "[*] Stopping service to update binaries..."
+  systemctl stop patchpilot_client.service || true
+
   echo "[*] Copying binaries to install directory..."
   cp target/release/rust_patch_client "$CLIENT_PATH"
   cp target/release/patchpilot_updater "$UPDATER_PATH"
-
   chmod +x "$CLIENT_PATH" "$UPDATER_PATH"
 
-  echo "[*] Starting PatchPilot service..."
-  systemctl start $SERVICE_NAME
+  echo "[*] Starting service..."
+  systemctl start patchpilot_client.service || true
 
   echo "Update complete."
   exit 0
@@ -73,10 +81,10 @@ update() {
 
 if [[ "$1" == "--uninstall" ]]; then
   uninstall
-elif [[ "$1" == "--update" ]]; then
+fi
+
+if [[ "$1" == "--update" ]]; then
   update
-elif [[ -n "$1" ]]; then
-  show_usage
 fi
 
 if [[ $(id -u) -ne 0 ]]; then
@@ -85,7 +93,7 @@ if [[ $(id -u) -ne 0 ]]; then
 fi
 
 if [[ -d "$INSTALL_DIR" ]]; then
-  echo "Existing installation detected. Run '$0 --update' to update."
+  echo "Existing installation detected. Use --update to rebuild or --uninstall to remove."
   exit 0
 fi
 
@@ -103,6 +111,7 @@ if ! command -v rustc >/dev/null 2>&1; then
   curl https://sh.rustup.rs -sSf | sh -s -- -y
 fi
 
+# Source Rust environment (root user, so .cargo/env in /root)
 if [ -f "/root/.cargo/env" ]; then
   source "/root/.cargo/env"
 else
@@ -119,6 +128,7 @@ cd "$SRC_DIR/patchpilot_client_rust"
 export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
 export OPENSSL_INCLUDE_DIR=/usr/include
 export OPENSSL_DIR=/usr
+export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
 
 cargo clean
 cargo build --release
@@ -138,13 +148,12 @@ cat > "$CONFIG_PATH" <<EOF
 EOF
 
 echo "[*] Creating systemd service..."
-cat > /etc/systemd/system/$SERVICE_NAME <<EOF
+cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=PatchPilot Client
 After=network.target
 
 [Service]
-Type=simple
 ExecStart=$CLIENT_PATH
 Restart=always
 User=root
@@ -154,10 +163,9 @@ WorkingDirectory=$INSTALL_DIR
 WantedBy=multi-user.target
 EOF
 
-echo "[*] Enabling and starting systemd service..."
 systemctl daemon-reload
-systemctl enable $SERVICE_NAME
-systemctl start $SERVICE_NAME
+systemctl enable patchpilot_client.service
+systemctl start patchpilot_client.service
 
 echo "[✔] Installation complete. PatchPilot client is running and will start on boot."
 
