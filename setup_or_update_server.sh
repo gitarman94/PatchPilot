@@ -148,7 +148,7 @@ source "${VENV_DIR}/bin/activate"
 # Change to the app directory before running the Python command
 cd "${APP_DIR}"
 
-# Now run the python command with the correct context
+# Run the database creation inside the app context
 python -c "
 from server import app, db
 with app.app_context():
