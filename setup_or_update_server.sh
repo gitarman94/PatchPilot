@@ -207,20 +207,18 @@ cd /
 rm -rf "${TMPDIR}"
 
 # === Initialize Database ===
-if [ ! -f "${APP_DIR}/server.py" ]; then
-    echo "🔄 Checking if database exists and initializing if needed..."
-    source "${VENV_DIR}/bin/activate"
+echo "🔄 Checking if database exists and initializing if needed..."
+source "${VENV_DIR}/bin/activate"
 
-    # Change to the app directory before running the Python command
-    cd "${APP_DIR}"
+# Change to the app directory before running the Python command
+cd "${APP_DIR}"
 
-    # Now run the python command with the correct context
-    python -c "
+# Now run the python command with the correct context
+python -c "
 from server import app, db
 with app.app_context():
     db.create_all()
 "
-fi
 
 # === Systemd service ===
 echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
