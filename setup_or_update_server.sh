@@ -12,7 +12,6 @@ APP_DIR="/opt/patchpilot_server"
 VENV_DIR="${APP_DIR}/venv"
 SERVICE_NAME="patchpilot_server.service"
 SYSTEMD_DIR="/etc/systemd/system"
-PASSWORD_FILE="${APP_DIR}/postgresql_pwd.txt"
 
 # === Flags ===
 FORCE_REINSTALL=false
@@ -23,7 +22,6 @@ for arg in "$@"; do
             FORCE_REINSTALL=true
             echo "⚠️  Force reinstallation enabled: previous installation will be deleted."
             ;;
-
         --upgrade)
             UPGRADE=true
             echo "⬆️  Upgrade mode enabled: keeping configs but updating software."
@@ -43,13 +41,6 @@ elif command -v yum >/dev/null 2>&1; then
 else
     echo "❌ Unsupported OS / package manager. Please install dependencies manually."
     exit 1
-fi
-
-# === PostgreSQL Password File ===
-echo "Checking if PostgreSQL password file exists..."
-if [ ! -f "$PASSWORD_FILE" ]; then
-    echo "Creating PostgreSQL password file at $PASSWORD_FILE"
-    echo "your_postgresql_password_here" > "$PASSWORD_FILE"
 fi
 
 # === Optional cleanup ===
@@ -87,6 +78,24 @@ fi
 
 # === Create directories ===
 mkdir -p "${APP_DIR}"
+
+# === PostgreSQL Setup ===
+echo "🔐 Checking PostgreSQL setup..."
+
+POSTGRES_PASSWORD_FILE="${APP_DIR}/postgresql_pwd.txt"
+if [ ! -f "$POSTGRES_PASSWORD_FILE" ]; then
+    echo "❌ PostgreSQL password file '$POSTGRES_PASSWORD_FILE' not found! Creating one now..."
+    
+    # Generate a random password and save it in the password file
+    POSTGRES_PASSWORD=$(openssl rand -base64 12)
+    echo "$POSTGRES_PASSWORD" > "$POSTGRES_PASSWORD_FILE"
+    echo "Password for PostgreSQL created and saved to $POSTGRES_PASSWORD_FILE."
+
+    # Optionally, update PostgreSQL settings to reflect the password
+    # You might need to configure PostgreSQL to use this password by editing pg_hba.conf or using ALTER USER command
+    sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD '$POSTGRES_PASSWORD';"
+    echo "PostgreSQL password has been updated for user 'postgres'."
+fi
 
 # === Virtual environment setup ===
 if [ "$FORCE_REINSTALL" = true ] && [ -d "$VENV_DIR" ]; then
@@ -127,11 +136,7 @@ pip install --upgrade pip setuptools wheel
 # Install/update core dependencies
 pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn psycopg2
 
-# Verify Flask installation
-echo "Checking Flask installation..."
-${VENV_DIR}/bin/python -c "import flask" || { echo "Flask installation failed"; exit 1; }
-
-# === Download repository ===
+# === Download repo ===
 TMPDIR=$(mktemp -d)
 cd "${TMPDIR}"
 echo "⬇️  Downloading repository ZIP from GitHub..."
@@ -154,8 +159,8 @@ chmod +x "${APP_DIR}/server.py"
 cd /  # Clean up temporary directory
 rm -rf "${TMPDIR}"
 
-# === Systemd Service ===
-echo "⚙️  Creating systemd service..."
+# === Systemd service creation ===
+echo "⚙️  Creating systemd service for PatchPilot..."
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=Patch Management Server
@@ -174,10 +179,10 @@ EOF
 
 # === Finalizing Installation ===
 echo "🔄 Reloading systemd daemon..."
-systemctl daemon-reload || { echo "Failed to reload systemd daemon"; exit 1; }
+systemctl daemon-reload
 
 echo "🚀 Enabling & starting PatchPilot service..."
-systemctl enable --now "${SERVICE_NAME}" || { echo "Failed to enable or start service"; exit 1; }
+systemctl enable --now "${SERVICE_NAME}"
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
