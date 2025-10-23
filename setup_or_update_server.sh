@@ -97,16 +97,17 @@ if [ ! -d "$VENV_DIR" ]; then
     python3 -m venv "$VENV_DIR"
 fi
 
-# Check if pip is installed in venv, if not, ensure it is installed
+# Ensure pip is installed in the virtual environment
 if [ ! -f "${VENV_DIR}/bin/pip" ]; then
     echo "⚠️ Pip not found, installing pip..."
     ${VENV_DIR}/bin/python -m ensurepip --upgrade
 fi
 
+# === Activate venv and install dependencies ===
 echo "⬆️  Activating venv and installing Python dependencies..."
 source "${VENV_DIR}/bin/activate"
 
-# Upgrade pip and setuptools
+# Upgrade pip, setuptools, and wheel
 pip install --upgrade pip setuptools wheel
 
 # Install/update core dependencies
