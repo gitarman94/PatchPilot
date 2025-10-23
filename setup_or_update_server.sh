@@ -49,21 +49,23 @@ fi
 
 # === Optional cleanup ===
 if [ "$FORCE_REINSTALL" = true ]; then
-    echo "🧹 Force reinstall: cleaning previous installation..."
-
+    echo "🛑 Stopping and disabling systemd services..."
     systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+    rm -f "${SYSTEMD_DIR}/${SERVICE_NAME}"
+
     systemctl stop "$SELF_UPDATE_TIMER" 2>/dev/null || true
+    systemctl disable "$SELF_UPDATE_TIMER" 2>/dev/null || true
+    rm -f "${SYSTEMD_DIR}/${SELF_UPDATE_TIMER}"
+    rm -f "${SYSTEMD_DIR}/${SELF_UPDATE_SERVICE}"
 
-    # Remove the app directory completely if it exists
-    if [ -d "$APP_DIR" ]; then
-        rm -rf "$APP_DIR"
-    fi
+    echo "☠️ Killing all running patchpilot server.py instances..."
+    pkill -f "/opt/patchpilot_server/server.py" || true
+    pkill -f "server.py" || true
 
-    # Extra safety: remove database and updates directory in case they are outside APP_DIR (unlikely but safe)
-    rm -f "${APP_DIR}/patchpilot.db"
-    rm -rf "${APP_DIR}/updates"
+    echo "🧹 Removing previous installation at $APP_DIR..."
+    rm -rf "$APP_DIR"
 fi
-
 
 # === Create directories ===
 mkdir -p "${APP_DIR}"
