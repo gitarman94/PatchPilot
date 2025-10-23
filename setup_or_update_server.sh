@@ -93,11 +93,11 @@ if [ ! -f "$POSTGRES_PASSWORD_FILE" ]; then
 
     # Check if running as root or not
     if [ "$(id -u)" -eq 0 ]; then
-        # If running as root, execute directly
+        # If running as root, execute directly (no sudo required)
         psql -U postgres -c "ALTER USER postgres WITH PASSWORD '$POSTGRES_PASSWORD';"
         echo "PostgreSQL password has been updated for user 'postgres'."
     else
-        # If not root, attempt to use sudo
+        # If not running as root, try to use sudo to execute the command
         if command -v sudo >/dev/null 2>&1; then
             sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD '$POSTGRES_PASSWORD';"
             echo "PostgreSQL password has been updated for user 'postgres' using sudo."
