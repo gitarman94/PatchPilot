@@ -73,9 +73,37 @@ def auth_client(client, token):
     return token == client.token
 
 # == ROUTES ==
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({'status': 'ok'})
+
+# --- CLIENT PING ---
+@app.route('/api/clients/<client_id>/ping', methods=['POST'])
+def client_ping(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        return jsonify({'error': 'Client not found'}), 404
+
+    # Check if the client is registered
+    if not client.approved:
+        # If not registered, attempt registration
+        return jsonify({
+            'status': 'not_registered',
+            'message': 'Client is not registered. Please register first.',
+            'online': client.is_online()
+        })
+
+    # Check for client authentication
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_client(client, auth_header):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    # Update last checkin time
+    client.last_checkin = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({'status': 'pong', 'online': client.is_online()})
 
 # --- DASHBOARD ---
 @app.route('/')
@@ -173,10 +201,12 @@ def add_client():
     if not data or 'id' not in data:
         return jsonify({'error': 'Invalid data'}), 400
 
+    # Check if the client already exists
     client = Client.query.get(data['id'])
     if client:
         return jsonify({'error': 'Client already exists'}), 400
 
+    # Generate a token and register the new client
     token = generate_token()
     client = Client(
         id=data['id'],
@@ -186,7 +216,8 @@ def add_client():
     )
     db.session.add(client)
     db.session.commit()
-    return jsonify({'token': token})
+    
+    return jsonify({'token': token, 'message': 'Client registered successfully'})
 
 # --- CLIENT UPDATE CHECKIN ---
 @app.route('/api/clients/<client_id>', methods=['POST'])
@@ -240,19 +271,6 @@ def client_update(client_id):
 
     db.session.commit()
     return jsonify(response)
-
-# --- CLIENT PING ---
-@app.route('/api/clients/<client_id>/ping', methods=['POST'])
-def client_ping(client_id):
-    client = Client.query.get(client_id)
-    if not client:
-        return jsonify({'error': 'Client not found'}), 404
-    auth_header = request.headers.get('Authorization', '')
-    if not auth_client(client, auth_header):
-        return jsonify({'error': 'Unauthorized'}), 401
-    client.last_checkin = datetime.utcnow()
-    db.session.commit()
-    return jsonify({'status': 'pong', 'online': client.is_online()})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080, debug=True)
