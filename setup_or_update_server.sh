@@ -12,7 +12,6 @@ ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${B
 APP_DIR="/opt/patchpilot_server"
 VENV_DIR="${APP_DIR}/venv"
 SERVICE_NAME="patchpilot_server.service"
-SELF_UPDATE_SCRIPT="linux_server_self_update.sh"
 SELF_UPDATE_SERVICE="patchpilot_server_update.service"
 SELF_UPDATE_TIMER="patchpilot_server_update.timer"
 SYSTEMD_DIR="/etc/systemd/system"
@@ -197,11 +196,6 @@ cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 
 # === Permissions ===
 chmod +x "${APP_DIR}/server.py"
-if [ -f "${APP_DIR}/${SELF_UPDATE_SCRIPT}" ]; then
-    chmod +x "${APP_DIR}/${SELF_UPDATE_SCRIPT}"
-else
-    echo "⚠️  Warning: Self-update script '${SELF_UPDATE_SCRIPT}' not found. Skipping."
-fi
 
 cd "$APP_DIR"
 
