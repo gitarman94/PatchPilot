@@ -5,7 +5,6 @@ set -e
 GITHUB_USER="gitarman94"
 GITHUB_REPO="PatchPilot"
 BRANCH="main"
-
 RAW_BASE="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
 ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.zip"
 
@@ -13,8 +12,6 @@ APP_DIR="/opt/patchpilot_server"
 VENV_DIR="${APP_DIR}/venv"
 SERVICE_NAME="patchpilot_server.service"
 SELF_UPDATE_SCRIPT="linux_server_self_update.sh"
-SELF_UPDATE_SERVICE="patchpilot_server_update.service"
-SELF_UPDATE_TIMER="patchpilot_server_update.timer"
 SYSTEMD_DIR="/etc/systemd/system"
 PASSWORD_FILE="${APP_DIR}/postgresql_pwd.txt"  # Path to save the password
 
@@ -48,30 +45,15 @@ if [ "$UNINSTALL" = true ]; then
 
     # Kill running instances of PatchPilot
     echo "☠️ Killing all running patchpilot server.py instances..."
-    PIDS=$(pgrep -f "server.py" | grep -v "^$$\$" || true)
+    PIDS=$(pgrep -f "server.py" || true)
     if [ -n "$PIDS" ]; then
         for pid in $PIDS; do
-            if [ "$pid" -eq "$$" ]; then
-                continue
-            fi
-            echo "Sending SIGTERM to pid $pid"
-            set +e
-            kill -15 "$pid" || true
-            sleep 2
-            if kill -0 "$pid" 2>/dev/null; then
-                echo "Pid $pid still alive after SIGTERM, sending SIGKILL"
-                kill -9 "$pid" || true
-            else
-                echo "Pid $pid terminated cleanly"
-            fi
-            set -e
+            kill -9 "$pid" || true
         done
-    else
-        echo "No running patchpilot server.py processes found."
     fi
 
     # Remove PostgreSQL database and user
-    echo "🧹 Uninstalling PostgreSQL database and user..."
+    echo "🧹 Removing PostgreSQL database and user..."
     sudo -u postgres psql -c "DROP DATABASE IF EXISTS patchpilot_db;" || true
     sudo -u postgres psql -c "DROP USER IF EXISTS patchpilot_user;" || true
 
@@ -85,6 +67,32 @@ if [ "$UNINSTALL" = true ]; then
 
     echo "✅ Uninstallation complete."
     exit 0
+fi
+
+# === PostgreSQL Setup ===
+if [ "$FORCE_REINSTALL" = true ] || [ ! -f "$APP_DIR/server.py" ]; then
+    echo "🔄 Setting up PostgreSQL..."
+
+    # Generate a random password for PostgreSQL
+    PG_PASSWORD=$(openssl rand -base64 16)
+
+    # Debug: Check if the password is generated correctly
+    echo "Generated PostgreSQL password: $PG_PASSWORD"  # REMOVE this line for production, only for debugging
+
+    # Write password to file
+    echo $PG_PASSWORD > "$PASSWORD_FILE"
+    
+    # Debug: Confirm if the password was written to the file
+    if [ -f "$PASSWORD_FILE" ]; then
+        echo "✔️ Password successfully written to: $PASSWORD_FILE"
+    else
+        echo "❌ Failed to write password to $PASSWORD_FILE"
+    fi
+
+    # Create PostgreSQL user and database with the generated password
+    sudo -u postgres psql -c "CREATE USER patchpilot_user WITH PASSWORD '$PG_PASSWORD';" || true
+    sudo -u postgres psql -c "CREATE DATABASE patchpilot_db;" || true
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE patchpilot_db TO patchpilot_user;" || true
 fi
 
 # === System dependencies ===
@@ -101,45 +109,7 @@ else
     exit 1
 fi
 
-# === PostgreSQL Setup ===
-if [ "$FORCE_REINSTALL" = true ] || [ ! -f "$APP_DIR/server.py" ]; then
-    # Generate a random password for the PostgreSQL user
-    PASSWORD=$(openssl rand -base64 16)
-
-    # Save the password to the file for later reference
-    echo $PASSWORD > "$PASSWORD_FILE"
-    echo "⚠️  The password for the PostgreSQL user 'patchpilot_user' has been saved to: $PASSWORD_FILE"
-
-    echo "🔄 Setting up PostgreSQL..."
-
-    # Create PostgreSQL user and database (don't initialize database here, just create user)
-    sudo -u postgres psql -c "CREATE USER patchpilot_user WITH PASSWORD '$PASSWORD';" || true
-    sudo -u postgres psql -c "CREATE DATABASE patchpilot_db;" || true
-    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE patchpilot_db TO patchpilot_user;" || true
-fi
-
-# === Optional cleanup (if not uninstall) ===
-if [ "$FORCE_REINSTALL" = true ] || [ ! -f "$APP_DIR/server.py" ]; then
-    # If force or nothing installed, stop previous services and remove old files
-    echo "🛑 Stopping and disabling systemd services..."
-    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-    systemctl stop "$SELF_UPDATE_TIMER" 2>/dev/null || true
-    systemctl disable "$SELF_UPDATE_TIMER" 2>/dev/null || true
-
-    echo "☠️ Removing previous installation at $APP_DIR..."
-    rm -rf "$APP_DIR"
-fi
-
-# === Create directories ===
-mkdir -p "${APP_DIR}"
-
 # === Virtual environment setup ===
-if [ "$FORCE_REINSTALL" = true ] && [ -d "$VENV_DIR" ]; then
-    echo "🧹 Removing old virtual environment..."
-    rm -rf "$VENV_DIR"
-fi
-
 if [ ! -d "$VENV_DIR" ]; then
     echo "🐍 Creating Python virtual environment..."
     python3 -m venv "$VENV_DIR"
@@ -147,12 +117,8 @@ fi
 
 echo "⬆️  Activating venv and installing Python dependencies..."
 source "${VENV_DIR}/bin/activate"
-
-# Ensure pip/bootstrap exists
 python -m ensurepip --upgrade
 pip install --upgrade pip setuptools wheel
-
-# Install/update core dependencies
 pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn psycopg2
 
 # === Download repo ===
@@ -174,17 +140,19 @@ cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 
 # === Permissions ===
 chmod +x "${APP_DIR}/server.py"
+if [ -f "${APP_DIR}/${SELF_UPDATE_SCRIPT}" ]; then
+    chmod +x "${APP_DIR}/${SELF_UPDATE_SCRIPT}"
+else
+    echo "⚠️  Warning: Self-update script '${SELF_UPDATE_SCRIPT}' not found. Skipping."
+fi
 
 cd "$APP_DIR"
 
 # === Update configuration for database ===
 echo "📄 Updating database configuration..."
+
 DB_PASSWORD=$(cat "$PASSWORD_FILE")
+echo "Using password for DB: $DB_PASSWORD"  # Debugging step
 sed -i "s|postgresql://patchpilot_user:.*@localhost/patchpilot_db|postgresql://patchpilot_user:${DB_PASSWORD}@localhost/patchpilot_db|" "${APP_DIR}/server.py"
-
-# === Setup systemd services ===
-echo "🛠️  Setting up systemd service for PatchPilot..."
-
-# (Create the service files, etc.)
 
 echo "✅ Setup complete! PatchPilot is ready."
