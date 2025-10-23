@@ -280,5 +280,6 @@ if __name__ == '__main__':
         print("Database tables created.")
     
     # Start the Flask application with debug and reloader turned off
-    #app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+
 
