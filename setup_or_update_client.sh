@@ -12,7 +12,7 @@ SERVER_URL_FILE="$INSTALL_DIR/server_url.txt"
 SERVICE_FILE="/etc/systemd/system/patchpilot_client.service"
 
 show_usage() {
-  echo "Usage: $0 [--uninstall] [--update]"
+  echo "Usage: $0 [--uninstall] [--update] [--reinstall]"
   exit 1
 }
 
@@ -26,7 +26,6 @@ uninstall() {
   crontab -l | grep -v 'patchpilot_client' | crontab - || true
   rm -rf "$INSTALL_DIR"
   echo "Uninstalled."
-  exit 0
 }
 
 update() {
@@ -105,91 +104,76 @@ EOF
   systemctl start patchpilot_client.service || true
 
   echo "Update complete."
-  exit 0
 }
 
-if [[ "$1" == "--uninstall" ]]; then
+reinstall() {
+  echo "Reinstalling PatchPilot client..."
   uninstall
-fi
-
-if [[ "$1" == "--update" ]]; then
   update
-fi
+}
 
-if [[ $(id -u) -ne 0 ]]; then
-  echo "Please run as root."
-  exit 1
-fi
+install() {
+  echo "Installing PatchPilot client..."
 
-if [[ -d "$INSTALL_DIR" ]]; then
-  echo "Existing installation detected. Use --update to rebuild or --uninstall to remove."
-  exit 0
-fi
+  # Prompt for server IP (not full URL)
+  read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
 
-echo "No installation detected. Running full install..."
+  # Strip protocol and port if somehow included
+  input_ip="${input_ip#http://}"
+  input_ip="${input_ip#https://}"
+  input_ip="${input_ip%%/*}"  # Remove trailing slash or paths
 
-echo "[*] Installing dependencies..."
-apt-get update
-apt-get install -y curl git build-essential pkg-config libssl-dev
+  final_url="http://${input_ip}:8080/api"
+  echo "Saving server URL: $final_url"
+  echo "$final_url" > "$SERVER_URL_FILE"
 
-echo "[*] Creating install directory..."
-mkdir -p "$INSTALL_DIR"
+  echo "[*] Installing dependencies..."
+  apt-get update
+  apt-get install -y curl git build-essential pkg-config libssl-dev
 
-# Prompt for server IP (not full URL)
-read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
+  echo "[*] Installing Rust toolchain..."
+  if ! command -v rustc >/dev/null 2>&1; then
+    curl https://sh.rustup.rs -sSf | sh -s -- -y
+  fi
 
-# Strip protocol and port if somehow included
-input_ip="${input_ip#http://}"
-input_ip="${input_ip#https://}"
-input_ip="${input_ip%%/*}"  # Remove trailing slash or paths
+  # Source Rust environment (root user, so .cargo/env in /root)
+  if [ -f "/root/.cargo/env" ]; then
+    source "/root/.cargo/env"
+  else
+    echo "Warning: Rust environment file not found at /root/.cargo/env"
+  fi
 
-final_url="http://${input_ip}:8080/api"
-echo "Saving server URL: $final_url"
-echo "$final_url" > "$SERVER_URL_FILE"
+  echo "[*] Cloning client source..."
+  rm -rf "$SRC_DIR"
+  git clone "$RUST_REPO" "$SRC_DIR"
 
-echo "[*] Installing Rust toolchain..."
-if ! command -v rustc >/dev/null 2>&1; then
-  curl https://sh.rustup.rs -sSf | sh -s -- -y
-fi
+  echo "[*] Building Rust client binary..."
+  cd "$SRC_DIR/patchpilot_client_rust"
 
-# Source Rust environment (root user, so .cargo/env in /root)
-if [ -f "/root/.cargo/env" ]; then
-  source "/root/.cargo/env"
-else
-  echo "Warning: Rust environment file not found at /root/.cargo/env"
-fi
+  export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+  export OPENSSL_INCLUDE_DIR=/usr/include
+  export OPENSSL_DIR=/usr
+  export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
 
-echo "[*] Cloning client source..."
-rm -rf "$SRC_DIR"
-git clone "$RUST_REPO" "$SRC_DIR"
+  cargo clean
+  cargo build --release
 
-echo "[*] Building Rust client binary..."
-cd "$SRC_DIR/patchpilot_client_rust"
+  echo "[*] Copying binaries to install directory..."
+  cp target/release/rust_patch_client "$CLIENT_PATH"
+  cp target/release/patchpilot_updater "$UPDATER_PATH"
 
-export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
-export OPENSSL_INCLUDE_DIR=/usr/include
-export OPENSSL_DIR=/usr
-export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
+  chmod +x "$CLIENT_PATH" "$UPDATER_PATH"
 
-cargo clean
-cargo build --release
-
-echo "[*] Copying binaries to install directory..."
-cp target/release/rust_patch_client "$CLIENT_PATH"
-cp target/release/patchpilot_updater "$UPDATER_PATH"
-
-chmod +x "$CLIENT_PATH" "$UPDATER_PATH"
-
-echo "[*] Creating default config.json..."
-cat > "$CONFIG_PATH" <<EOF
+  echo "[*] Creating default config.json..."
+  cat > "$CONFIG_PATH" <<EOF
 {
   "server_ip": "$final_url",
   "client_id": ""
 }
 EOF
 
-echo "[*] Creating systemd service..."
-cat > "$SERVICE_FILE" <<EOF
+  echo "[*] Creating systemd service..."
+  cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=PatchPilot Client
 After=network.target
@@ -204,10 +188,50 @@ WorkingDirectory=$INSTALL_DIR
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable patchpilot_client.service
-systemctl start patchpilot_client.service
+  systemctl daemon-reload
+  systemctl enable patchpilot_client.service
+  systemctl start patchpilot_client.service
 
-echo "[✔] Installation complete. PatchPilot client is running and will start on boot."
+  echo "[✔] Installation complete. PatchPilot client is running and will start on boot."
+}
+
+# Check if we're root
+if [[ $(id -u) -ne 0 ]]; then
+  echo "Please run as root."
+  exit 1
+fi
+
+# Handle options
+if [[ "$1" == "--uninstall" ]]; then
+  uninstall
+  exit 0
+fi
+
+if [[ "$1" == "--update" ]]; then
+  update
+  exit 0
+fi
+
+if [[ "$1" == "--reinstall" ]]; then
+  reinstall
+  exit 0
+fi
+
+# If no flag is provided, check if it's an update or new installation
+if [[ -d "$INSTALL_DIR" ]]; then
+  echo "Existing installation detected."
+  read -rp "Do you want to [u]pdate or [r]einstall? (u/r): " action
+  if [[ "$action" == "u" ]]; then
+    update
+  elif [[ "$action" == "r" ]]; then
+    reinstall
+  else
+    echo "Invalid choice, exiting."
+    exit 1
+  fi
+else
+  echo "No installation detected. Running full install..."
+  install
+fi
 
 exit 0
