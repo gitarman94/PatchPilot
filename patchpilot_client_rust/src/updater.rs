@@ -1,4 +1,3 @@
-// src/updater.rs
 use anyhow::{bail, Result};
 use reqwest::blocking::Client;
 use serde::Deserialize;
@@ -24,10 +23,10 @@ struct ReleaseInfo {
     assets: Vec<ReleaseAsset>,
 }
 
-const GITHUB_USER: &str = "<your-github-username>";
-const GITHUB_REPO: &str = "<your-rust-client-repo>";
-const EXE_NAME: &str = "rust_patch_client.exe";
-const UPDATER_NAME: &str = "rust_patch_updater.exe";
+const GITHUB_USER: &str = "your-github-username";  // Replace with actual GitHub username
+const GITHUB_REPO: &str = "your-rust-client-repo"; // Replace with actual GitHub repo name
+const EXE_NAME: &str = "rust_patch_client.exe";  // Adjust the name of the executable
+const UPDATER_NAME: &str = "rust_patch_updater.exe";  // Adjust the name of the updater helper
 
 pub fn check_for_update() -> Result<()> {
     let client = Client::builder()
@@ -63,9 +62,12 @@ pub fn check_for_update() -> Result<()> {
     let new_exe_path = tmp_dir.join(EXE_NAME);
     download_file(&client, &asset.browser_download_url, &new_exe_path)?;
 
-    // Launch updater helper
+    // Ensure the updater exists
     let updater_path = std::env::current_exe()?
         .parent().unwrap().join(UPDATER_NAME);
+    if !updater_path.exists() {
+        bail!("Updater helper not found at {:?}", updater_path);
+    }
 
     let status = Command::new(&updater_path)
         .arg(env::current_exe()?)
@@ -73,7 +75,7 @@ pub fn check_for_update() -> Result<()> {
         .status()?;
 
     if !status.success() {
-        bail!("Updater helper failed");
+        bail!("Updater helper failed with status: {:?}", status);
     }
 
     log::info!("Update launched – exiting current version.");
@@ -87,6 +89,4 @@ fn download_file(client: &Client, url: &str, dest: &PathBuf) -> Result<()> {
         .send()?
         .error_for_status()?;
     let mut file = fs::File::create(dest)?;
-    std::io::copy(&mut resp, &mut file)?;
-    Ok(())
-}
+    std::io::copy(&mut resp
