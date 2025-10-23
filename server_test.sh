@@ -9,6 +9,7 @@ PASSWORD_FILE="${SERVER_DIR}/postgresql_pwd.txt"
 SERVICE_NAME="patchpilot_server.service"
 SYSTEMD_DIR="/etc/systemd/system"
 GITHUB_REPO="PatchPilot"
+GITHUB_USER="your_github_username"  # Ensure this is filled out correctly
 
 # Function to print success with a green checkmark
 function success() {
