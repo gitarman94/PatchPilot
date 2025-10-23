@@ -73,6 +73,11 @@ update() {
   echo "[*] Stopping service to update binaries..."
   systemctl stop patchpilot_client.service || true
 
+  echo "[*] Ensure the installation directory exists..."
+  if [[ ! -d "$INSTALL_DIR" ]]; then
+    mkdir -p "$INSTALL_DIR" || { echo "Error: Failed to create directory $INSTALL_DIR"; exit 1; }
+  fi
+
   echo "[*] Copying binaries to install directory..."
   cp target/release/rust_patch_client "$CLIENT_PATH"
   cp target/release/patchpilot_updater "$UPDATER_PATH"
@@ -139,6 +144,12 @@ install() {
 
   cargo clean
   cargo build --release
+
+  # Ensure the installation directory exists
+  if [[ ! -d "$INSTALL_DIR" ]]; then
+    echo "[*] Creating installation directory..."
+    mkdir -p "$INSTALL_DIR" || { echo "Error: Failed to create directory $INSTALL_DIR"; exit 1; }
+  fi
 
   echo "[*] Copying binaries to install directory..."
   cp target/release/rust_patch_client "$CLIENT_PATH"
