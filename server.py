@@ -275,6 +275,8 @@ if __name__ == '__main__':
         print("Initializing database tables...")
         db.create_all()  # Forces creation of tables if they don't exist
         print("Database tables created.")
+        exit(0)
 
     app.run(host='0.0.0.0', port=8080, debug=True)
+
 
