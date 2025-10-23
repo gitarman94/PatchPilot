@@ -164,4 +164,12 @@ rm -f "${APP_DIR}/README.md"
 # Remove the templates directory if not needed
 rm -rf "${APP_DIR}/templates"
 
-echo "✅ Setup complete! PatchPilot is ready."
+# === Systemd service setup ===
+echo "⚙️  Enabling systemd service for PatchPilot..."
+cp "${APP_DIR}/patchpilot_server.service" "$SYSTEMD_DIR/"
+systemctl enable "$SERVICE_NAME"
+systemctl start "$SERVICE_NAME"
+
+# === Final message with URL ===
+SERVER_IP=$(hostname -I | awk '{print $1}')   # Grabs the server's IP
+echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
