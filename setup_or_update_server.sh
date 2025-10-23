@@ -34,18 +34,24 @@ for arg in "$@"; do
 done
 
 # === System dependencies ===
-echo "📦 Installing system packages (python3, venv, pip, curl, unzip, sqlite3)..."
+echo "📦 Installing system packages (python3, venv, pip, curl, unzip, postgresql, libpq-dev)..."
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update
-    apt-get install -y python3 python3-venv python3-pip curl unzip sqlite3
+    apt-get install -y python3 python3-venv python3-pip curl unzip postgresql postgresql-contrib libpq-dev
 elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y python3 python3-venv python3-pip curl unzip sqlite3
+    dnf install -y python3 python3-venv python3-pip curl unzip postgresql-server postgresql-contrib libpq-dev
 elif command -v yum >/dev/null 2>&1; then
-    yum install -y python3 python3-venv python3-pip curl unzip sqlite3
+    yum install -y python3 python3-venv python3-pip curl unzip postgresql postgresql-contrib libpq-dev
 else
     echo "❌ Unsupported OS / package manager. Please install dependencies manually."
     exit 1
 fi
+
+# === PostgreSQL Setup ===
+echo "🔄 Setting up PostgreSQL..."
+sudo -u postgres psql -c "CREATE USER patchpilot_user WITH PASSWORD 'yourpassword';"
+sudo -u postgres psql -c "CREATE DATABASE patchpilot_db;"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE patchpilot_db TO patchpilot_user;"
 
 # === Optional cleanup ===
 if [ "$FORCE_REINSTALL" = true ]; then
@@ -111,7 +117,7 @@ python -m ensurepip --upgrade
 pip install --upgrade pip setuptools wheel
 
 # Install/update core dependencies
-pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn
+pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn psycopg2
 
 # === Download repo ===
 TMPDIR=$(mktemp -d)
@@ -148,7 +154,7 @@ source "${VENV_DIR}/bin/activate"
 # Change to the app directory before running the Python command
 cd "${APP_DIR}"
 
-# Run the database creation inside the app context
+# Now run the python command with the correct context
 python -c "
 from server import app, db
 with app.app_context():
@@ -166,46 +172,15 @@ After=network.target
 User=root
 WorkingDirectory=${APP_DIR}
 Environment="PATH=${VENV_DIR}/bin"
-ExecStart=${VENV_DIR}/bin/gunicorn -w 4 -b 0.0.0.0:8080 server:app
+ExecStart=${VENV_DIR}/bin/gunicorn --bind 0.0.0.0:8080 server:app
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# === Self-update service and timer ===
-echo "📅 Creating self-update service & timer for daily updates"
-cat > "${SYSTEMD_DIR}/${SELF_UPDATE_SERVICE}" <<EOF
-[Unit]
-Description=Patch Server Self-Update
-After=network.target
-
-[Service]
-Type=oneshot
-ExecStart=${APP_DIR}/${SELF_UPDATE_SCRIPT}
-WorkingDirectory=${APP_DIR}
-Environment="PATH=${VENV_DIR}/bin"
-EOF
-
-cat > "${SYSTEMD_DIR}/${SELF_UPDATE_TIMER}" <<EOF
-[Unit]
-Description=Run Patch Server Self-Update Daily
-
-[Timer]
-OnCalendar=*-*-* 02:00:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-EOF
-
-# === Finalize ===
-echo "🔄 Reloading systemd daemon"
 systemctl daemon-reload
+systemctl enable "${SERVICE_NAME}"
+systemctl start "${SERVICE_NAME}"
 
-echo "🚀 Enabling & starting services"
-systemctl enable --now "${SERVICE_NAME}"
-systemctl enable --now "${SELF_UPDATE_TIMER}"
-
-SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the dashboard."
+echo "✅ Installation complete."
