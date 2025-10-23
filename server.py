@@ -16,7 +16,8 @@ UPDATE_CACHE_DIR = os.path.join(SERVER_DIR, "updates")
 if not os.path.isdir(UPDATE_CACHE_DIR):
     os.makedirs(UPDATE_CACHE_DIR, exist_ok=True)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///patchpilot.db'
+# PostgreSQL Database URI
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://patchpilot_user:yourpassword@localhost/patchpilot_db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -247,7 +248,7 @@ def client_update(client_id):
 if __name__ == '__main__':
     # Ensure the database exists before running the app
     print("Initializing database tables...")
-    if not os.path.exists('patchpilot.db'):
+    with app.app_context():
         db.create_all()  # This creates the tables if they don't exist
         print("Database tables created.")
     app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
