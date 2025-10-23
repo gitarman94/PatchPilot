@@ -234,52 +234,20 @@ def client_update(client_id):
     client.file_hashes = json.dumps(data.get('file_hashes', {}))
 
     # --- updates ---
-    reported = data.get('updates', None)
-    if reported is not None:
-        # Clear existing updates
-        ClientUpdate.query.filter_by(client_id=client.id).delete()
-        client.updates_available = False
-        for upd in reported:
-            cu = ClientUpdate(
-                client_id=client.id,
-                kb_or_package=upd.get('kb_or_package'),
-                title=upd.get('title'),
-                severity=upd.get('severity'),
-                status='pending'
-            )
-            db.session.add(cu)
-            client.updates_available = True
-
-    # --- force update response ---
-    response = {'approved': client.approved, 'updates_available': client.updates_available, 'online': client.is_online()}
-    if client.force_update and client.allow_checkin:
-        response['force_check'] = True
-        client.force_update = False
+    reported = data.get('updates', [])
+    for kb in reported:
+        update = ClientUpdate.query.filter_by(client_id=client.id, kb_or_package=kb).first()
+        if update:
+            update.status = 'installed'
 
     db.session.commit()
-    return jsonify(response)
+    return jsonify({'status': 'success'})
 
-# --- CLIENT PING ---
-@app.route('/api/clients/<client_id>/ping', methods=['POST'])
-def client_ping(client_id):
-    client = Client.query.get(client_id)
-    if not client:
-        return jsonify({'error': 'Client not found'}), 404
-    auth_header = request.headers.get('Authorization', '')
-    if not auth_client(client, auth_header):
-        return jsonify({'error': 'Unauthorized'}), 401
-    client.last_checkin = datetime.utcnow()
-    db.session.commit()
-    return jsonify({'status': 'pong', 'online': client.is_online()})
 
 if __name__ == '__main__':
-    # Initialize database tables if they don't already exist
-    with app.app_context():
-        print("Initializing database tables...")
-        db.create_all()  # Creates tables if they do not exist
+    # Ensure the database exists before running the app
+    print("Initializing database tables...")
+    if not os.path.exists('patchpilot.db'):
+        db.create_all()  # This creates the tables if they don't exist
         print("Database tables created.")
-    
-    # Start the Flask application with debug and reloader turned off
     app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
-
-
