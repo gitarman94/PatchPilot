@@ -280,5 +280,5 @@ if __name__ == '__main__':
         print("Database tables created.")
     
     # Start the Flask application with debug and reloader turned off
-    ExecStart=${VENV_DIR}/bin/gunicorn -w 4 -b 0.0.0.0:8080 server:app
+    #app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
 
