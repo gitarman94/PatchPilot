@@ -238,7 +238,7 @@ def client_update(client_id):
         ClientUpdate.query.filter_by(client_id=client.id).delete()
         client.updates_available = False
         for upd in reported:
-                cu = ClientUpdate(
+            cu = ClientUpdate(
                 client_id=client.id,
                 kb_or_package=upd.get('kb_or_package'),
                 title=upd.get('title'),
@@ -277,3 +277,4 @@ if __name__ == '__main__':
         print("Database tables created.")
 
     app.run(host='0.0.0.0', port=8080, debug=True)
+
