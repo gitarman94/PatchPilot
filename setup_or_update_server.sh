@@ -141,6 +141,11 @@ fi
 cd /
 rm -rf "${TMPDIR}"
 
+# === Initialize Database ===
+echo "🔄 Checking if database exists and initializing if needed..."
+source "${VENV_DIR}/bin/activate"
+python -c "from server import db; db.create_all()"
+
 # === Systemd service ===
 echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
@@ -159,7 +164,7 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-# === Self-update timer ===
+# === Self-update service and timer ===
 echo "📅 Creating self-update service & timer for daily updates"
 cat > "${SYSTEMD_DIR}/${SELF_UPDATE_SERVICE}" <<EOF
 [Unit]
@@ -194,4 +199,4 @@ systemctl enable --now "${SERVICE_NAME}"
 systemctl enable --now "${SELF_UPDATE_TIMER}"
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view dashboard."
+echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the dashboard."
