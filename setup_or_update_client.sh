@@ -30,7 +30,8 @@ uninstall() {
 
 update() {
   echo "Updating PatchPilot client..."
-  
+
+  # Check if the installation directory exists
   if [[ ! -d "$INSTALL_DIR" ]]; then
     echo "Error: Installation not found at $INSTALL_DIR"
     echo "Attempting to install PatchPilot client..."
@@ -40,7 +41,7 @@ update() {
 
   # Install dependencies and Rust toolchain as necessary
   echo "[*] Installing dependencies..."
-  apt-get update
+  apt-get update -y
   apt-get install -y curl git build-essential pkg-config libssl-dev
 
   echo "[*] Installing Rust toolchain if missing..."
