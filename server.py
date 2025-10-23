@@ -1,183 +1,258 @@
-#!/bin/bash
-set -e
+import os
+import json
+import base64
+from datetime import datetime, timedelta
+from flask import Flask, request, jsonify, render_template, abort, send_from_directory
+from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
 
-# === Configuration ===
-GITHUB_USER="gitarman94"
-GITHUB_REPO="PatchPilot"
-BRANCH="main"
+app = Flask(__name__)
+CORS(app)
 
-RAW_BASE="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
-ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.zip"
+# == CONFIG ==
+SERVER_DIR = "/opt/patchpilot_server"
+UPDATE_CACHE_DIR = os.path.join(SERVER_DIR, "updates")
+if not os.path.isdir(UPDATE_CACHE_DIR):
+    os.makedirs(UPDATE_CACHE_DIR, exist_ok=True)
 
-APP_DIR="/opt/patchpilot_server"
-VENV_DIR="${APP_DIR}/venv"
-SERVICE_NAME="patchpilot_server.service"
-SELF_UPDATE_SCRIPT="linux_server_self_update.sh"
-SELF_UPDATE_SERVICE="patchpilot_server_update.service"
-SELF_UPDATE_TIMER="patchpilot_server_update.timer"
-SYSTEMD_DIR="/etc/systemd/system"
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///patchpilot.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
 
-# === Flags ===
-FORCE_REINSTALL=false
-UPGRADE=false
-for arg in "$@"; do
-    case "$arg" in
-        --force)
-            FORCE_REINSTALL=true
-            echo "⚠️  Force reinstallation enabled: previous installation will be deleted."
-            ;;
-        --upgrade)
-            UPGRADE=true
-            echo "⬆️  Upgrade mode enabled: keeping configs but updating software."
-            ;;
-    esac
-done
+# == MODELS ==
+class Client(db.Model):
+    id = db.Column(db.String(36), primary_key=True)
+    client_name = db.Column(db.String(100))
+    ip_address = db.Column(db.String(45))
+    approved = db.Column(db.Boolean, default=False)
+    allow_checkin = db.Column(db.Boolean, default=True)
+    force_update = db.Column(db.Boolean, default=False)
+    last_checkin = db.Column(db.DateTime)
+    token = db.Column(db.String(50), unique=True, nullable=False)
+    file_hashes = db.Column(db.Text, nullable=True)
+    updates_available = db.Column(db.Boolean, default=False)
 
-# === System dependencies ===
-echo "📦 Installing system packages (python3, venv, pip, curl, unzip)..."
-if command -v apt-get >/dev/null 2>&1; then
-    apt-get update
-    apt-get install -y python3 python3-venv python3-pip curl unzip
-elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y python3 python3-venv python3-pip curl unzip
-elif command -v yum >/dev/null 2>&1; then
-    yum install -y python3 python3-venv python3-pip curl unzip
-else
-    echo "❌ Unsupported OS / package manager. Please install dependencies manually."
-    exit 1
-fi
+    # telemetry fields
+    os_name = db.Column(db.String(50))
+    os_version = db.Column(db.String(50))
+    cpu = db.Column(db.String(100))
+    ram = db.Column(db.String(50))
+    disk_total = db.Column(db.String(50))
+    disk_free = db.Column(db.String(50))
+    uptime_val = db.Column("uptime", db.String(50))
 
-# === Optional cleanup ===
-if [ "$FORCE_REINSTALL" = true ]; then
-    echo "🛑 Stopping and disabling systemd services..."
-    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-    rm -f "${SYSTEMD_DIR}/${SERVICE_NAME}"
+    def is_online(self):
+        if not self.last_checkin:
+            return False
+        return datetime.utcnow() - self.last_checkin <= timedelta(minutes=3)
 
-    systemctl stop "$SELF_UPDATE_TIMER" 2>/dev/null || true
-    systemctl disable "$SELF_UPDATE_TIMER" 2>/dev/null || true
-    rm -f "${SYSTEMD_DIR}/${SELF_UPDATE_TIMER}"
-    rm -f "${SYSTEMD_DIR}/${SELF_UPDATE_SERVICE}"
+    def uptime(self):
+        return self.uptime_val or "N/A"
 
-    echo "☠️ Killing all running patchpilot server.py instances..."
-    pkill -f "/opt/patchpilot_server/server.py" || true
-    pkill -f "server.py" || true
+class ClientUpdate(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.String(36), db.ForeignKey('client.id'), nullable=False)
+    kb_or_package = db.Column(db.String(200), nullable=False)
+    title = db.Column(db.String(200), nullable=True)
+    severity = db.Column(db.String(50), nullable=True)
+    status = db.Column(db.String(50), nullable=False, default='pending')  # pending/installing/installed/failed
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
-    echo "🧹 Removing previous installation at $APP_DIR..."
-    rm -rf "$APP_DIR"
-fi
+with app.app_context():
+    db.create_all()
 
-# === Create directories ===
-mkdir -p "${APP_DIR}"
+# == Helpers ==
+def generate_token():
+    return base64.urlsafe_b64encode(os.urandom(24)).decode()
 
-# === Virtual environment setup ===
-if [ "$FORCE_REINSTALL" = true ] && [ -d "$VENV_DIR" ]; then
-    echo "🧹 Removing old virtual environment..."
-    rm -rf "$VENV_DIR"
-fi
+def auth_client(client, token):
+    if token is None:
+        return False
+    if token.startswith("Bearer "):
+        token = token[7:]
+    return token == client.token
 
-if [ "$UPGRADE" = true ] && [ -d "$VENV_DIR" ]; then
-    # Check if venv is broken
-    if [ ! -f "${VENV_DIR}/bin/activate" ]; then
-        echo "⚠️  Existing venv is broken, recreating..."
-        rm -rf "$VENV_DIR"
-    fi
-fi
+# == ROUTES ==
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'ok'})
 
-if [ ! -d "$VENV_DIR" ]; then
-    echo "🐍 Creating Python virtual environment..."
-    python3 -m venv "$VENV_DIR"
-fi
+# --- DASHBOARD ---
+@app.route('/')
+def index():
+    clients = Client.query.all()
+    return render_template('client.html', clients=clients, now=datetime.utcnow())
 
-echo "⬆️  Activating venv and installing Python dependencies..."
-source "${VENV_DIR}/bin/activate"
+# --- CLIENT DETAIL ---
+@app.route('/clients/<client_id>')
+def client_detail(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    updates = ClientUpdate.query.filter_by(client_id=client_id).all()
+    ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'dummy_admin_token')
+    return render_template('client_detail.html', client=client, updates=updates, ADMIN_TOKEN=ADMIN_TOKEN)
 
-# Ensure pip/bootstrap exists
-python -m ensurepip --upgrade
-pip install --upgrade pip setuptools wheel
+# --- APPROVE CLIENT ---
+@app.route('/approve/<client_id>', methods=['POST'])
+def approve_client(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    client.approved = True
+    db.session.commit()
+    return ('', 204)
 
-# Install/update core dependencies
-pip install --upgrade Flask Flask-SQLAlchemy flask_cors
+# --- FORCE UPDATE ---
+@app.route('/admin/force-update/<client_id>', methods=['POST'])
+def force_update_client(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    client.force_update = True
+    db.session.commit()
+    return ('', 204)
 
-# === Download repo ===
-TMPDIR=$(mktemp -d)
-cd "${TMPDIR}"
-echo "⬇️  Downloading repository ZIP from GitHub..."
-curl -L "${ZIP_URL}" -o latest.zip
+# --- ALLOW CHECKIN ---
+@app.route('/admin/allow-checkin/<client_id>', methods=['POST'])
+def allow_checkin_client(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        abort(404)
+    client.allow_checkin = True
+    db.session.commit()
+    return ('', 204)
 
-unzip -o latest.zip
-EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
+# --- SERVE UPDATES ---
+@app.route('/updates/<path:filename>', methods=['GET'])
+def serve_update_file(filename):
+    return send_from_directory(UPDATE_CACHE_DIR, filename, as_attachment=True)
 
-if [ -z "${EXTRACTED_DIR}" ]; then
-    echo "❌ Failed to locate extracted repo directory."
-    exit 1
-fi
+# --- CLIENT COMMANDS FROM DASHBOARD ---
+@app.route('/api/clients/<client_id>/commands', methods=['POST'])
+def send_command(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        return jsonify({'error': 'Client not found'}), 404
 
-echo "📂 Copying files into ${APP_DIR}"
-cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
+    # Accept either JSON or form
+    data = request.get_json() or request.form
+    admin_token = data.get('admin_token') or ''
+    if admin_token != os.getenv('ADMIN_TOKEN', 'dummy_admin_token'):
+        return jsonify({'error': 'Unauthorized'}), 401
 
-# === Permissions ===
-chmod +x "${APP_DIR}/server.py"
-if [ -f "${APP_DIR}/${SELF_UPDATE_SCRIPT}" ]; then
-    chmod +x "${APP_DIR}/${SELF_UPDATE_SCRIPT}"
-else
-    echo "⚠️  Warning: Self-update script '${SELF_UPDATE_SCRIPT}' not found. Skipping."
-fi
+    action = data.get('action')
+    updates = data.getlist('updates') if hasattr(data, 'getlist') else data.get('updates', [])
 
-cd /
-rm -rf "${TMPDIR}"
+    if action == 'install_selected_updates' and updates:
+        for kb in updates:
+            cu = ClientUpdate.query.filter_by(client_id=client.id, kb_or_package=kb).first()
+            if cu:
+                cu.status = 'installing'
+    elif action == 'install_all_updates':
+        for cu in ClientUpdate.query.filter_by(client_id=client.id, status='pending').all():
+            cu.status = 'installing'
+    else:
+        return jsonify({'error': 'Unknown action'}), 400
 
-# === Systemd service ===
-echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
-cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
-[Unit]
-Description=Patch Management Server
-After=network.target
+    db.session.commit()
+    return jsonify({'status': 'command queued'})
 
-[Service]
-User=root
-WorkingDirectory=${APP_DIR}
-Environment="PATH=${VENV_DIR}/bin"
-ExecStart=${VENV_DIR}/bin/python ${APP_DIR}/server.py
-Restart=always
+# --- FORCE ALL CLIENTS ---
+@app.route('/api/clients/force_all', methods=['POST'])
+def force_all_clients():
+    for client in Client.query.all():
+        client.force_update = True
+    db.session.commit()
+    return jsonify({'status': 'all clients forced to check updates'})
 
-[Install]
-WantedBy=multi-user.target
-EOF
+# --- REGISTER CLIENT ---
+@app.route('/api/clients', methods=['POST'])
+def add_client():
+    data = request.json
+    if not data or 'id' not in data:
+        return jsonify({'error': 'Invalid data'}), 400
 
-# === Self-update timer ===
-echo "📅 Creating self-update service & timer for daily updates"
-cat > "${SYSTEMD_DIR}/${SELF_UPDATE_SERVICE}" <<EOF
-[Unit]
-Description=Patch Server Self-Update
-After=network.target
+    client = Client.query.get(data['id'])
+    if client:
+        return jsonify({'error': 'Client already exists'}), 400
 
-[Service]
-Type=oneshot
-ExecStart=${APP_DIR}/${SELF_UPDATE_SCRIPT}
-WorkingDirectory=${APP_DIR}
-Environment="PATH=${VENV_DIR}/bin"
-EOF
+    token = generate_token()
+    client = Client(
+        id=data['id'],
+        client_name=data.get('client_name', 'Unnamed Client'),
+        ip_address=request.remote_addr,
+        token=token
+    )
+    db.session.add(client)
+    db.session.commit()
+    return jsonify({'token': token})
 
-cat > "${SYSTEMD_DIR}/${SELF_UPDATE_TIMER}" <<EOF
-[Unit]
-Description=Run Patch Server Self-Update Daily
+# --- CLIENT UPDATE CHECKIN ---
+@app.route('/api/clients/<client_id>', methods=['POST'])
+def client_update(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        return jsonify({'error': 'Client not found'}), 404
 
-[Timer]
-OnCalendar=*-*-* 02:00:00
-Persistent=true
+    data = request.json
+    if not data:
+        return jsonify({'error': 'Invalid data'}), 400
 
-[Install]
-WantedBy=timers.target
-EOF
+    client_token = data.get('token') or request.headers.get('Authorization')
+    if not auth_client(client, client_token):
+        return jsonify({'error': 'Unauthorized'}), 401
 
-# === Finalize ===
-echo "🔄 Reloading systemd daemon"
-systemctl daemon-reload
+    # --- telemetry ---
+    client.client_name = data.get('client_name', client.client_name)
+    client.ip_address = request.remote_addr
+    client.last_checkin = datetime.utcnow()
+    client.os_name = data.get('os_name', client.os_name)
+    client.os_version = data.get('os_version', client.os_version)
+    client.cpu = data.get('cpu', client.cpu)
+    client.ram = data.get('ram', client.ram)
+    client.disk_total = data.get('disk_total', client.disk_total)
+    client.disk_free = data.get('disk_free', client.disk_free)
+    client.uptime_val = data.get('uptime', client.uptime_val)
+    client.file_hashes = json.dumps(data.get('file_hashes', {}))
 
-echo "🚀 Enabling & starting services"
-systemctl enable --now "${SERVICE_NAME}"
-systemctl enable --now "${SELF_UPDATE_TIMER}"
+    # --- updates ---
+    reported = data.get('updates', None)
+    if reported is not None:
+        ClientUpdate.query.filter_by(client_id=client.id).delete()
+        client.updates_available = False
+        for upd in reported:
+            cu = ClientUpdate(
+                client_id=client.id,
+                kb_or_package=upd.get('kb_or_package'),
+                title=upd.get('title'),
+                severity=upd.get('severity'),
+                status='pending'
+            )
+            db.session.add(cu)
+            client.updates_available = True
 
-SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view dashboard."
+    # --- force update response ---
+    response = {'approved': client.approved, 'updates_available': client.updates_available, 'online': client.is_online()}
+    if client.force_update and client.allow_checkin:
+        response['force_check'] = True
+        client.force_update = False
+
+    db.session.commit()
+    return jsonify(response)
+
+# --- CLIENT PING ---
+@app.route('/api/clients/<client_id>/ping', methods=['POST'])
+def client_ping(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        return jsonify({'error': 'Client not found'}), 404
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_client(client, auth_header):
+        return jsonify({'error': 'Unauthorized'}), 401
+    client.last_checkin = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'status': 'pong', 'online': client.is_online()})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080, debug=True)
