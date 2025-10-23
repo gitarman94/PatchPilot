@@ -92,7 +92,7 @@ if [ ! -f "$POSTGRES_PASSWORD_FILE" ]; then
     echo "Password for PostgreSQL created and saved to $POSTGRES_PASSWORD_FILE."
     
     # === Fix Authentication Issue ===
-    echo "🔧 Fixing PostgreSQL authentication to allow password-based login..."
+    echo "🔧 Fixing PostgreSQL authentication to allow password-based login with scram-sha-256..."
     PG_HBA_CONF=$(find / -name "pg_hba.conf" | grep -i 'pg_hba.conf')
     
     if [ -z "$PG_HBA_CONF" ]; then
@@ -100,9 +100,11 @@ if [ ! -f "$POSTGRES_PASSWORD_FILE" ]; then
         exit 1
     fi
     
-    # Modify pg_hba.conf to use md5 authentication
-    echo "📂 Modifying pg_hba.conf for password authentication..."
-    sed -i "s/peer/md5/g" "$PG_HBA_CONF"
+    # Modify pg_hba.conf to use scram-sha-256 authentication for both local and host
+    echo "📂 Modifying pg_hba.conf for password authentication using scram-sha-256..."
+    sed -i "s/^local\s*all\s*postgres\s*peer$/local   all             postgres                                scram-sha-256/" "$PG_HBA_CONF"
+    sed -i "s/^#host\s*all\s*postgres\s*127.0.0.1\/32\s*peer$/host    all             postgres        127.0.0.1/32            scram-sha-256/" "$PG_HBA_CONF"
+    sed -i "s/^#host\s*all\s*postgres\s*::1\/128\s*peer$/host    all             postgres        ::1/128                 scram-sha-256/" "$PG_HBA_CONF"
     
     # Restart PostgreSQL to apply changes
     echo "🔄 Restarting PostgreSQL..."
