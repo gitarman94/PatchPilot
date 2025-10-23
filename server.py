@@ -9,7 +9,7 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# == CONFIG ==
+# == CONFIG == 
 SERVER_DIR = "/opt/patchpilot_server"
 UPDATE_CACHE_DIR = os.path.join(SERVER_DIR, "updates")
 if not os.path.isdir(UPDATE_CACHE_DIR):
@@ -19,7 +19,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///patchpilot.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# == MODELS ==
+# == MODELS == 
 class Client(db.Model):
     id = db.Column(db.String(36), primary_key=True)
     client_name = db.Column(db.String(100))
@@ -32,7 +32,7 @@ class Client(db.Model):
     file_hashes = db.Column(db.Text, nullable=True)
     updates_available = db.Column(db.Boolean, default=False)
 
-    # telemetry fields
+    # Telemetry fields
     os_name = db.Column(db.String(50))
     os_version = db.Column(db.String(50))
     cpu = db.Column(db.String(100))
@@ -60,10 +60,7 @@ class ClientUpdate(db.Model):
     status = db.Column(db.String(50), nullable=False, default='pending')  # pending/installing/installed/failed
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
-with app.app_context():
-    db.create_all()
-
-# == Helpers ==
+# == HELPER FUNCTIONS ==
 
 def generate_token():
     return base64.urlsafe_b64encode(os.urandom(24)).decode()
@@ -241,7 +238,7 @@ def client_update(client_id):
         ClientUpdate.query.filter_by(client_id=client.id).delete()
         client.updates_available = False
         for upd in reported:
-            cu = ClientUpdate(
+                cu = ClientUpdate(
                 client_id=client.id,
                 kb_or_package=upd.get('kb_or_package'),
                 title=upd.get('title'),
@@ -280,4 +277,3 @@ if __name__ == '__main__':
         print("Database tables created.")
 
     app.run(host='0.0.0.0', port=8080, debug=True)
-
