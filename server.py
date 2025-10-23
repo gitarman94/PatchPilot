@@ -279,5 +279,5 @@ if __name__ == '__main__':
         db.create_all()  # Creates tables if they do not exist
         print("Database tables created.")
     
-    # Start the Flask application
-    app.run(host='0.0.0.0', port=8080, debug=True)
+    # Start the Flask application with debug and reloader turned off
+    app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
