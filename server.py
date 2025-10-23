@@ -40,6 +40,7 @@ class Client(db.Model):
     disk_total = db.Column(db.String(50))
     disk_free = db.Column(db.String(50))
     uptime_val = db.Column("uptime", db.String(50))
+    serial_number = db.Column(db.String(50), unique=True, nullable=True)  # New field for serial number
 
     def is_online(self):
         if not self.last_checkin:
@@ -48,6 +49,7 @@ class Client(db.Model):
 
     def uptime(self):
         return self.uptime_val or "N/A"
+
 
 class ClientUpdate(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -62,6 +64,7 @@ with app.app_context():
     db.create_all()
 
 # == Helpers ==
+
 def generate_token():
     return base64.urlsafe_b64encode(os.urandom(24)).decode()
 
@@ -77,33 +80,6 @@ def auth_client(client, token):
 @app.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({'status': 'ok'})
-
-# --- CLIENT PING ---
-@app.route('/api/clients/<client_id>/ping', methods=['POST'])
-def client_ping(client_id):
-    client = Client.query.get(client_id)
-    if not client:
-        return jsonify({'error': 'Client not found'}), 404
-
-    # Check if the client is registered
-    if not client.approved:
-        # If not registered, attempt registration
-        return jsonify({
-            'status': 'not_registered',
-            'message': 'Client is not registered. Please register first.',
-            'online': client.is_online()
-        })
-
-    # Check for client authentication
-    auth_header = request.headers.get('Authorization', '')
-    if not auth_client(client, auth_header):
-        return jsonify({'error': 'Unauthorized'}), 401
-
-    # Update last checkin time
-    client.last_checkin = datetime.utcnow()
-    db.session.commit()
-
-    return jsonify({'status': 'pong', 'online': client.is_online()})
 
 # --- DASHBOARD ---
 @app.route('/')
@@ -201,23 +177,35 @@ def add_client():
     if not data or 'id' not in data:
         return jsonify({'error': 'Invalid data'}), 400
 
-    # Check if the client already exists
     client = Client.query.get(data['id'])
+    
+    # If client is found by serial number, we update its information (e.g. reinstall case)
+    if not client:
+        client = Client.query.filter_by(serial_number=data.get('serial_number')).first()
+        if client:
+            # Handle case of reinstallation: generate new token, update information
+            client.token = generate_token()
+            client.client_name = data.get('client_name', client.client_name)
+            client.ip_address = request.remote_addr
+            db.session.commit()
+            return jsonify({'token': client.token})
+
     if client:
         return jsonify({'error': 'Client already exists'}), 400
 
-    # Generate a token and register the new client
+    # New client registration
     token = generate_token()
+    serial_number = data.get('serial_number')  # Store serial number during registration
     client = Client(
         id=data['id'],
         client_name=data.get('client_name', 'Unnamed Client'),
         ip_address=request.remote_addr,
-        token=token
+        token=token,
+        serial_number=serial_number  # Save serial number
     )
     db.session.add(client)
     db.session.commit()
-    
-    return jsonify({'token': token, 'message': 'Client registered successfully'})
+    return jsonify({'token': token})
 
 # --- CLIENT UPDATE CHECKIN ---
 @app.route('/api/clients/<client_id>', methods=['POST'])
@@ -271,6 +259,19 @@ def client_update(client_id):
 
     db.session.commit()
     return jsonify(response)
+
+# --- CLIENT PING ---
+@app.route('/api/clients/<client_id>/ping', methods=['POST'])
+def client_ping(client_id):
+    client = Client.query.get(client_id)
+    if not client:
+        return jsonify({'error': 'Client not found'}), 404
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_client(client, auth_header):
+        return jsonify({'error': 'Unauthorized'}), 401
+    client.last_checkin = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'status': 'pong', 'online': client.is_online()})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080, debug=True)
