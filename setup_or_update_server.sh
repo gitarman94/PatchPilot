@@ -145,8 +145,11 @@ rm -rf "${TMPDIR}"
 echo "🔄 Checking if database exists and initializing if needed..."
 source "${VENV_DIR}/bin/activate"
 
-# Set PYTHONPATH to include the application directory
-PYTHONPATH="${APP_DIR}" python -c "from server import db; db.create_all()"
+# Change to the app directory before running the Python command
+cd "${APP_DIR}"
+
+# Now run the python command with the correct context
+python -c "from server import db; db.create_all()"
 
 # === Systemd service ===
 echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
