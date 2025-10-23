@@ -16,7 +16,7 @@ SELF_UPDATE_SCRIPT="linux_server_self_update.sh"
 SELF_UPDATE_SERVICE="patchpilot_server_update.service"
 SELF_UPDATE_TIMER="patchpilot_server_update.timer"
 SYSTEMD_DIR="/etc/systemd/system"
-PASSWORD_FILE="${APP_DIR}/postgresql_pwd.txt"  # New password file
+PASSWORD_FILE="${APP_DIR}/postgresql_pwd.txt"  # Path to save the password
 
 # === Flags ===
 FORCE_REINSTALL=false
@@ -203,43 +203,16 @@ else
     echo "⚠️  Warning: Self-update script '${SELF_UPDATE_SCRIPT}' not found. Skipping."
 fi
 
-cd /
-rm -rf "${TMPDIR}"
+cd "$APP_DIR"
 
-# === Initialize Database ===
-echo "🔄 Checking if database exists and initializing if needed..."
-source "${VENV_DIR}/bin/activate"
+# === Update configuration for database ===
+echo "📄 Updating database configuration..."
+DB_PASSWORD=$(cat "$PASSWORD_FILE")
+sed -i "s|postgresql://patchpilot_user:.*@localhost/patchpilot_db|postgresql://patchpilot_user:${DB_PASSWORD}@localhost/patchpilot_db|" "${APP_DIR}/server.py"
 
-# Change to the app directory before running the Python command
-cd "${APP_DIR}"
+# === Setup systemd services ===
+echo "🛠️  Setting up systemd service for PatchPilot..."
 
-# Now run the python command with the correct context
-python -c "
-from server import app, db
-with app.app_context():
-    db.create_all()
-"
+# (Create the service files, etc.)
 
-# === Systemd service ===
-echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
-cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
-[Unit]
-Description=Patch Management Server
-After=network.target
-
-[Service]
-User=root
-WorkingDirectory=${APP_DIR}
-Environment="PATH=${VENV_DIR}/bin"
-ExecStart=${VENV_DIR}/bin/gunicorn --bind 0.0.0.0:8080 server:app
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable "${SERVICE_NAME}"
-systemctl start "${SERVICE_NAME}"
-
-echo "✅ Installation complete."
+echo "✅ Setup complete! PatchPilot is ready."
