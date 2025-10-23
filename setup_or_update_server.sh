@@ -19,17 +19,13 @@ SYSTEMD_DIR="/etc/systemd/system"
 
 # === Flags ===
 FORCE_REINSTALL=false
-UPGRADE=false
 UNINSTALL=false
+
 for arg in "$@"; do
     case "$arg" in
         --force)
             FORCE_REINSTALL=true
-            echo "⚠️  Force reinstallation enabled: previous installation will be deleted."
-            ;;
-        --upgrade)
-            UPGRADE=true
-            echo "⬆️  Upgrade mode enabled: keeping configs but updating software."
+            echo "⚠️  Force reinstallation enabled: removing previous installation and reinstalling."
             ;;
         --uninstall)
             UNINSTALL=true
@@ -37,6 +33,58 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# === Uninstall Process ===
+if [ "$UNINSTALL" = true ]; then
+    echo "🛑 Uninstalling PatchPilot..."
+
+    # Stop and disable systemd services if running
+    echo "🛑 Stopping and disabling systemd services..."
+    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+    systemctl stop "$SELF_UPDATE_TIMER" 2>/dev/null || true
+    systemctl disable "$SELF_UPDATE_TIMER" 2>/dev/null || true
+
+    # Kill running instances of PatchPilot
+    echo "☠️ Killing all running patchpilot server.py instances..."
+    PIDS=$(pgrep -f "server.py" | grep -v "^$$\$" || true)
+    if [ -n "$PIDS" ]; then
+        for pid in $PIDS; do
+            if [ "$pid" -eq "$$" ]; then
+                continue
+            fi
+            echo "Sending SIGTERM to pid $pid"
+            set +e
+            kill -15 "$pid" || true
+            sleep 2
+            if kill -0 "$pid" 2>/dev/null; then
+                echo "Pid $pid still alive after SIGTERM, sending SIGKILL"
+                kill -9 "$pid" || true
+            else
+                echo "Pid $pid terminated cleanly"
+            fi
+            set -e
+        done
+    else
+        echo "No running patchpilot server.py processes found."
+    fi
+
+    # Remove PostgreSQL database and user
+    echo "🧹 Uninstalling PostgreSQL database and user..."
+    sudo -u postgres psql -c "DROP DATABASE IF EXISTS patchpilot_db;" || true
+    sudo -u postgres psql -c "DROP USER IF EXISTS patchpilot_user;" || true
+
+    # Remove the application directory
+    echo "🧹 Removing PatchPilot installation at $APP_DIR..."
+    rm -rf "$APP_DIR"
+
+    # Clean up virtual environment
+    echo "🧹 Removing virtual environment..."
+    rm -rf "$VENV_DIR"
+
+    echo "✅ Uninstallation complete."
+    exit 0
+fi
 
 # === System dependencies ===
 echo "📦 Installing system packages (python3, venv, pip, curl, unzip, postgresql, libpq-dev)..."
@@ -53,19 +101,16 @@ else
 fi
 
 # === PostgreSQL Setup ===
-if [ "$UNINSTALL" = false ]; then
+if [ "$FORCE_REINSTALL" = true ] || [ ! -f "$APP_DIR/server.py" ]; then
     echo "🔄 Setting up PostgreSQL..."
     sudo -u postgres psql -c "CREATE USER patchpilot_user WITH PASSWORD 'yourpassword';" || true
     sudo -u postgres psql -c "CREATE DATABASE patchpilot_db;" || true
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE patchpilot_db TO patchpilot_user;" || true
-else
-    echo "🧹 Uninstalling PostgreSQL database..."
-    sudo -u postgres psql -c "DROP DATABASE IF EXISTS patchpilot_db;" || true
-    sudo -u postgres psql -c "DROP USER IF EXISTS patchpilot_user;" || true
 fi
 
-# === Optional cleanup ===
-if [ "$FORCE_REINSTALL" = true ] || [ "$UNINSTALL" = true ]; then
+# === Optional cleanup (if not uninstall) ===
+if [ "$FORCE_REINSTALL" = true ] || [ ! -f "$APP_DIR/server.py" ]; then
+    # If force or nothing installed, stop previous services and remove old files
     echo "🛑 Stopping and disabling systemd services..."
     systemctl stop "$SERVICE_NAME" 2>/dev/null || true
     systemctl disable "$SERVICE_NAME" 2>/dev/null || true
@@ -108,13 +153,6 @@ if [ "$FORCE_REINSTALL" = true ] && [ -d "$VENV_DIR" ]; then
     rm -rf "$VENV_DIR"
 fi
 
-if [ "$UPGRADE" = true ] && [ -d "$VENV_DIR" ]; then
-    if [ ! -f "${VENV_DIR}/bin/activate" ]; then
-        echo "⚠️  Existing venv is broken, recreating..."
-        rm -rf "$VENV_DIR"
-    fi
-fi
-
 if [ ! -d "$VENV_DIR" ]; then
     echo "🐍 Creating Python virtual environment..."
     python3 -m venv "$VENV_DIR"
@@ -155,11 +193,11 @@ else
     echo "⚠️  Warning: Self-update script '${SELF_UPDATE_SCRIPT}' not found. Skipping."
 fi
 
-cd / 
+cd /
 rm -rf "${TMPDIR}"
 
 # === Initialize Database ===
-if [ "$UNINSTALL" = false ]; then
+if [ ! -f "${APP_DIR}/server.py" ]; then
     echo "🔄 Checking if database exists and initializing if needed..."
     source "${VENV_DIR}/bin/activate"
 
