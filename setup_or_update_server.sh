@@ -145,11 +145,8 @@ rm -rf "${TMPDIR}"
 echo "🔄 Checking if database exists and initializing if needed..."
 source "${VENV_DIR}/bin/activate"
 
-# Change to the app directory where 'server.py' is located
-cd "${APP_DIR}"
-
-# Initialize the database by running server.py's db.create_all() method
-python -c "from server import db; db.create_all()"
+# Use absolute path for the server.py location to initialize the database
+python -c "from ${APP_DIR}.server import db; db.create_all()"
 
 # === Systemd service ===
 echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
