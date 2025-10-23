@@ -34,14 +34,14 @@ for arg in "$@"; do
 done
 
 # === System dependencies ===
-echo "📦 Installing system packages (python3, venv, pip, curl, unzip)..."
+echo "📦 Installing system packages (python3, venv, pip, curl, unzip, sqlite3)..."
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update
     apt-get install -y python3 python3-venv python3-pip curl unzip sqlite3
 elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y python3 python3-venv python3-pip curl unzip
+    dnf install -y python3 python3-venv python3-pip curl unzip sqlite3
 elif command -v yum >/dev/null 2>&1; then
-    yum install -y python3 python3-venv python3-pip curl unzip
+    yum install -y python3 python3-venv python3-pip curl unzip sqlite3
 else
     echo "❌ Unsupported OS / package manager. Please install dependencies manually."
     exit 1
@@ -144,6 +144,10 @@ fi
 
 cd /
 rm -rf "${TMPDIR}"
+
+# === Create Database Tables ===
+echo "📅 Creating database tables..."
+python3 ${APP_DIR}/server.py create_tables
 
 # === Systemd service ===
 echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
