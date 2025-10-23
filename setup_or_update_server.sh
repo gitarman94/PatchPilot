@@ -47,35 +47,40 @@ else
     exit 1
 fi
 
-# === Stop services and kill processes ===
-echo "🛑 Stopping and disabling systemd services..."
-systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-systemctl stop "$SELF_UPDATE_TIMER" 2>/dev/null || true
-systemctl disable "$SELF_UPDATE_TIMER" 2>/dev/null || true
-
-echo "☠️ Killing all running patchpilot server.py instances..."
-
-# Get all pids for server.py except the current script's PID ($$)
-PIDS=$(pgrep -f "/opt/patchpilot_server/server.py" | grep -v "^$$\$" || true)
-
-if [ -n "$PIDS" ]; then
-    echo "Killing pids: $PIDS"
-    kill -TERM $PIDS
-    sleep 2
-    # Force kill if still running
-    for pid in $PIDS; do
-        if kill -0 "$pid" 2>/dev/null; then
-            echo "Force killing pid: $pid"
-            kill -9 "$pid"
-        fi
-    done
-else
-    echo "No running patchpilot server.py instances found."
-fi
-
 # === Optional cleanup ===
-if [ "$FORCE_REINSTALL" = true ] && [ -d "$APP_DIR" ]; then
+if [ "$FORCE_REINSTALL" = true ]; then
+    echo "🛑 Stopping and disabling systemd services..."
+    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+    systemctl stop "$SELF_UPDATE_TIMER" 2>/dev/null || true
+    systemctl disable "$SELF_UPDATE_TIMER" 2>/dev/null || true
+
+    echo "☠️ Killing all running patchpilot server.py instances..."
+
+    PIDS=$(pgrep -f "/opt/patchpilot_server/server.py" || true)
+
+    if [ -n "$PIDS" ]; then
+        echo "Killing pids: $PIDS"
+        for pid in $PIDS; do
+            if kill -0 "$pid" 2>/dev/null; then
+                kill -TERM "$pid" || echo "⚠️ Failed to kill pid $pid"
+            else
+                echo "⚠️ PID $pid no longer exists."
+            fi
+        done
+
+        sleep 2
+
+        for pid in $PIDS; do
+            if kill -0 "$pid" 2>/dev/null; then
+                echo "Force killing pid: $pid"
+                kill -9 "$pid" || echo "⚠️ Failed to force kill pid $pid"
+            fi
+        done
+    else
+        echo "No running patchpilot server.py instances found."
+    fi
+
     echo "🧹 Removing previous installation at $APP_DIR..."
     rm -rf "$APP_DIR"
 fi
