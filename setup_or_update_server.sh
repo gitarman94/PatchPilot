@@ -130,7 +130,7 @@ chmod +x "${APP_DIR}/server.py"
 cd /  # Clean up temporary directory
 rm -rf "${TMPDIR}"
 
-# === Systemd service creation ===
+# === Create systemd service for PatchPilot ===
 echo "⚙️  Creating systemd service for PatchPilot..."
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
@@ -154,23 +154,6 @@ systemctl daemon-reload
 
 echo "🚀 Enabling & starting PatchPilot service..."
 systemctl enable --now "${SERVICE_NAME}"
-
-# === Update mechanism using setup_or_update_server.sh ===
-echo "📅 Adding update script as a systemd service for periodic updates"
-cat > "${SYSTEMD_DIR}/patchpilot_server_update.service" <<EOF
-[Unit]
-Description=PatchPilot Server Update
-After=network.target
-
-[Service]
-Type=oneshot
-ExecStart=${APP_DIR}/setup_or_update_server.sh
-WorkingDirectory=${APP_DIR}
-Environment="PATH=${VENV_DIR}/bin"
-EOF
-
-# Enable the update service to run on-demand
-systemctl enable --now patchpilot_server_update.service
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
