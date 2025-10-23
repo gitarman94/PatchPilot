@@ -22,25 +22,28 @@ PatchPilot is a cross-platform patch client designed to manage and report softwa
 ```
 PatchPilot/
 │
-├── server.py                      # Flask-like Python server
-├── setup_or_update_server.sh     # Server install/update script (Linux)
-├── setup_or_update_client.sh     # Client install/update script (Linux)
-├── setup_or_update_client.ps1    # Client install/update script (Windows)
-├── README.md
+│   server.py                       # Main backend file - A Flask-based Python server that handles client registrations, update checks, and administration tasks.
+│   setup_or_update_client.ps1       # PowerShell script for installing or updating the client on Windows machines.
+│   setup_or_update_client.sh        # Shell script for installing or updating the client on Linux machines.
+│   setup_or_update_server.sh        # Shell script for setting up or updating the server environment on Linux machines.
 │
-├── patchpilot_client_rust/       # Shared Rust client code (Windows & Linux)
-│   ├── Cargo.toml
-│   └── src/
-│       ├── main.rs
-│       ├── self_update.rs
-│       ├── service.rs
-│       ├── system_info.rs
-│       ├── updater.rs
-│       ├── commands.rs
+├───patchpilot_client_rust           # Rust client code (shared across Windows & Linux) for handling communication and updates.
+│   │   Cargo.toml                   # Rust configuration file, managing dependencies and project settings.
+│   │
+│   └───src                          # Source directory for Rust code.
+│           commands.rs               # Rust file responsible for parsing and handling commands sent from the server (e.g., installing updates).
+│           main.rs                   # Entry point for the Rust client application.
+│           patchpilot_updater.rs     # Code for the update logic in the Rust client, managing patch installations and updates.
+│           self_update.rs            # Logic for updating the Rust client itself (self-updating mechanism).
+│           service.rs                # Provides the core service for the PatchPilot client, including running in the background and maintaining client health.
+│           system_info.rs            # Collects system information (e.g., CPU, RAM, OS version) to send back to the server.
+│           updater.rs                # Manages the update process, including checking for available updates and applying them.
 │
-└── templates/                    # Server web UI (HTML)
-    ├── dashboard.html
-    └── client_detail.html
+└───templates                        # HTML templates used by the Flask server for the web UI.
+        client.html                   # Template displaying the list of all registered clients in the admin dashboard.
+        client_detail.html            # Template for showing detailed information about a specific client (e.g., status, updates, system info).
+        dashboard.html                # Main dashboard template that aggregates information about all clients and allows admin actions.
+
 ```
 
 ---
