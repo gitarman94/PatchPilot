@@ -91,10 +91,21 @@ if [ ! -f "$POSTGRES_PASSWORD_FILE" ]; then
     echo "$POSTGRES_PASSWORD" > "$POSTGRES_PASSWORD_FILE"
     echo "Password for PostgreSQL created and saved to $POSTGRES_PASSWORD_FILE."
 
-    # Optionally, update PostgreSQL settings to reflect the password
-    # You might need to configure PostgreSQL to use this password by editing pg_hba.conf or using ALTER USER command
-    sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD '$POSTGRES_PASSWORD';"
-    echo "PostgreSQL password has been updated for user 'postgres'."
+    # Check if running as root or not
+    if [ "$(id -u)" -eq 0 ]; then
+        # If running as root, execute directly
+        psql -U postgres -c "ALTER USER postgres WITH PASSWORD '$POSTGRES_PASSWORD';"
+        echo "PostgreSQL password has been updated for user 'postgres'."
+    else
+        # If not root, attempt to use sudo
+        if command -v sudo >/dev/null 2>&1; then
+            sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD '$POSTGRES_PASSWORD';"
+            echo "PostgreSQL password has been updated for user 'postgres' using sudo."
+        else
+            echo "❌ sudo is not available, and you're not running as root. Unable to update PostgreSQL password."
+            exit 1
+        fi
+    fi
 fi
 
 # === Virtual environment setup ===
