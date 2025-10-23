@@ -16,6 +16,7 @@ SELF_UPDATE_SCRIPT="linux_server_self_update.sh"
 SELF_UPDATE_SERVICE="patchpilot_server_update.service"
 SELF_UPDATE_TIMER="patchpilot_server_update.timer"
 SYSTEMD_DIR="/etc/systemd/system"
+PASSWORD_FILE="${APP_DIR}/postgresql_pwd.txt"  # New password file
 
 # === Flags ===
 FORCE_REINSTALL=false
@@ -102,8 +103,17 @@ fi
 
 # === PostgreSQL Setup ===
 if [ "$FORCE_REINSTALL" = true ] || [ ! -f "$APP_DIR/server.py" ]; then
+    # Generate a random password for the PostgreSQL user
+    PASSWORD=$(openssl rand -base64 16)
+
+    # Save the password to the file for later reference
+    echo $PASSWORD > "$PASSWORD_FILE"
+    echo "⚠️  The password for the PostgreSQL user 'patchpilot_user' has been saved to: $PASSWORD_FILE"
+
     echo "🔄 Setting up PostgreSQL..."
-    sudo -u postgres psql -c "CREATE USER patchpilot_user WITH PASSWORD 'yourpassword';" || true
+
+    # Create PostgreSQL user and database with the generated password
+    sudo -u postgres psql -c "CREATE USER patchpilot_user WITH PASSWORD '$PASSWORD';" || true
     sudo -u postgres psql -c "CREATE DATABASE patchpilot_db;" || true
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE patchpilot_db TO patchpilot_user;" || true
 fi
