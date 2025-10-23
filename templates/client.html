@@ -3,45 +3,66 @@
 <head>
     <meta charset="UTF-8" />
     <title>PatchPilot Dashboard</title>
-    <link
-        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-        rel="stylesheet"
-        crossorigin="anonymous"
-    />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous"/>
     <style>
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Arial', sans-serif;
             margin: 2em;
             background-color: #f9f9f9;
         }
         table {
             background-color: white;
-            border-radius: 6px;
-            box-shadow: 0 0 6px #ccc;
+            border-radius: 8px;
+            box-shadow: 0 0 8px #ccc;
+            border-collapse: separate;
+            width: 100%;
         }
         th, td {
             text-align: left;
-            padding: 0.5em;
+            padding: 1em;
         }
         th {
             background-color: #f1f1f1;
         }
         .status-online {
-            color: green;
+            color: #28a745;
             font-weight: bold;
         }
         .status-offline {
-            color: red;
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .status-updates {
+            color: #ffc107;
             font-weight: bold;
         }
         .btn-sm {
             margin: 0.1em;
         }
+        .update-status {
+            font-weight: bold;
+        }
+        .update-status .badge {
+            font-size: 1.2em;
+        }
+        .no-updates {
+            color: #6c757d;
+        }
+        .table-hover tbody tr:hover {
+            background-color: #f0f8ff;
+        }
+        .actions-button {
+            display: flex;
+            gap: 10px;
+        }
+        .actions-button form {
+            margin: 0;
+        }
     </style>
 </head>
 <body>
     <h1>PatchPilot Dashboard</h1>
-    <p>Last updated: {{ now }}</p>
+    <p><strong>Last updated:</strong> {{ now }}</p>
 
     <table class="table table-striped table-hover">
         <thead>
@@ -62,7 +83,7 @@
         <tbody>
             {% for client in clients %}
             <tr>
-                <td><a href="/clients/{{ client.id }}">{{ client.id }}</a></td>
+                <td><a href="/clients/{{ client.id }}" class="text-primary">{{ client.id }}</a></td>
                 <td>{{ client.client_name or 'N/A' }}</td>
                 <td>{{ client.os or 'N/A' }} {{ client.os_version or '' }}</td>
                 <td>{{ client.cpu or 'N/A' }}</td>
@@ -71,20 +92,22 @@
                 <td>{{ client.uptime() or 'N/A' }}</td>
                 <td>
                     {% if client.updates_available %}
-                        ⚠️ Updates pending
+                        <span class="badge bg-warning text-dark">⚠️ Updates Pending</span>
                     {% else %}
-                        ✅ Up to date
+                        <span class="badge bg-success">✅ Up to Date</span>
                     {% endif %}
                 </td>
                 <td>
                     {% if client.is_online() %}
-                        <span class="status-online">Online</span>
+                        <span class="status-online">🟢 Online</span>
                     {% else %}
-                        <span class="status-offline">Offline</span>
+                        <span class="status-offline">🔴 Offline</span>
                     {% endif %}
                 </td>
-				<td>{{ 'Yes' if client.updates_available else 'No' }}</td>
-                <td>
+                <td class="update-status">
+                    {{ 'Yes' if client.updates_available else 'No' }}
+                </td>
+                <td class="actions-button">
                     {% if not client.approved %}
                         <form method="post" action="/approve/{{ client.id }}" style="display:inline;">
                             <button type="submit" class="btn btn-warning btn-sm">Approve</button>
