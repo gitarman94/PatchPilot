@@ -65,7 +65,7 @@ mod windows_service {
 
         // Update these paths as needed
         let server_url = std::fs::read_to_string(r"C:\ProgramData\RustPatchClient\server_url.txt")
-            .unwrap_or_else(|_| "http://127.0.0.1:5000".to_string())
+            .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string())
             .trim()
             .to_string();
 
@@ -113,7 +113,7 @@ mod unix_service {
         let client_id_path = format!("{}/client_id.txt", config_dir);
 
         let server_url = fs::read_to_string(&server_url_path)
-            .unwrap_or_else(|_| "http://127.0.0.1:5000".to_string())
+            .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string())
             .trim()
             .to_string();
 
