@@ -30,25 +30,15 @@ uninstall() {
 
 update() {
   echo "Updating PatchPilot client..."
+  
   if [[ ! -d "$INSTALL_DIR" ]]; then
     echo "Error: Installation not found at $INSTALL_DIR"
     echo "Attempting to install PatchPilot client..."
-    install  # Trigger the install if the directory doesn't exist
+    install  # Trigger install if the directory doesn't exist
     return
   fi
 
-  # Prompt for server IP (not full URL)
-  read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
-
-  # Strip protocol and port if somehow included
-  input_ip="${input_ip#http://}"
-  input_ip="${input_ip#https://}"
-  input_ip="${input_ip%%/*}"  # Remove trailing slash or paths
-
-  final_url="http://${input_ip}:8080/api"
-  echo "Saving server URL: $final_url"
-  echo "$final_url" > "$SERVER_URL_FILE"
-
+  # Install dependencies and Rust toolchain as necessary
   echo "[*] Installing dependencies..."
   apt-get update
   apt-get install -y curl git build-essential pkg-config libssl-dev
@@ -111,24 +101,13 @@ EOF
 reinstall() {
   echo "Reinstalling PatchPilot client..."
   uninstall
-  install  # Re-run the full installation instead of just update
+  install  # Ensure a fresh install
 }
 
 install() {
   echo "Installing PatchPilot client..."
 
-  # Prompt for server IP (not full URL)
-  read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
-
-  # Strip protocol and port if somehow included
-  input_ip="${input_ip#http://}"
-  input_ip="${input_ip#https://}"
-  input_ip="${input_ip%%/*}"  # Remove trailing slash or paths
-
-  final_url="http://${input_ip}:8080/api"
-  echo "Saving server URL: $final_url"
-  echo "$final_url" > "$SERVER_URL_FILE"
-
+  # Install dependencies and Rust toolchain as necessary
   echo "[*] Installing dependencies..."
   apt-get update
   apt-get install -y curl git build-essential pkg-config libssl-dev
@@ -235,5 +214,17 @@ else
   echo "No installation detected. Running full install..."
   install
 fi
+
+# Prompt for server IP (moved to the bottom)
+read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
+
+# Strip protocol and port if somehow included
+input_ip="${input_ip#http://}"
+input_ip="${input_ip#https://}"
+input_ip="${input_ip%%/*}"  # Remove trailing slash or paths
+
+final_url="http://${input_ip}:8080/api"
+echo "Saving server URL: $final_url"
+echo "$final_url" > "$SERVER_URL_FILE"
 
 exit 0
