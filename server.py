@@ -1,3 +1,4 @@
+# 'server.py'
 import os
 import json
 import base64
@@ -5,6 +6,8 @@ from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, render_template, abort, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+import random
+import string
 
 # Initialize Flask application and enable CORS
 app = Flask(__name__)
@@ -16,9 +19,28 @@ UPDATE_CACHE_DIR = os.path.join(SERVER_DIR, "updates")
 if not os.path.isdir(UPDATE_CACHE_DIR):
     os.makedirs(UPDATE_CACHE_DIR, exist_ok=True)
 
-# PostgreSQL Database Configuration (Adjust credentials as needed)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://patchpilot_user:YOUR_PASSWORD@localhost/patchpilot_db'
+# == PostgreSQL Password Handling ==
+# Path to the password file
+PASSWORD_FILE = os.path.join(SERVER_DIR, "postgresql_pwd.txt")
+
+# Read the password from the file
+if not os.path.exists(PASSWORD_FILE):
+    # Generate a random password if the file doesn't exist
+    db_password = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+    with open(PASSWORD_FILE, 'w') as f:
+        f.write(db_password)
+    print(f"Generated a new password for PostgreSQL user 'patchpilot_user': {db_password}")
+else:
+    # If the file exists, read the password
+    with open(PASSWORD_FILE, 'r') as f:
+        db_password = f.read().strip()
+
+# Database URI for PostgreSQL connection
+SQLALCHEMY_DATABASE_URI = f'postgresql://patchpilot_user:{db_password}@localhost/patchpilot_db'
+app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Initialize SQLAlchemy
 db = SQLAlchemy(app)
 
 # == MODELS == 
@@ -232,9 +254,23 @@ def client_update(client_id):
     client.disk_total = data.get('disk_total', client.disk_total)
     client.disk_free = data.get('disk_free', client.disk_free)
     client.uptime_val = data.get('uptime', client.uptime_val)
-    db.session.commit()
+    client.file_hashes = json.dumps(data.get('file_hashes', {}))
 
+    # --- updates ---
+    reported = data.get('updates', [])
+    for kb in reported:
+        update = ClientUpdate.query.filter_by(client_id=client.id, kb_or_package=kb).first()
+        if update:
+            update.status = 'installed'
+
+    db.session.commit()
     return jsonify({'status': 'success'})
 
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0')
+    # Ensure the database exists before running the app
+    print("Initializing database tables...")
+    if not os.path.exists('patchpilot.db'):
+        db.create_all()  # This creates the tables if they don't exist
+        print("Database tables created.")
+    app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
