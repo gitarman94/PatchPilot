@@ -130,7 +130,7 @@ chmod +x "${APP_DIR}/server.py"
 cd /  # Clean up temporary directory
 rm -rf "${TMPDIR}"
 
-# === Create systemd service for PatchPilot ===
+# === Systemd service creation ===
 echo "⚙️  Creating systemd service for PatchPilot..."
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
