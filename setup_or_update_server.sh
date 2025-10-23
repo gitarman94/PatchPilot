@@ -48,22 +48,33 @@ else
 fi
 
 # === Optional cleanup ===
-if [ "$FORCE_REINSTALL" = true ] && [ -d "$APP_DIR" ]; then
+if [ "$FORCE_REINSTALL" = true ]; then
     echo "🛑 Stopping and disabling systemd services..."
     systemctl stop "$SERVICE_NAME" 2>/dev/null || true
     systemctl disable "$SERVICE_NAME" 2>/dev/null || true
     systemctl stop "$SELF_UPDATE_TIMER" 2>/dev/null || true
     systemctl disable "$SELF_UPDATE_TIMER" 2>/dev/null || true
-    systemctl stop "$SELF_UPDATE_SERVICE" 2>/dev/null || true
-    systemctl disable "$SELF_UPDATE_SERVICE" 2>/dev/null || true
 
     echo "☠️ Killing all running patchpilot server.py instances..."
-    PIDS=$(pgrep -f "server.py" || true)
+    # Get all pids except current script pid
+    PIDS=$(pgrep -f "server.py" | grep -v "^$$\$" || true)
     if [ -n "$PIDS" ]; then
-        echo "Killing pids: $PIDS"
+        echo "Found pids: $PIDS"
         for pid in $PIDS; do
+            if [ "$pid" -eq "$$" ]; then
+                echo "Skipping killing self (pid $pid)"
+                continue
+            fi
+            echo "Sending SIGTERM to pid $pid"
             set +e
-            kill "$pid"
+            kill -15 "$pid" || true
+            sleep 2
+            if kill -0 "$pid" 2>/dev/null; then
+                echo "Pid $pid still alive after SIGTERM, sending SIGKILL"
+                kill -9 "$pid" || true
+            else
+                echo "Pid $pid terminated cleanly"
+            fi
             set -e
         done
     else
