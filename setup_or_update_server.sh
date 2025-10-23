@@ -149,7 +149,11 @@ source "${VENV_DIR}/bin/activate"
 cd "${APP_DIR}"
 
 # Now run the python command with the correct context
-python -c "from server import db; db.create_all()"
+python -c "
+from server import app, db
+with app.app_context():
+    db.create_all()
+"
 
 # === Systemd service ===
 echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
