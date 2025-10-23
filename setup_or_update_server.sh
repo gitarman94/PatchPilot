@@ -63,15 +63,16 @@ if [ "$FORCE_REINSTALL" = true ]; then
                 continue
             fi
             echo "Sending SIGTERM to pid $pid"
+            set +e
             kill -15 "$pid" || true
-            # Wait longer before sending SIGKILL
-            sleep 5  # Increased sleep time for process termination
+            sleep 2
             if kill -0 "$pid" 2>/dev/null; then
                 echo "Pid $pid still alive after SIGTERM, sending SIGKILL"
                 kill -9 "$pid" || true
             else
                 echo "Pid $pid terminated cleanly"
             fi
+            set -e
         done
     else
         echo "No running patchpilot server.py processes found."
@@ -110,7 +111,7 @@ python -m ensurepip --upgrade
 pip install --upgrade pip setuptools wheel
 
 # Install/update core dependencies
-pip install --upgrade Flask Flask-SQLAlchemy flask_cors
+pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn
 
 # === Download repo ===
 TMPDIR=$(mktemp -d)
@@ -151,7 +152,7 @@ After=network.target
 User=root
 WorkingDirectory=${APP_DIR}
 Environment="PATH=${VENV_DIR}/bin"
-ExecStart=${VENV_DIR}/bin/python ${APP_DIR}/server.py
+ExecStart=${VENV_DIR}/bin/gunicorn -w 4 -b 0.0.0.0:8080 server:app
 Restart=always
 
 [Install]
