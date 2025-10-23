@@ -274,4 +274,10 @@ def client_ping(client_id):
     return jsonify({'status': 'pong', 'online': client.is_online()})
 
 if __name__ == '__main__':
+    with app.app_context():
+        print("Initializing database tables...")
+        db.create_all()  # Forces creation of tables if they don't exist
+        print("Database tables created.")
+
     app.run(host='0.0.0.0', port=8080, debug=True)
+
