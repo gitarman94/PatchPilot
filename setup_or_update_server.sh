@@ -11,7 +11,6 @@ ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${B
 APP_DIR="/opt/patchpilot_server"
 VENV_DIR="${APP_DIR}/venv"
 SERVICE_NAME="patchpilot_server.service"
-SELF_UPDATE_SCRIPT="linux_server_self_update.sh"
 SYSTEMD_DIR="/etc/systemd/system"
 PASSWORD_FILE="${APP_DIR}/postgresql_pwd.txt"  # Path to save the password
 
@@ -40,8 +39,6 @@ if [ "$UNINSTALL" = true ]; then
     echo "🛑 Stopping and disabling systemd services..."
     systemctl stop "$SERVICE_NAME" 2>/dev/null || true
     systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-    systemctl stop "$SELF_UPDATE_TIMER" 2>/dev/null || true
-    systemctl disable "$SELF_UPDATE_TIMER" 2>/dev/null || true
 
     # Kill running instances of PatchPilot
     echo "☠️ Killing all running patchpilot server.py instances..."
@@ -76,13 +73,10 @@ if [ "$FORCE_REINSTALL" = true ] || [ ! -f "$APP_DIR/server.py" ]; then
     # Generate a random password for PostgreSQL
     PG_PASSWORD=$(openssl rand -base64 16)
 
-    # Debug: Check if the password is generated correctly
-    echo "Generated PostgreSQL password: $PG_PASSWORD"  # REMOVE this line for production, only for debugging
-
     # Write password to file
     echo $PG_PASSWORD > "$PASSWORD_FILE"
-    
-    # Debug: Confirm if the password was written to the file
+
+    # Confirm if the password was written to the file
     if [ -f "$PASSWORD_FILE" ]; then
         echo "✔️ Password successfully written to: $PASSWORD_FILE"
     else
@@ -140,11 +134,6 @@ cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 
 # === Permissions ===
 chmod +x "${APP_DIR}/server.py"
-if [ -f "${APP_DIR}/${SELF_UPDATE_SCRIPT}" ]; then
-    chmod +x "${APP_DIR}/${SELF_UPDATE_SCRIPT}"
-else
-    echo "⚠️  Warning: Self-update script '${SELF_UPDATE_SCRIPT}' not found. Skipping."
-fi
 
 cd "$APP_DIR"
 
@@ -152,7 +141,6 @@ cd "$APP_DIR"
 echo "📄 Updating database configuration..."
 
 DB_PASSWORD=$(cat "$PASSWORD_FILE")
-echo "Using password for DB: $DB_PASSWORD"  # Debugging step
 sed -i "s|postgresql://patchpilot_user:.*@localhost/patchpilot_db|postgresql://patchpilot_user:${DB_PASSWORD}@localhost/patchpilot_db|" "${APP_DIR}/server.py"
 
 echo "✅ Setup complete! PatchPilot is ready."
