@@ -93,15 +93,27 @@ if [ ! -f "$POSTGRES_PASSWORD_FILE" ]; then
     
     # === Fix Authentication Issue ===
     echo "🔧 Fixing PostgreSQL authentication to allow password-based login with scram-sha-256..."
-    PG_HBA_CONF=$(find / -name "pg_hba.conf" | grep -i 'pg_hba.conf' | head -n 1)
-    
-    if [ -z "$PG_HBA_CONF" ]; then
-        echo "❌ pg_hba.conf file not found. Please check your PostgreSQL installation."
-        exit 1
+
+    # Attempt to locate pg_hba.conf in common locations
+    PG_HBA_CONF=""
+    if [ -d "/etc/postgresql" ]; then
+        PG_HBA_CONF=$(find /etc/postgresql -name "pg_hba.conf" 2>/dev/null | head -n 1)
+    fi
+    if [ -z "$PG_HBA_CONF" ] && [ -d "/var/lib/pgsql" ]; then
+        PG_HBA_CONF=$(find /var/lib/pgsql -name "pg_hba.conf" 2>/dev/null | head -n 1)
     fi
     
+    if [ -z "$PG_HBA_CONF" ]; then
+        echo "❌ pg_hba.conf file not found in common locations."
+        exit 1
+    fi
+
+    echo "📂 Found pg_hba.conf at $PG_HBA_CONF"
+
     # Modify pg_hba.conf to use scram-sha-256 authentication for both local and host
     echo "📂 Modifying pg_hba.conf for password authentication using scram-sha-256..."
+    
+    # Use an alternative delimiter to avoid issues with slashes
     sed -i 's#^local\s*all\s*postgres\s*peer#local   all             postgres                                scram-sha-256#' "$PG_HBA_CONF"
     sed -i 's#^#host\s*all\s*postgres\s*127.0.0.1/32\s*peer#host    all             postgres        127.0.0.1/32            scram-sha-256#' "$PG_HBA_CONF"
     sed -i 's#^#host\s*all\s*postgres\s*::1/128\s*peer#host    all             postgres        ::1/128                 scram-sha-256#' "$PG_HBA_CONF"
@@ -194,28 +206,28 @@ rm -rf "${TMPDIR}"
 
 # === Systemd service creation ===
 echo "⚙️  Creating systemd service for PatchPilot..."
-cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
+cat <<EOF > "${SYSTEMD_DIR}/${SERVICE_NAME}"
 [Unit]
-Description=Patch Management Server
-After=network.target
+Description=PatchPilot Server
+After=network.target postgresql.service
 
 [Service]
-User=root
+ExecStart=${APP_DIR}/venv/bin/python ${APP_DIR}/server.py
 WorkingDirectory=${APP_DIR}
-Environment="PATH=${VENV_DIR}/bin"
-ExecStart=${VENV_DIR}/bin/gunicorn -w 4 -b 0.0.0.0:8080 server:app
+User=root
+Group=root
+Environment="PATH=${APP_DIR}/venv/bin"
+Environment="FLASK_APP=${APP_DIR}/server.py"
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# === Finalizing Installation ===
-echo "🔄 Reloading systemd daemon..."
 systemctl daemon-reload
 
-echo "🚀 Enabling & starting PatchPilot service..."
+# === Start the service ===
+echo "🚀 Starting PatchPilot server..."
 systemctl enable --now "${SERVICE_NAME}"
 
-SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
+echo "✅ Installation complete! The PatchPilot server is running as a systemd service."
