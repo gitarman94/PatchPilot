@@ -20,6 +20,7 @@ SYSTEMD_DIR="/etc/systemd/system"
 # === Flags ===
 FORCE_REINSTALL=false
 UPGRADE=false
+UNINSTALL=false
 for arg in "$@"; do
     case "$arg" in
         --force)
@@ -29,6 +30,10 @@ for arg in "$@"; do
         --upgrade)
             UPGRADE=true
             echo "⬆️  Upgrade mode enabled: keeping configs but updating software."
+            ;;
+        --uninstall)
+            UNINSTALL=true
+            echo "🛑 Uninstall mode enabled: removing PatchPilot and all dependencies."
             ;;
     esac
 done
@@ -48,13 +53,19 @@ else
 fi
 
 # === PostgreSQL Setup ===
-echo "🔄 Setting up PostgreSQL..."
-sudo -u postgres psql -c "CREATE USER patchpilot_user WITH PASSWORD 'yourpassword';"
-sudo -u postgres psql -c "CREATE DATABASE patchpilot_db;"
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE patchpilot_db TO patchpilot_user;"
+if [ "$UNINSTALL" = false ]; then
+    echo "🔄 Setting up PostgreSQL..."
+    sudo -u postgres psql -c "CREATE USER patchpilot_user WITH PASSWORD 'yourpassword';" || true
+    sudo -u postgres psql -c "CREATE DATABASE patchpilot_db;" || true
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE patchpilot_db TO patchpilot_user;" || true
+else
+    echo "🧹 Uninstalling PostgreSQL database..."
+    sudo -u postgres psql -c "DROP DATABASE IF EXISTS patchpilot_db;" || true
+    sudo -u postgres psql -c "DROP USER IF EXISTS patchpilot_user;" || true
+fi
 
 # === Optional cleanup ===
-if [ "$FORCE_REINSTALL" = true ]; then
+if [ "$FORCE_REINSTALL" = true ] || [ "$UNINSTALL" = true ]; then
     echo "🛑 Stopping and disabling systemd services..."
     systemctl stop "$SERVICE_NAME" 2>/dev/null || true
     systemctl disable "$SERVICE_NAME" 2>/dev/null || true
@@ -144,22 +155,24 @@ else
     echo "⚠️  Warning: Self-update script '${SELF_UPDATE_SCRIPT}' not found. Skipping."
 fi
 
-cd /
+cd / 
 rm -rf "${TMPDIR}"
 
 # === Initialize Database ===
-echo "🔄 Checking if database exists and initializing if needed..."
-source "${VENV_DIR}/bin/activate"
+if [ "$UNINSTALL" = false ]; then
+    echo "🔄 Checking if database exists and initializing if needed..."
+    source "${VENV_DIR}/bin/activate"
 
-# Change to the app directory before running the Python command
-cd "${APP_DIR}"
+    # Change to the app directory before running the Python command
+    cd "${APP_DIR}"
 
-# Now run the python command with the correct context
-python -c "
+    # Now run the python command with the correct context
+    python -c "
 from server import app, db
 with app.app_context():
     db.create_all()
 "
+fi
 
 # === Systemd service ===
 echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
