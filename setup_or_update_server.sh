@@ -48,37 +48,26 @@ else
 fi
 
 # === Optional cleanup ===
-if [ "$FORCE_REINSTALL" = true ]; then
+if [ "$FORCE_REINSTALL" = true ] && [ -d "$APP_DIR" ]; then
     echo "🛑 Stopping and disabling systemd services..."
     systemctl stop "$SERVICE_NAME" 2>/dev/null || true
     systemctl disable "$SERVICE_NAME" 2>/dev/null || true
     systemctl stop "$SELF_UPDATE_TIMER" 2>/dev/null || true
     systemctl disable "$SELF_UPDATE_TIMER" 2>/dev/null || true
+    systemctl stop "$SELF_UPDATE_SERVICE" 2>/dev/null || true
+    systemctl disable "$SELF_UPDATE_SERVICE" 2>/dev/null || true
 
     echo "☠️ Killing all running patchpilot server.py instances..."
-
-    PIDS=$(pgrep -f "/opt/patchpilot_server/server.py" || true)
-
+    PIDS=$(pgrep -f "server.py" || true)
     if [ -n "$PIDS" ]; then
         echo "Killing pids: $PIDS"
         for pid in $PIDS; do
-            if kill -0 "$pid" 2>/dev/null; then
-                kill -TERM "$pid" || echo "⚠️ Failed to kill pid $pid"
-            else
-                echo "⚠️ PID $pid no longer exists."
-            fi
-        done
-
-        sleep 2
-
-        for pid in $PIDS; do
-            if kill -0 "$pid" 2>/dev/null; then
-                echo "Force killing pid: $pid"
-                kill -9 "$pid" || echo "⚠️ Failed to force kill pid $pid"
-            fi
+            set +e
+            kill "$pid"
+            set -e
         done
     else
-        echo "No running patchpilot server.py instances found."
+        echo "No running patchpilot server.py processes found."
     fi
 
     echo "🧹 Removing previous installation at $APP_DIR..."
