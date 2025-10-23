@@ -90,14 +90,34 @@ if [ ! -f "$POSTGRES_PASSWORD_FILE" ]; then
     POSTGRES_PASSWORD=$(openssl rand -base64 12)
     echo "$POSTGRES_PASSWORD" > "$POSTGRES_PASSWORD_FILE"
     echo "Password for PostgreSQL created and saved to $POSTGRES_PASSWORD_FILE."
+    
+    # === Fix Authentication Issue ===
+    echo "🔧 Fixing PostgreSQL authentication to allow password-based login..."
+    PG_HBA_CONF=$(find / -name "pg_hba.conf" | grep -i 'pg_hba.conf')
+    
+    if [ -z "$PG_HBA_CONF" ]; then
+        echo "❌ pg_hba.conf file not found. Please check your PostgreSQL installation."
+        exit 1
+    fi
+    
+    # Modify pg_hba.conf to use md5 authentication
+    echo "📂 Modifying pg_hba.conf for password authentication..."
+    sed -i "s/peer/md5/g" "$PG_HBA_CONF"
+    
+    # Restart PostgreSQL to apply changes
+    echo "🔄 Restarting PostgreSQL..."
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl restart postgresql
+    else
+        service postgresql restart
+    fi
 
-    # Check if running as root or not
+    # Update PostgreSQL password
+    echo "Updating PostgreSQL password for user 'postgres'..."
     if [ "$(id -u)" -eq 0 ]; then
-        # If running as root, execute directly (no sudo required)
         psql -U postgres -c "ALTER USER postgres WITH PASSWORD '$POSTGRES_PASSWORD';"
         echo "PostgreSQL password has been updated for user 'postgres'."
     else
-        # If not running as root, try to use sudo to execute the command
         if command -v sudo >/dev/null 2>&1; then
             sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD '$POSTGRES_PASSWORD';"
             echo "PostgreSQL password has been updated for user 'postgres' using sudo."
