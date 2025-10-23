@@ -72,7 +72,7 @@ fn install_updates(update_titles: &[String]) -> Result<()> {
         .map_err(|e| anyhow!("Failed to run PowerShell install script: {}", e))?;
 
     if !status.success() {
-        return Err(anyhow!("Update installation failed"));
+        return Err(anyhow!("Update installation failed with status: {:?}", status));
     }
 
     Ok(())
@@ -80,15 +80,14 @@ fn install_updates(update_titles: &[String]) -> Result<()> {
 
 #[cfg(unix)]
 fn install_updates(_update_titles: &[String]) -> Result<()> {
-    // Linux update installation logic here, e.g.:
-    // Call "apt-get update && apt-get upgrade -y" or appropriate package manager
     let status = Command::new("sh")
         .arg("-c")
         .arg("sudo apt-get update && sudo apt-get upgrade -y")
-        .status()?;
+        .status()
+        .map_err(|e| anyhow!("Failed to run update command: {}", e))?;
 
     if !status.success() {
-        return Err(anyhow!("Failed to install updates"));
+        return Err(anyhow!("Failed to install updates with status: {:?}", status));
     }
 
     Ok(())
@@ -98,7 +97,8 @@ fn install_updates(_update_titles: &[String]) -> Result<()> {
 fn reboot_system() -> Result<()> {
     Command::new("shutdown")
         .args(&["/r", "/t", "0"])
-        .status()?;
+        .status()
+        .map_err(|e| anyhow!("Failed to reboot system: {}", e))?;
     Ok(())
 }
 
@@ -106,7 +106,8 @@ fn reboot_system() -> Result<()> {
 fn reboot_system() -> Result<()> {
     Command::new("sudo")
         .arg("reboot")
-        .status()?;
+        .status()
+        .map_err(|e| anyhow!("Failed to reboot system: {}", e))?;
     Ok(())
 }
 
@@ -114,7 +115,8 @@ fn reboot_system() -> Result<()> {
 fn shutdown_system() -> Result<()> {
     Command::new("shutdown")
         .args(&["/s", "/t", "0"])
-        .status()?;
+        .status()
+        .map_err(|e| anyhow!("Failed to shutdown system: {}", e))?;
     Ok(())
 }
 
@@ -124,6 +126,7 @@ fn shutdown_system() -> Result<()> {
         .arg("shutdown")
         .arg("-h")
         .arg("now")
-        .status()?;
+        .status()
+        .map_err(|e| anyhow!("Failed to shutdown system: {}", e))?;
     Ok(())
 }
