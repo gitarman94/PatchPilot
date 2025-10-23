@@ -12,82 +12,22 @@ APP_DIR="/opt/patchpilot_server"
 VENV_DIR="${APP_DIR}/venv"
 SERVICE_NAME="patchpilot_server.service"
 SYSTEMD_DIR="/etc/systemd/system"
-PASSWORD_FILE="${APP_DIR}/postgresql_pwd.txt"  # Path to save the password
 
 # === Flags ===
 FORCE_REINSTALL=false
-UNINSTALL=false
-
+UPGRADE=false
 for arg in "$@"; do
     case "$arg" in
         --force)
             FORCE_REINSTALL=true
-            echo "⚠️  Force reinstallation enabled: removing previous installation and reinstalling."
+            echo "⚠️  Force reinstallation enabled: previous installation will be deleted."
             ;;
-        --uninstall)
-            UNINSTALL=true
-            echo "🛑 Uninstall mode enabled: removing PatchPilot and all dependencies."
+        --upgrade)
+            UPGRADE=true
+            echo "⬆️  Upgrade mode enabled: keeping configs but updating software."
             ;;
     esac
 done
-
-# === Uninstall Process ===
-if [ "$UNINSTALL" = true ]; then
-    echo "🛑 Uninstalling PatchPilot..."
-
-    # Stop and disable systemd services if running
-    echo "🛑 Stopping and disabling systemd services..."
-    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-
-    # Kill running instances of PatchPilot
-    echo "☠️ Killing all running patchpilot server.py instances..."
-    PIDS=$(pgrep -f "server.py" || true)
-    if [ -n "$PIDS" ]; then
-        for pid in $PIDS; do
-            kill -9 "$pid" || true
-        done
-    fi
-
-    # Remove PostgreSQL database and user
-    echo "🧹 Removing PostgreSQL database and user..."
-    sudo -u postgres psql -c "DROP DATABASE IF EXISTS patchpilot_db;" || true
-    sudo -u postgres psql -c "DROP USER IF EXISTS patchpilot_user;" || true
-
-    # Remove the application directory
-    echo "🧹 Removing PatchPilot installation at $APP_DIR..."
-    rm -rf "$APP_DIR"
-
-    # Clean up virtual environment
-    echo "🧹 Removing virtual environment..."
-    rm -rf "$VENV_DIR"
-
-    echo "✅ Uninstallation complete."
-    exit 0
-fi
-
-# === PostgreSQL Setup ===
-if [ "$FORCE_REINSTALL" = true ] || [ ! -f "$APP_DIR/server.py" ]; then
-    echo "🔄 Setting up PostgreSQL..."
-
-    # Generate a random password for PostgreSQL
-    PG_PASSWORD=$(openssl rand -base64 16 | tr -d '[:space:]')
-
-    # Ensure the password file is clean and write the password to it
-    echo -n "$PG_PASSWORD" > "$PASSWORD_FILE"
-
-    # Confirm if the password was written to the file
-    if [ -f "$PASSWORD_FILE" ]; then
-        echo "✔️ Password successfully written to: $PASSWORD_FILE"
-    else
-        echo "❌ Failed to write password to $PASSWORD_FILE"
-    fi
-
-    # Create PostgreSQL user and database with the generated password
-    sudo -u postgres psql -c "CREATE USER patchpilot_user WITH PASSWORD '$PG_PASSWORD';" || true
-    sudo -u postgres psql -c "CREATE DATABASE patchpilot_db;" || true
-    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE patchpilot_db TO patchpilot_user;" || true
-fi
 
 # === System dependencies ===
 echo "📦 Installing system packages (python3, venv, pip, curl, unzip, postgresql, libpq-dev)..."
@@ -103,7 +43,55 @@ else
     exit 1
 fi
 
+# === Optional cleanup ===
+if [ "$FORCE_REINSTALL" = true ]; then
+    echo "🛑 Stopping and disabling systemd services..."
+    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+
+    echo "☠️ Killing all running patchpilot server.py instances..."
+    PIDS=$(pgrep -f "server.py" | grep -v "^$$\$" || true)
+    if [ -n "$PIDS" ]; then
+        for pid in $PIDS; do
+            if [ "$pid" -eq "$$" ]; then
+                continue
+            fi
+            echo "Sending SIGTERM to pid $pid"
+            set +e
+            kill -15 "$pid" || true
+            sleep 2
+            if kill -0 "$pid" 2>/dev/null; then
+                echo "Pid $pid still alive after SIGTERM, sending SIGKILL"
+                kill -9 "$pid" || true
+            else
+                echo "Pid $pid terminated cleanly"
+            fi
+            set -e
+        done
+    else
+        echo "No running patchpilot server.py processes found."
+    fi
+
+    echo "🧹 Removing previous installation at $APP_DIR..."
+    rm -rf "$APP_DIR"
+fi
+
+# === Create directories ===
+mkdir -p "${APP_DIR}"
+
 # === Virtual environment setup ===
+if [ "$FORCE_REINSTALL" = true ] && [ -d "$VENV_DIR" ]; then
+    echo "🧹 Removing old virtual environment..."
+    rm -rf "$VENV_DIR"
+fi
+
+if [ "$UPGRADE" = true ] && [ -d "$VENV_DIR" ]; then
+    if [ ! -f "${VENV_DIR}/bin/activate" ]; then
+        echo "⚠️  Existing venv is broken, recreating..."
+        rm -rf "$VENV_DIR"
+    fi
+fi
+
 if [ ! -d "$VENV_DIR" ]; then
     echo "🐍 Creating Python virtual environment..."
     python3 -m venv "$VENV_DIR"
@@ -111,8 +99,12 @@ fi
 
 echo "⬆️  Activating venv and installing Python dependencies..."
 source "${VENV_DIR}/bin/activate"
+
+# Ensure pip/bootstrap exists
 python -m ensurepip --upgrade
 pip install --upgrade pip setuptools wheel
+
+# Install/update core dependencies
 pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn psycopg2
 
 # === Download repo ===
@@ -135,41 +127,50 @@ cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 # === Permissions ===
 chmod +x "${APP_DIR}/server.py"
 
-cd "$APP_DIR"
+cd /  # Clean up temporary directory
+rm -rf "${TMPDIR}"
 
-# === Update configuration for database ===
-echo "📄 Updating database configuration..."
+# === Systemd service creation ===
+echo "⚙️  Creating systemd service for PatchPilot..."
+cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
+[Unit]
+Description=Patch Management Server
+After=network.target
 
-# Read password from file
-DB_PASSWORD=$(cat "$PASSWORD_FILE")
+[Service]
+User=root
+WorkingDirectory=${APP_DIR}
+Environment="PATH=${VENV_DIR}/bin"
+ExecStart=${VENV_DIR}/bin/gunicorn -w 4 -b 0.0.0.0:8080 server:app
+Restart=always
 
-# Update server.py to use the correct PostgreSQL password
-sed -i "s|postgresql://patchpilot_user:.*@localhost/patchpilot_db|postgresql://patchpilot_user:${DB_PASSWORD}@localhost/patchpilot_db|" "${APP_DIR}/server.py"
+[Install]
+WantedBy=multi-user.target
+EOF
 
-# === Clean up unnecessary files ===
-echo "🧹 Cleaning up unnecessary files..."
+# === Finalizing Installation ===
+echo "🔄 Reloading systemd daemon..."
+systemctl daemon-reload
 
-# Remove client setup files
-rm -f "${APP_DIR}/setup_or_update_client.ps1"
-rm -f "${APP_DIR}/setup_or_update_client.sh"
-rm -f "${APP_DIR}/setup_or_update_server.sh"
+echo "🚀 Enabling & starting PatchPilot service..."
+systemctl enable --now "${SERVICE_NAME}"
 
-# Remove the client source code (rust code and other unused files)
-rm -rf "${APP_DIR}/patchpilot_client_rust"
+# === Update mechanism using setup_or_update_server.sh ===
+echo "📅 Adding update script as a systemd service for periodic updates"
+cat > "${SYSTEMD_DIR}/patchpilot_server_update.service" <<EOF
+[Unit]
+Description=PatchPilot Server Update
+After=network.target
 
-# Remove README and LICENSE files (optional, if you want to keep the server clean)
-rm -f "${APP_DIR}/LICENSE"
-rm -f "${APP_DIR}/README.md"
+[Service]
+Type=oneshot
+ExecStart=${APP_DIR}/setup_or_update_server.sh
+WorkingDirectory=${APP_DIR}
+Environment="PATH=${VENV_DIR}/bin"
+EOF
 
-# Remove the templates directory if not needed
-rm -rf "${APP_DIR}/templates"
+# Enable the update service to run on-demand
+systemctl enable --now patchpilot_server_update.service
 
-# === Systemd service setup ===
-echo "⚙️  Enabling systemd service for PatchPilot..."
-cp "${APP_DIR}/patchpilot_server.service" "$SYSTEMD_DIR/"
-systemctl enable "$SERVICE_NAME"
-systemctl start "$SERVICE_NAME"
-
-# === Final message with URL ===
-SERVER_IP=$(hostname -I | awk '{print $1}')   # Grabs the server's IP
+SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
