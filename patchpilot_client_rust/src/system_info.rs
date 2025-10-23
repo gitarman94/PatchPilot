@@ -1,13 +1,48 @@
 use anyhow::{Result, anyhow};
+use std::process::Command;
 
 #[cfg(windows)]
 mod windows {
-    use anyhow::{Result, anyhow};
-    use std::process::Command;
+    use super::*;
 
     pub fn get_system_info() -> Result<String> {
-        // Replace with your existing Windows system info logic or sysinfo crate
-        Ok("Windows system info placeholder".to_string())
+        // Get the serial number on Windows using WMIC command
+        let serial_number = Command::new("wmic")
+            .arg("bios")
+            .arg("get")
+            .arg("serialnumber")
+            .output()
+            .map_err(|e| anyhow!("Failed to execute WMIC: {}", e))?;
+
+        if !serial_number.status.success() {
+            return Err(anyhow!("Failed to retrieve serial number"));
+        }
+
+        let serial_number = String::from_utf8_lossy(&serial_number.stdout)
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .last()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+
+        // Getting other system information like OS, CPU, RAM, etc.
+        let os_version = Command::new("systeminfo")
+            .arg("/fo")
+            .arg("CSV")
+            .output()
+            .map_err(|e| anyhow!("Failed to execute systeminfo: {}", e))?;
+        
+        if !os_version.status.success() {
+            return Err(anyhow!("Failed to retrieve OS version"));
+        }
+
+        let os_version_str = String::from_utf8_lossy(&os_version.stdout);
+
+        Ok(format!(
+            "Windows Serial Number: {}\nOS Information: {}",
+            serial_number, os_version_str
+        ))
     }
 
     pub fn get_missing_windows_updates() -> Result<Vec<String>> {
@@ -41,26 +76,49 @@ mod windows {
 
 #[cfg(unix)]
 mod unix {
-    use anyhow::Result;
-    use sysinfo::{System, SystemExt};
+    use super::*;
+    use std::process::Command;
 
     pub fn get_system_info() -> Result<String> {
-        let mut sys = System::new_all();
-        sys.refresh_all();
+        // Getting serial number on Unix-based systems
+        let serial_number = Command::new("dmidecode")
+            .arg("-s")
+            .arg("system-serial-number")
+            .output()
+            .map_err(|e| anyhow!("Failed to execute dmidecode: {}", e))?;
 
-        let info = format!(
-            "OS: {:?}\nKernel Version: {:?}\nTotal Memory: {} KB\nCPU Count: {}",
-            sys.name(),
-            sys.kernel_version(),
-            sys.total_memory(),
-            sys.cpus().len()
-        );
+        if !serial_number.status.success() {
+            return Err(anyhow!("Failed to retrieve serial number"));
+        }
 
-        Ok(info)
+        let serial_number = String::from_utf8_lossy(&serial_number.stdout)
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .last()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+
+        // Gather other system information (OS, CPU, RAM, etc.)
+        let uname_output = Command::new("uname")
+            .arg("-a")
+            .output()
+            .map_err(|e| anyhow!("Failed to execute uname: {}", e))?;
+        
+        if !uname_output.status.success() {
+            return Err(anyhow!("Failed to retrieve system information"));
+        }
+
+        let system_info = String::from_utf8_lossy(&uname_output.stdout).to_string();
+
+        Ok(format!(
+            "Unix Serial Number: {}\nSystem Info: {}",
+            serial_number, system_info
+        ))
     }
 
     pub fn get_missing_windows_updates() -> Result<Vec<String>> {
-        // Not applicable on Unix, return empty vec
+        // Not applicable on Unix systems
         Ok(vec![])
     }
 }
