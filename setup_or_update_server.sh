@@ -143,4 +143,22 @@ echo "📄 Updating database configuration..."
 DB_PASSWORD=$(cat "$PASSWORD_FILE")
 sed -i "s|postgresql://patchpilot_user:.*@localhost/patchpilot_db|postgresql://patchpilot_user:${DB_PASSWORD}@localhost/patchpilot_db|" "${APP_DIR}/server.py"
 
+# === Clean up unnecessary files ===
+echo "🧹 Cleaning up unnecessary files..."
+
+# Remove client setup files
+rm -f "${APP_DIR}/setup_or_update_client.ps1"
+rm -f "${APP_DIR}/setup_or_update_client.sh"
+rm -f "${APP_DIR}/setup_or_update_server.sh"
+
+# Remove the client source code (rust code and other unused files)
+rm -rf "${APP_DIR}/patchpilot_client_rust"
+
+# Remove README and LICENSE files (optional, if you want to keep the server clean)
+rm -f "${APP_DIR}/LICENSE"
+rm -f "${APP_DIR}/README.md"
+
+# Remove the templates directory if not needed
+rm -rf "${APP_DIR}/templates"
+
 echo "✅ Setup complete! PatchPilot is ready."
