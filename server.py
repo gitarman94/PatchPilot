@@ -5,12 +5,14 @@ from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, render_template, abort, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 
 # Initialize Flask application and enable CORS
 app = Flask(__name__)
 CORS(app)
 
-# == CONFIG == 
+# == CONFIG ==
 SERVER_DIR = "/opt/patchpilot_server"
 UPDATE_CACHE_DIR = os.path.join(SERVER_DIR, "updates")
 if not os.path.isdir(UPDATE_CACHE_DIR):
@@ -36,7 +38,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql://patchpilot_user:{password
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# == MODELS == 
+# == MODELS ==
 class Client(db.Model):
     id = db.Column(db.String(36), primary_key=True)
     client_name = db.Column(db.String(100))
@@ -88,6 +90,26 @@ def auth_client(client, token):
     if token.startswith("Bearer "):
         token = token[7:]
     return token == client.token
+
+# == DATABASE INITIALIZATION ==
+def initialize_database():
+    try:
+        # Test database connection
+        engine = create_engine(app.config['SQLALCHEMY_DATABASE_URI'])
+        engine.connect()
+
+        # If tables do not exist, create them
+        if not engine.dialect.has_table(engine, 'client'):
+            db.create_all()
+            print("⚡ Database tables created.")
+        else:
+            print("⚡ Database already initialized.")
+    except OperationalError as e:
+        print(f"❌ Failed to connect to the database: {e}")
+
+# Initialize database tables only if they don't exist
+with app.app_context():
+    initialize_database()
 
 # == ROUTES ==
 
@@ -253,10 +275,4 @@ def client_update(client_id):
 
 # == APP RUNNING ==
 if __name__ == '__main__':
-    print("Initializing database tables...")
-    try:
-        db.create_all()  # Will work only if the database exists
-        print("Database tables created.")
-    except Exception as e:
-        print(f"Error creating tables: {e}")
     app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
