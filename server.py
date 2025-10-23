@@ -6,6 +6,7 @@ from flask import Flask, request, jsonify, render_template, abort, send_from_dir
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 
+# Initialize Flask application and enable CORS
 app = Flask(__name__)
 CORS(app)
 
@@ -235,6 +236,7 @@ def client_update(client_id):
     # --- updates ---
     reported = data.get('updates', None)
     if reported is not None:
+        # Clear existing updates
         ClientUpdate.query.filter_by(client_id=client.id).delete()
         client.updates_available = False
         for upd in reported:
@@ -271,12 +273,11 @@ def client_ping(client_id):
     return jsonify({'status': 'pong', 'online': client.is_online()})
 
 if __name__ == '__main__':
+    # Initialize database tables if they don't already exist
     with app.app_context():
         print("Initializing database tables...")
-        db.create_all()  # Forces creation of tables if they don't exist
+        db.create_all()  # Creates tables if they do not exist
         print("Database tables created.")
-        exit(0)
-
+    
+    # Start the Flask application
     app.run(host='0.0.0.0', port=8080, debug=True)
-
-
