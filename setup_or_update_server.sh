@@ -71,10 +71,10 @@ if [ "$FORCE_REINSTALL" = true ] || [ ! -f "$APP_DIR/server.py" ]; then
     echo "🔄 Setting up PostgreSQL..."
 
     # Generate a random password for PostgreSQL
-    PG_PASSWORD=$(openssl rand -base64 16)
+    PG_PASSWORD=$(openssl rand -base64 16 | tr -d '[:space:]')
 
-    # Write password to file
-    echo $PG_PASSWORD > "$PASSWORD_FILE"
+    # Ensure the password file is clean and write the password to it
+    echo -n "$PG_PASSWORD" > "$PASSWORD_FILE"
 
     # Confirm if the password was written to the file
     if [ -f "$PASSWORD_FILE" ]; then
@@ -140,7 +140,10 @@ cd "$APP_DIR"
 # === Update configuration for database ===
 echo "📄 Updating database configuration..."
 
+# Read password from file
 DB_PASSWORD=$(cat "$PASSWORD_FILE")
+
+# Update server.py to use the correct PostgreSQL password
 sed -i "s|postgresql://patchpilot_user:.*@localhost/patchpilot_db|postgresql://patchpilot_user:${DB_PASSWORD}@localhost/patchpilot_db|" "${APP_DIR}/server.py"
 
 # === Clean up unnecessary files ===
