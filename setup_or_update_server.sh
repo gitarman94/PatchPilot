@@ -37,7 +37,7 @@ done
 echo "📦 Installing system packages (python3, venv, pip, curl, unzip)..."
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update
-    apt-get install -y python3 python3-venv python3-pip curl unzip
+    apt-get install -y python3 python3-venv python3-pip curl unzip sqlite3
 elif command -v dnf >/dev/null 2>&1; then
     dnf install -y python3 python3-venv python3-pip curl unzip
 elif command -v yum >/dev/null 2>&1; then
