@@ -32,7 +32,9 @@ update() {
   echo "Updating PatchPilot client..."
   if [[ ! -d "$INSTALL_DIR" ]]; then
     echo "Error: Installation not found at $INSTALL_DIR"
-    exit 1
+    echo "Attempting to install PatchPilot client..."
+    install  # Trigger the install if the directory doesn't exist
+    return
   fi
 
   # Prompt for server IP (not full URL)
@@ -109,7 +111,7 @@ EOF
 reinstall() {
   echo "Reinstalling PatchPilot client..."
   uninstall
-  update
+  install  # Re-run the full installation instead of just update
 }
 
 install() {
