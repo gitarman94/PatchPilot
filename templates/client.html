@@ -83,7 +83,7 @@
                         <span class="status-offline">Offline</span>
                     {% endif %}
                 </td>
-                <td>{{ client.updates_available|length }}</td>
+				<td>{{ 'Yes' if client.updates_available else 'No' }}</td>
                 <td>
                     {% if not client.approved %}
                         <form method="post" action="/approve/{{ client.id }}" style="display:inline;">
