@@ -12,6 +12,7 @@ ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${B
 APP_DIR="/opt/patchpilot_server"
 VENV_DIR="${APP_DIR}/venv"
 SERVICE_NAME="patchpilot_server.service"
+SELF_UPDATE_SCRIPT="linux_server_self_update.sh"
 SELF_UPDATE_SERVICE="patchpilot_server_update.service"
 SELF_UPDATE_TIMER="patchpilot_server_update.timer"
 SYSTEMD_DIR="/etc/systemd/system"
@@ -111,7 +112,7 @@ if [ "$FORCE_REINSTALL" = true ] || [ ! -f "$APP_DIR/server.py" ]; then
 
     echo "🔄 Setting up PostgreSQL..."
 
-    # Create PostgreSQL user and database with the generated password
+    # Create PostgreSQL user and database (don't initialize database here, just create user)
     sudo -u postgres psql -c "CREATE USER patchpilot_user WITH PASSWORD '$PASSWORD';" || true
     sudo -u postgres psql -c "CREATE DATABASE patchpilot_db;" || true
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE patchpilot_db TO patchpilot_user;" || true
@@ -126,30 +127,7 @@ if [ "$FORCE_REINSTALL" = true ] || [ ! -f "$APP_DIR/server.py" ]; then
     systemctl stop "$SELF_UPDATE_TIMER" 2>/dev/null || true
     systemctl disable "$SELF_UPDATE_TIMER" 2>/dev/null || true
 
-    echo "☠️ Killing all running patchpilot server.py instances..."
-    PIDS=$(pgrep -f "server.py" | grep -v "^$$\$" || true)
-    if [ -n "$PIDS" ]; then
-        for pid in $PIDS; do
-            if [ "$pid" -eq "$$" ]; then
-                continue
-            fi
-            echo "Sending SIGTERM to pid $pid"
-            set +e
-            kill -15 "$pid" || true
-            sleep 2
-            if kill -0 "$pid" 2>/dev/null; then
-                echo "Pid $pid still alive after SIGTERM, sending SIGKILL"
-                kill -9 "$pid" || true
-            else
-                echo "Pid $pid terminated cleanly"
-            fi
-            set -e
-        done
-    else
-        echo "No running patchpilot server.py processes found."
-    fi
-
-    echo "🧹 Removing previous installation at $APP_DIR..."
+    echo "☠️ Removing previous installation at $APP_DIR..."
     rm -rf "$APP_DIR"
 fi
 
