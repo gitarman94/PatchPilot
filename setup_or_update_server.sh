@@ -63,16 +63,15 @@ if [ "$FORCE_REINSTALL" = true ]; then
                 continue
             fi
             echo "Sending SIGTERM to pid $pid"
-            set +e
             kill -15 "$pid" || true
-            sleep 2
+            # Wait longer before sending SIGKILL
+            sleep 5  # Increased sleep time for process termination
             if kill -0 "$pid" 2>/dev/null; then
                 echo "Pid $pid still alive after SIGTERM, sending SIGKILL"
                 kill -9 "$pid" || true
             else
                 echo "Pid $pid terminated cleanly"
             fi
-            set -e
         done
     else
         echo "No running patchpilot server.py processes found."
