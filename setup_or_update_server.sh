@@ -56,13 +56,10 @@ if [ "$FORCE_REINSTALL" = true ]; then
     systemctl disable "$SELF_UPDATE_TIMER" 2>/dev/null || true
 
     echo "☠️ Killing all running patchpilot server.py instances..."
-    # Get all pids except current script pid
     PIDS=$(pgrep -f "server.py" | grep -v "^$$\$" || true)
     if [ -n "$PIDS" ]; then
-        echo "Found pids: $PIDS"
         for pid in $PIDS; do
             if [ "$pid" -eq "$$" ]; then
-                echo "Skipping killing self (pid $pid)"
                 continue
             fi
             echo "Sending SIGTERM to pid $pid"
@@ -95,7 +92,6 @@ if [ "$FORCE_REINSTALL" = true ] && [ -d "$VENV_DIR" ]; then
 fi
 
 if [ "$UPGRADE" = true ] && [ -d "$VENV_DIR" ]; then
-    # Check if venv is broken
     if [ ! -f "${VENV_DIR}/bin/activate" ]; then
         echo "⚠️  Existing venv is broken, recreating..."
         rm -rf "$VENV_DIR"
@@ -144,10 +140,6 @@ fi
 
 cd /
 rm -rf "${TMPDIR}"
-
-# === Create Database Tables ===
-echo "📅 Creating database tables..."
-python3 ${APP_DIR}/server.py create_tables
 
 # === Systemd service ===
 echo "🛎️  Creating systemd service: ${SERVICE_NAME}"
