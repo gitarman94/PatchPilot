@@ -38,10 +38,6 @@ echo "📦 Installing system packages (python3, venv, pip, curl, unzip, postgres
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update
     apt-get install -y python3 python3-venv python3-pip curl unzip postgresql postgresql-contrib libpq-dev
-elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y python3 python3-venv python3-pip curl unzip postgresql-server postgresql-contrib libpq-dev
-elif command -v yum >/dev/null 2>&1; then
-    yum install -y python3 python3-venv python3-pip curl unzip postgresql postgresql-contrib libpq-dev
 else
     echo "❌ Unsupported OS / package manager. Please install dependencies manually."
     exit 1
@@ -74,17 +70,6 @@ PG_PASSWORD=$(openssl rand -base64 32)
 # === PostgreSQL Setup ===
 echo "🛠️  Creating PostgreSQL user and database..."
 
-# Generate the SQL block to create the user and database if they don't exist
-SQL_COMMAND="DO \$\$ 
-BEGIN 
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN 
-        CREATE ROLE ${PG_USER} WITH LOGIN PASSWORD '${PG_PASSWORD}'; 
-    END IF; 
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_database WHERE datname = '${PG_DB}') THEN 
-        CREATE DATABASE ${PG_DB} OWNER ${PG_USER}; 
-    END IF; 
-END \$\$;"
-
 # Create the application directory before attempting to access it
 mkdir -p "${APP_DIR}"
 
@@ -97,7 +82,7 @@ echo "localhost:5432:*:${PG_USER}:${PG_PASSWORD}" > $PGPASSFILE
 chmod 600 $PGPASSFILE
 
 # Ensure PostgreSQL commands are run by the 'postgres' user
-runuser -u postgres -- bash -c "psql -d postgres -c \"$SQL_COMMAND\""
+runuser -u postgres -- bash -c "psql -d postgres -c \"DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN CREATE ROLE ${PG_USER} WITH LOGIN PASSWORD '${PG_PASSWORD}'; END IF; IF NOT EXISTS (SELECT FROM pg_catalog.pg_database WHERE datname = '${PG_DB}') THEN CREATE DATABASE ${PG_DB} OWNER ${PG_USER}; END IF; END \$\$;\""
 
 # Clean up the .pgpass file
 rm -f $PGPASSFILE
@@ -111,9 +96,6 @@ echo "$PG_PASSWORD" > "$PG_PASSWORD_FILE"
 chmod 600 "$PG_PASSWORD_FILE"  # Only root and postgres can read the file
 
 echo "✅ Password saved successfully. Only 'root' and 'postgres' can access it."
-
-# === Return to Original Directory ===
-cd "$original_dir"
 
 # === Optional cleanup ===
 if [ "$FORCE_REINSTALL" = true ]; then
@@ -231,9 +213,12 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
+# === Finalizing Installation ===
+echo "🔄 Reloading systemd daemon..."
 systemctl daemon-reload
-systemctl enable "${SERVICE_NAME}"
-systemctl start "${SERVICE_NAME}"
+
+echo "🚀 Enabling & starting PatchPilot service..."
+systemctl enable --now "${SERVICE_NAME}"
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
