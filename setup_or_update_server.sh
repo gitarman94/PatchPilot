@@ -12,6 +12,10 @@ APP_DIR="/opt/patchpilot_server"
 VENV_DIR="${APP_DIR}/venv"
 SERVICE_NAME="patchpilot_server.service"
 SYSTEMD_DIR="/etc/systemd/system"
+PG_USER="patchpilot_user"
+PG_DB="patchpilot_db"
+PG_PASSWORD_FILE="/opt/patchpilot_client/postgres_password.txt"
+PG_HBA_PATH="/etc/postgresql/15/main/pg_hba.conf"
 
 # === Flags ===
 FORCE_REINSTALL=false
@@ -43,15 +47,7 @@ else
     exit 1
 fi
 
-# === PostgreSQL Version and pg_hba.conf Path ===
-PG_VERSION=$(psql -V | awk '{print $3}' | cut -d. -f1)
-echo "Detected PostgreSQL version: $PG_VERSION"
-
-# Find the data directory dynamically
-PG_DATA_DIR=$(psql -U postgres -t -c "SHOW data_directory;" | xargs)
-PG_HBA_PATH="${PG_DATA_DIR}/pg_hba.conf"
-
-# === Modify pg_hba.conf to allow passwordless authentication ===
+# === Modify pg_hba.conf to allow passwordless authentication for user 'postgres' ===
 echo "🛠️ Modifying pg_hba.conf to allow passwordless authentication for user 'postgres'..."
 
 if [ -f "$PG_HBA_PATH" ]; then
@@ -65,20 +61,18 @@ if [ -f "$PG_HBA_PATH" ]; then
 
     # Reload PostgreSQL service to apply the changes
     systemctl reload postgresql
-
-    echo "✅ PostgreSQL pg_hba.conf updated and PostgreSQL reloaded successfully."
-
+    echo "✅ PostgreSQL reloaded successfully to apply changes."
 else
     echo "❌ pg_hba.conf not found at ${PG_HBA_PATH}. Please check your PostgreSQL installation."
     exit 1
 fi
 
+# === Automatically Generate a Secure Password ===
+echo "🛠️ Generating a secure password for PostgreSQL user 'patchpilot_user'..."
+PG_PASSWORD=$(openssl rand -base64 32)
+
 # === PostgreSQL Setup ===
 echo "🛠️  Creating PostgreSQL user and database..."
-
-PG_PASSWORD=$(openssl rand -base64 32)
-PG_USER="patchpilot_user"
-PG_DB="patchpilot_db"
 
 # Create the application directory before attempting to access it
 mkdir -p "${APP_DIR}"
@@ -86,22 +80,29 @@ mkdir -p "${APP_DIR}"
 # Change to the application directory before running the PostgreSQL setup
 cd "${APP_DIR}"
 
+# Create the .pgpass file for automated authentication (without re-entering password)
+PGPASSFILE="/tmp/.pgpass"
+echo "localhost:5432:*:${PG_USER}:${PG_PASSWORD}" > $PGPASSFILE
+chmod 600 $PGPASSFILE
+
 # Ensure PostgreSQL commands are run by the 'postgres' user
 runuser -u postgres -- bash -c "psql -d postgres -c \"DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN CREATE ROLE ${PG_USER} WITH LOGIN PASSWORD '${PG_PASSWORD}'; END IF; IF NOT EXISTS (SELECT FROM pg_catalog.pg_database WHERE datname = '${PG_DB}') THEN CREATE DATABASE ${PG_DB} OWNER ${PG_USER}; END IF; END \$\$;\""
 
-# === Return to Original Directory ===
-cd "$original_dir"
+# Clean up the .pgpass file
+rm -f $PGPASSFILE
 
 # === Save PostgreSQL password securely (Non-encrypted) ===
-PG_PASS_FILE="/opt/patchpilot_client/postgres_password.txt"
-echo "[*] Saving PostgreSQL password to ${PG_PASS_FILE} ..."
+echo "[*] Saving PostgreSQL password to ${PG_PASSWORD_FILE} ..."
 
-mkdir -p "$(dirname "$PG_PASS_FILE")"
-chmod 700 "$(dirname "$PG_PASS_FILE")"  # Secure the directory
-echo "$PG_PASSWORD" > "$PG_PASS_FILE"
-chmod 600 "$PG_PASS_FILE"  # Only root and postgres can read the file
+mkdir -p "$(dirname "$PG_PASSWORD_FILE")"
+chmod 700 "$(dirname "$PG_PASSWORD_FILE")"  # Secure the directory
+echo "$PG_PASSWORD" > "$PG_PASSWORD_FILE"
+chmod 600 "$PG_PASSWORD_FILE"  # Only root and postgres can read the file
 
 echo "✅ Password saved successfully. Only 'root' and 'postgres' can access it."
+
+# === Return to Original Directory ===
+cd "$original_dir"
 
 # === Optional cleanup ===
 if [ "$FORCE_REINSTALL" = true ]; then
@@ -219,12 +220,8 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-# === Finalizing Installation ===
-echo "🔄 Reloading systemd daemon..."
 systemctl daemon-reload
+systemctl enable "${SERVICE_NAME}"
+systemctl start "${SERVICE_NAME}"
 
-echo "🚀 Enabling & starting PatchPilot service..."
-systemctl enable --now "${SERVICE_NAME}"
-
-SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
+echo "✅ PatchPilot installation complete!"
