@@ -49,7 +49,7 @@ PG_USER="patchpilot_user"
 PG_DB="patchpilot_db"
 
 echo "🛠️  Creating PostgreSQL user and database..."
-psql -U postgres -d postgres <<EOF
+runuser -u postgres -- psql -d postgres <<EOF
 DO \$$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN
@@ -61,6 +61,7 @@ BEGIN
 END
 \$$;
 EOF
+
 
 # === Save PostgreSQL password ===
 PG_PASS_FILE="/opt/patchpilot_client/postgres_password.txt"
