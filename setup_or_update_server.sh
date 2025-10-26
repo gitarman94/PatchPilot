@@ -220,8 +220,10 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
+echo "🚀 Enabling & starting PatchPilot service..."
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}"
 systemctl start "${SERVICE_NAME}"
 
-echo "✅ PatchPilot installation complete!"
+SERVER_IP=$(hostname -I | awk '{print $1}')
+echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
