@@ -1,227 +1,255 @@
 #!/bin/bash
+
 set -e
 
-# === Configuration ===
-GITHUB_USER="gitarman94"
-GITHUB_REPO="PatchPilot"
-BRANCH="main"
-RAW_BASE="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
-ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.zip"
+INSTALL_DIR="/opt/patchpilot_client"
+SRC_DIR="/tmp/patchpilot_client_src"
+RUST_REPO="https://github.com/gitarman94/PatchPilot.git"
+CLIENT_PATH="$INSTALL_DIR/patchpilot_client"
+UPDATER_PATH="$INSTALL_DIR/patchpilot_updater"
+CONFIG_PATH="$INSTALL_DIR/config.json"
+SERVER_URL_FILE="$INSTALL_DIR/server_url.txt"
+SERVICE_FILE="/etc/systemd/system/patchpilot_client.service"
+POSTGRES_DB="patchpilot_db"
+POSTGRES_USER="patchpilot_user"
+POSTGRES_PASSWORD_FILE="$INSTALL_DIR/postgres_password.txt"
 
-APP_DIR="/opt/patchpilot_server"
-VENV_DIR="${APP_DIR}/venv"
-SERVICE_NAME="patchpilot_server.service"
-SYSTEMD_DIR="/etc/systemd/system"
+show_usage() {
+  echo "Usage: $0 [--uninstall] [--update] [--reinstall]"
+  exit 1
+}
 
-# === Flags ===
-FORCE_REINSTALL=false
-UPGRADE=false
-for arg in "$@"; do
-    case "$arg" in
-        --force)
-            FORCE_REINSTALL=true
-            echo "⚠️  Force reinstallation enabled: previous installation will be deleted."
-            ;;
-        --upgrade)
-            UPGRADE=true
-            echo "⬆️  Upgrade mode enabled: keeping configs but updating software."
-            ;;
-    esac
-done
+generate_random_password() {
+  # Generate a secure random password
+  echo "$(openssl rand -base64 16)"
+}
 
-# === System dependencies ===
-echo "📦 Installing system packages (python3, venv, pip, curl, unzip, postgresql, libpq-dev)..."
-if command -v apt-get >/dev/null 2>&1; then
+setup_postgresql() {
+  echo "[*] Setting up PostgreSQL database..."
+
+  # Check if PostgreSQL is installed
+  if ! command -v psql >/dev/null 2>&1; then
+    echo "PostgreSQL not found, installing..."
+    # Assuming `apt-get` is available for package installation
     apt-get update
-    apt-get install -y python3 python3-venv python3-pip curl unzip postgresql postgresql-contrib libpq-dev
-elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y python3 python3-venv python3-pip curl unzip postgresql-server postgresql-contrib libpq-dev
-elif command -v yum >/dev/null 2>&1; then
-    yum install -y python3 python3-venv python3-pip curl unzip postgresql postgresql-contrib libpq-dev
-else
-    echo "❌ Unsupported OS / package manager. Please install dependencies manually."
-    exit 1
-fi
+    apt-get install -y postgresql postgresql-contrib
+  fi
 
-# === Optional cleanup ===
-if [ "$FORCE_REINSTALL" = true ]; then
-    echo "🛑 Stopping and disabling systemd services..."
-    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+  # Create database and user if they do not exist
+  echo "[*] Ensuring PostgreSQL user and database exist..."
 
-    echo "☠️ Killing all running patchpilot server.py instances..."
-    PIDS=$(pgrep -f "server.py" | grep -v "^$$\$" || true)
-    if [ -n "$PIDS" ]; then
-        for pid in $PIDS; do
-            if [ "$pid" -eq "$$" ]; then
-                continue
-            fi
-            echo "Sending SIGTERM to pid $pid"
-            set +e
-            kill -15 "$pid" || true
-            sleep 2
-            if kill -0 "$pid" 2>/dev/null; then
-                echo "Pid $pid still alive after SIGTERM, sending SIGKILL"
-                kill -9 "$pid" || true
-            else
-                echo "Pid $pid terminated cleanly"
-            fi
-            set -e
-        done
-    else
-        echo "No running patchpilot server.py processes found."
-    fi
+  PGPASSWORD=$(generate_random_password)
+  echo "Generated PostgreSQL password: $PGPASSWORD"
 
-    echo "🧹 Removing previous installation at $APP_DIR..."
-    rm -rf "$APP_DIR"
-fi
+  # Save the password to a file
+  echo "$PGPASSWORD" > "$POSTGRES_PASSWORD_FILE"
 
-# === Create directories ===
-mkdir -p "${APP_DIR}"
+  # Ensure the PostgreSQL service is running
+  systemctl start postgresql || true
 
-# === PostgreSQL Setup ===
-echo "🔐 Checking PostgreSQL setup..."
+  # Create the user and database if they don't exist
+  sudo -u postgres psql <<-EOF
+    DO \$\$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$POSTGRES_USER') THEN
+            CREATE ROLE $POSTGRES_USER WITH LOGIN PASSWORD '$PGPASSWORD';
+        END IF;
+    END
+    \$\$;
 
-POSTGRES_PASSWORD_FILE="${APP_DIR}/postgresql_pwd.txt"
-if [ ! -f "$POSTGRES_PASSWORD_FILE" ]; then
-    echo "❌ PostgreSQL password file '$POSTGRES_PASSWORD_FILE' not found! Creating one now..."
-    
-    # Generate a random password and save it in the password file
-    POSTGRES_PASSWORD=$(openssl rand -base64 12)
-    echo "$POSTGRES_PASSWORD" > "$POSTGRES_PASSWORD_FILE"
-    echo "Password for PostgreSQL created and saved to $POSTGRES_PASSWORD_FILE."
-    
-    # === Fix Authentication Issue ===
-    echo "🔧 Fixing PostgreSQL authentication to allow password-based login with scram-sha-256..."
+    DO \$\$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB') THEN
+            CREATE DATABASE $POSTGRES_DB OWNER $POSTGRES_USER;
+        END IF;
+    END
+    \$\$;
+EOF
+}
 
-    # Locate pg_hba.conf under /etc/postgresql (it may vary based on version, but it's usually under subdirs)
-    PG_HBA_CONF=$(find /etc/postgresql -type f -name "pg_hba.conf" | head -n 1)
-    
-    if [ -z "$PG_HBA_CONF" ]; then
-        echo "❌ pg_hba.conf file not found."
-        exit 1
-    fi
+uninstall() {
+  echo "Uninstalling PatchPilot client..."
+  systemctl stop patchpilot_client.service 2>/dev/null || true
+  systemctl disable patchpilot_client.service 2>/dev/null || true
+  rm -f "$SERVICE_FILE"
+  systemctl daemon-reload
+  crontab -l | grep -v 'patchpilot_client' | crontab - || true
+  rm -rf "$INSTALL_DIR"
+  echo "Uninstalled."
+}
 
-    echo "📂 Found pg_hba.conf at $PG_HBA_CONF"
+update() {
+  echo "Updating PatchPilot client..."
+  if [[ ! -d "$INSTALL_DIR" ]]; then
+    echo "Error: Installation not found at $INSTALL_DIR"
+    echo "Attempting to install PatchPilot client..."
+    install
+    return
+  fi
 
-    # Modify pg_hba.conf to use scram-sha-256 authentication for both local and host
-    echo "📂 Modifying pg_hba.conf for password authentication using scram-sha-256..."
+  echo "[*] Installing dependencies..."
+  apt-get update -y
+  apt-get install -y curl git build-essential pkg-config libssl-dev
 
-    # Fix: Avoid special characters in the delimiter and ensure proper quoting for `sed`
-    sed -i '/^local\s*all\s*postgres\s*peer/s/\s*peer$/\tscram-sha-256/' "$PG_HBA_CONF"
-    sed -i '/^#host\s*all\s*postgres\s*127.0.0.1\/32\s*peer/s/\s*peer$/\tscram-sha-256/' "$PG_HBA_CONF"
-    sed -i '/^#host\s*all\s*postgres\s*::1\/128\s*peer/s/\s*peer$/\tscram-sha-256/' "$PG_HBA_CONF"
-    
-    # Restart PostgreSQL to apply changes
-    echo "🔄 Restarting PostgreSQL..."
-    if command -v systemctl >/dev/null 2>&1; then
-        systemctl restart postgresql
-    else
-        service postgresql restart
-    fi
+  echo "[*] Installing Rust toolchain if missing..."
+  if ! command -v rustc >/dev/null 2>&1; then
+    curl https://sh.rustup.rs -sSf | sh -s -- -y
+  fi
 
-    # Update PostgreSQL password
-    echo "Updating PostgreSQL password for user 'postgres'..."
-    if [ "$(id -u)" -eq 0 ]; then
-        psql -U postgres -c "ALTER USER postgres WITH PASSWORD '$POSTGRES_PASSWORD';"
-        echo "PostgreSQL password has been updated for user 'postgres'."
-    else
-        if command -v sudo >/dev/null 2>&1; then
-            sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD '$POSTGRES_PASSWORD';"
-            echo "PostgreSQL password has been updated for user 'postgres' using sudo."
-        else
-            echo "❌ sudo is not available, and you're not running as root. Unable to update PostgreSQL password."
-            exit 1
-        fi
-    fi
-fi
+  if [ -f "/root/.cargo/env" ]; then
+    source "/root/.cargo/env"
+  else
+    echo "Warning: Rust environment file not found at /root/.cargo/env"
+  fi
 
-# === Virtual environment setup ===
-if [ "$FORCE_REINSTALL" = true ] && [ -d "$VENV_DIR" ]; then
-    echo "🧹 Removing old virtual environment..."
-    rm -rf "$VENV_DIR"
-fi
+  echo "[*] Cloning client source..."
+  rm -rf "$SRC_DIR"
+  git clone "$RUST_REPO" "$SRC_DIR"
+  
+  cd "$SRC_DIR/patchpilot_client_rust"
+  cargo clean
+  cargo build --release
 
-if [ "$UPGRADE" = true ] && [ -d "$VENV_DIR" ]; then
-    if [ ! -f "${VENV_DIR}/bin/activate" ]; then
-        echo "⚠️  Existing venv is broken, recreating..."
-        rm -rf "$VENV_DIR"
-    fi
-fi
+  systemctl stop patchpilot_client.service || true
 
-if [ ! -d "$VENV_DIR" ]; then
-    echo "🐍 Creating Python virtual environment..."
-    python3 -m venv "$VENV_DIR"
-fi
+  echo "[*] Copying binaries..."
+  cp target/release/rust_patch_client "$CLIENT_PATH"
+  cp target/release/patchpilot_updater "$UPDATER_PATH"
+  chmod +x "$CLIENT_PATH" "$UPDATER_PATH"
 
-# Check if pip is installed in venv, if not, install it
-if [ ! -f "${VENV_DIR}/bin/pip" ]; then
-    echo "⚠️ Pip not found, installing pip..."
-    ${VENV_DIR}/bin/python -m ensurepip --upgrade
-fi
+  if [[ -f "$CONFIG_PATH" ]]; then
+    client_id=$(jq -r '.client_id // empty' "$CONFIG_PATH")
+  else
+    client_id=""
+  fi
 
-# Check if pip works properly, otherwise fix it
-if ! ${VENV_DIR}/bin/pip --version > /dev/null 2>&1; then
-    echo "❌ Pip installation failed, trying to reinstall pip..."
-    ${VENV_DIR}/bin/python -m pip install --upgrade pip setuptools wheel
-fi
+  echo "[*] Updating config.json..."
+  cat > "$CONFIG_PATH" <<EOF
+{
+  "server_ip": "$final_url",
+  "client_id": "$client_id"
+}
+EOF
 
-echo "⬆️  Activating venv and installing Python dependencies..."
-source "${VENV_DIR}/bin/activate"
+  systemctl start patchpilot_client.service || true
+  echo "Update complete."
+}
 
-# Upgrade pip and setuptools
-pip install --upgrade pip setuptools wheel
+install() {
+  echo "Installing PatchPilot client..."
 
-# Install/update core dependencies
-pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn psycopg2
+  echo "[*] Installing dependencies..."
+  apt-get update
+  apt-get install -y curl git build-essential pkg-config libssl-dev
 
-# === Download repo ===
-TMPDIR=$(mktemp -d)
-cd "${TMPDIR}"
-echo "⬇️  Downloading repository ZIP from GitHub..."
-curl -L "${ZIP_URL}" -o latest.zip
+  echo "[*] Installing Rust toolchain..."
+  if ! command -v rustc >/dev/null 2>&1; then
+    curl https://sh.rustup.rs -sSf | sh -s -- -y
+  fi
 
-unzip -o latest.zip
-EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
+  if [ -f "/root/.cargo/env" ]; then
+    source "/root/.cargo/env"
+  else
+    echo "Warning: Rust environment file not found at /root/.cargo/env"
+  fi
 
-if [ -z "${EXTRACTED_DIR}" ]; then
-    echo "❌ Failed to locate extracted repo directory."
-    exit 1
-fi
+  setup_postgresql
 
-echo "📂 Copying files into ${APP_DIR}"
-cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
+  echo "[*] Cloning client source..."
+  rm -rf "$SRC_DIR"
+  git clone "$RUST_REPO" "$SRC_DIR"
 
-# === Permissions ===
-chmod +x "${APP_DIR}/server.py"
+  cd "$SRC_DIR/patchpilot_client_rust"
+  cargo clean
+  cargo build --release
 
-cd /  # Clean up temporary directory
-rm -rf "${TMPDIR}"
+  if [[ ! -d "$INSTALL_DIR" ]]; then
+    mkdir -p "$INSTALL_DIR" || { echo "Error: Failed to create directory $INSTALL_DIR"; exit 1; }
+  fi
 
-# === Systemd service creation ===
-echo "⚙️  Creating systemd service for PatchPilot..."
-cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
+  echo "[*] Copying binaries to install directory..."
+  cp target/release/rust_patch_client "$CLIENT_PATH"
+  cp target/release/patchpilot_updater "$UPDATER_PATH"
+  chmod +x "$CLIENT_PATH" "$UPDATER_PATH"
+
+  echo "[*] Creating default config.json..."
+  cat > "$CONFIG_PATH" <<EOF
+{
+  "server_ip": "$final_url",
+  "client_id": ""
+}
+EOF
+
+  echo "[*] Creating systemd service..."
+  cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=Patch Management Server
+Description=PatchPilot Client
 After=network.target
 
 [Service]
-User=root
-WorkingDirectory=${APP_DIR}
-Environment="PATH=${VENV_DIR}/bin"
-ExecStart=${VENV_DIR}/bin/gunicorn -w 4 -b 0.0.0.0:8080 server:app
+ExecStart=$CLIENT_PATH
 Restart=always
+User=root
+WorkingDirectory=$INSTALL_DIR
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# === Finalizing Installation ===
-echo "🔄 Reloading systemd daemon..."
-systemctl daemon-reload
+  systemctl daemon-reload
+  systemctl enable patchpilot_client.service
+  systemctl start patchpilot_client.service
 
-echo "🚀 Enabling & starting PatchPilot service..."
-systemctl enable --now "${SERVICE_NAME}"
+  echo "[✔] Installation complete. PatchPilot client is running."
+}
 
-SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
+# Check if we're root
+if [[ $(id -u) -ne 0 ]]; then
+  echo "Please run as root."
+  exit 1
+fi
+
+# Handle options
+if [[ "$1" == "--uninstall" ]]; then
+  uninstall
+  exit 0
+fi
+
+if [[ "$1" == "--update" ]]; then
+  update
+  exit 0
+fi
+
+if [[ "$1" == "--reinstall" ]]; then
+  reinstall
+  exit 0
+fi
+
+if [[ -d "$INSTALL_DIR" ]]; then
+  echo "Existing installation detected."
+  read -rp "Do you want to [u]pdate or [r]einstall? (u/r): " action
+  if [[ "$action" == "u" ]]; then
+    update
+  elif [[ "$action" == "r" ]]; then
+    reinstall
+  else
+    echo "Invalid choice, exiting."
+    exit 1
+  fi
+else
+  echo "No installation detected. Running full install..."
+  install
+fi
+
+# Prompt for server IP (moved to the bottom)
+read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
+
+input_ip="${input_ip#http://}"
+input_ip="${input_ip#https://}"
+input_ip="${input_ip%%/*}"
+
+final_url="http://${input_ip}:8080/api"
+echo "Saving server URL: $final_url"
+echo "$final_url" > "$SERVER_URL_FILE"
+
+exit 0
