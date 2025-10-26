@@ -84,30 +84,19 @@ chmod 600 $PGPASSFILE
 # Ensure PostgreSQL commands are run by the 'postgres' user
 runuser -u postgres -- bash -c "
 psql -d postgres <<EOF
--- Step 1: Check if the 'patchpilot_user' role exists, create it if necessary
+-- Step 1: Check if the 'patchpilot_user' role exists, and create it if necessary
 SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}';
 EOF
 "
 
-# Create the user role if it doesn't exist
+# Create the PostgreSQL user if it does not exist
 runuser -u postgres -- bash -c "
-psql -d postgres -c \"DO \$\$ 
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN
-        CREATE ROLE ${PG_USER} WITH LOGIN PASSWORD '${PG_PASSWORD}';
-    END IF;
-END
-\$\$;\"
+psql -d postgres -c \"SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}';\" || psql -d postgres -c \"CREATE ROLE ${PG_USER} WITH LOGIN PASSWORD '${PG_PASSWORD}';\"
 "
 
 # Step 2: Check if the 'patchpilot_db' database exists, create it if necessary
 runuser -u postgres -- bash -c "
-psql -d postgres -c \"SELECT 1 FROM pg_catalog.pg_database WHERE datname = '${PG_DB}'\"
-"
-
-# If database doesn't exist, create it
-runuser -u postgres -- bash -c "
-psql -d postgres -c \"CREATE DATABASE ${PG_DB} OWNER ${PG_USER};\"
+psql -d postgres -c \"SELECT 1 FROM pg_catalog.pg_database WHERE datname = '${PG_DB}';\" || psql -d postgres -c \"CREATE DATABASE ${PG_DB} OWNER ${PG_USER};\"
 "
 
 # Clean up the .pgpass file
@@ -211,7 +200,6 @@ if [ -z "${EXTRACTED_DIR}" ]; then
     echo "❌ Failed to locate extracted repo directory."
     exit 1
 fi
-
 echo "📂 Copying files into ${APP_DIR}"
 cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 
