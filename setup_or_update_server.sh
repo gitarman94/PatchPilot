@@ -51,9 +51,9 @@ if [ -f "$PG_HBA_PATH" ]; then
     cp "$PG_HBA_PATH" "$PG_HBA_PATH.bak"
     echo "🔙 Backed up the original pg_hba.conf to pg_hba.conf.bak."
 
-    # Replace all instances of 'scram-sha-256' with 'peer' for local connections
-    sed -i 's/scram-sha-256/peer/g' "$PG_HBA_PATH"
-    echo "⚙️ Updated pg_hba.conf to use peer authentication for local connections."
+    # Replace all instances of 'scram-sha-256' with 'md5' for local connections
+    sed -i 's/scram-sha-256/md5/g' "$PG_HBA_PATH"
+    echo "⚙️ Updated pg_hba.conf to use md5 authentication for local connections."
 
     # Reload PostgreSQL service to apply the changes
     systemctl reload postgresql
