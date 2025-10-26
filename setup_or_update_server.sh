@@ -43,18 +43,42 @@ else
     exit 1
 fi
 
-# === Automatically Generate a Secure Password ===
-echo "🛠️ Generating a secure password for PostgreSQL user 'patchpilot_user'..."
-PG_PASSWORD=$(openssl rand -base64 32)
+# === PostgreSQL Version and pg_hba.conf Path ===
+PG_VERSION=$(psql -V | awk '{print $3}' | cut -d. -f1)
+echo "Detected PostgreSQL version: $PG_VERSION"
 
-PG_USER="patchpilot_user"
-PG_DB="patchpilot_db"
+# Find the data directory dynamically
+PG_DATA_DIR=$(psql -U postgres -t -c "SHOW data_directory;" | xargs)
+PG_HBA_PATH="${PG_DATA_DIR}/pg_hba.conf"
 
-# === Store Current Directory ===
-original_dir=$(pwd)
+# === Modify pg_hba.conf to allow passwordless authentication ===
+echo "🛠️ Modifying pg_hba.conf to allow passwordless authentication for user 'postgres'..."
+
+if [ -f "$PG_HBA_PATH" ]; then
+    # Backup the original file first
+    cp "$PG_HBA_PATH" "$PG_HBA_PATH.bak"
+    echo "🔙 Backed up the original pg_hba.conf to pg_hba.conf.bak."
+
+    # Add a new line for local connections to allow peer authentication
+    echo "local   all             all                                     peer" >> "$PG_HBA_PATH"
+    echo "⚙️ Updated pg_hba.conf to use peer authentication for local connections."
+
+    # Reload PostgreSQL service to apply the changes
+    systemctl reload postgresql
+
+    echo "✅ PostgreSQL pg_hba.conf updated and PostgreSQL reloaded successfully."
+
+else
+    echo "❌ pg_hba.conf not found at ${PG_HBA_PATH}. Please check your PostgreSQL installation."
+    exit 1
+fi
 
 # === PostgreSQL Setup ===
 echo "🛠️  Creating PostgreSQL user and database..."
+
+PG_PASSWORD=$(openssl rand -base64 32)
+PG_USER="patchpilot_user"
+PG_DB="patchpilot_db"
 
 # Create the application directory before attempting to access it
 mkdir -p "${APP_DIR}"
@@ -62,28 +86,51 @@ mkdir -p "${APP_DIR}"
 # Change to the application directory before running the PostgreSQL setup
 cd "${APP_DIR}"
 
-# Ensure PostgreSQL commands are run by the 'postgres' user, using passwordless authentication
-runuser -u postgres -- bash -c "psql -h /var/run/postgresql -d postgres -w <<EOF
-DO \$\$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN
-        CREATE ROLE ${PG_USER} WITH LOGIN;
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_database WHERE datname = '${PG_DB}') THEN
-        CREATE DATABASE ${PG_DB} OWNER ${PG_USER};
-    END IF;
-END
-\$\$;
-EOF"
+# Ensure PostgreSQL commands are run by the 'postgres' user
+runuser -u postgres -- bash -c "psql -d postgres -c \"DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN CREATE ROLE ${PG_USER} WITH LOGIN PASSWORD '${PG_PASSWORD}'; END IF; IF NOT EXISTS (SELECT FROM pg_catalog.pg_database WHERE datname = '${PG_DB}') THEN CREATE DATABASE ${PG_DB} OWNER ${PG_USER}; END IF; END \$\$;\""
 
 # === Return to Original Directory ===
 cd "$original_dir"
+
+# === Save PostgreSQL password securely (Non-encrypted) ===
+PG_PASS_FILE="/opt/patchpilot_client/postgres_password.txt"
+echo "[*] Saving PostgreSQL password to ${PG_PASS_FILE} ..."
+
+mkdir -p "$(dirname "$PG_PASS_FILE")"
+chmod 700 "$(dirname "$PG_PASS_FILE")"  # Secure the directory
+echo "$PG_PASSWORD" > "$PG_PASS_FILE"
+chmod 600 "$PG_PASS_FILE"  # Only root and postgres can read the file
+
+echo "✅ Password saved successfully. Only 'root' and 'postgres' can access it."
 
 # === Optional cleanup ===
 if [ "$FORCE_REINSTALL" = true ]; then
     echo "🛑 Stopping and disabling systemd services..."
     systemctl stop "$SERVICE_NAME" 2>/dev/null || true
     systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+
+    echo "☠️ Killing all running patchpilot server.py instances..."
+    PIDS=$(pgrep -f "server.py" | grep -v "^$$\$" || true)
+    if [ -n "$PIDS" ]; then
+        for pid in $PIDS; do
+            if [ "$pid" -eq "$$" ]; then
+                continue
+            fi
+            echo "Sending SIGTERM to pid $pid"
+            set +e
+            kill -15 "$pid" || true
+            sleep 2
+            if kill -0 "$pid" 2>/dev/null; then
+                echo "Pid $pid still alive after SIGTERM, sending SIGKILL"
+                kill -9 "$pid" || true
+            else
+                echo "Pid $pid terminated cleanly"
+            fi
+            set -e
+        done
+    else
+        echo "No running patchpilot server.py processes found."
+    fi
 
     echo "🧹 Removing previous installation at $APP_DIR..."
     rm -rf "$APP_DIR"
