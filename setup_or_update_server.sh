@@ -85,37 +85,33 @@ chmod 600 $PGPASSFILE
 runuser -u postgres -- bash -c "
 psql -d postgres <<EOF
 -- Step 1: Check if the 'patchpilot_user' role exists, create it if necessary
-DO \$\$ 
+SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}';
+EOF
+"
+
+# Create the user role if it doesn't exist
+runuser -u postgres -- bash -c "
+psql -d postgres -c \"DO \$\$ 
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN
         CREATE ROLE ${PG_USER} WITH LOGIN PASSWORD '${PG_PASSWORD}';
     END IF;
 END
-\$\$;
-
--- Step 2: Check if the 'patchpilot_db' database exists, create it if necessary
--- CREATE DATABASE cannot be run inside DO block, so we do this separately.
--- Use EXECUTE for dynamic SQL if needed
-SELECT 1 FROM pg_catalog.pg_database WHERE datname = '${PG_DB}' LIMIT 1;
--- If the database does not exist, create it
-\i /tmp/create_db.sql
-EOF
+\$\$;\"
 "
 
-# Step 3: Create the database using a separate script since CREATE DATABASE isn't allowed in DO blocks
-cat <<EOF > /tmp/create_db.sql
-DO \$\$ 
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = '${PG_DB}') THEN
-        EXECUTE 'CREATE DATABASE ${PG_DB} OWNER ${PG_USER}';
-    END IF;
-END
-\$\$;
-EOF
+# Step 2: Check if the 'patchpilot_db' database exists, create it if necessary
+runuser -u postgres -- bash -c "
+psql -d postgres -c \"SELECT 1 FROM pg_catalog.pg_database WHERE datname = '${PG_DB}'\"
+"
+
+# If database doesn't exist, create it
+runuser -u postgres -- bash -c "
+psql -d postgres -c \"CREATE DATABASE ${PG_DB} OWNER ${PG_USER};\"
+"
 
 # Clean up the .pgpass file
 rm -f $PGPASSFILE
-rm -f /tmp/create_db.sql
 
 # === Save PostgreSQL password securely (Non-encrypted) ===
 echo "[*] Saving PostgreSQL password to ${PG_PASSWORD_FILE} ..."
