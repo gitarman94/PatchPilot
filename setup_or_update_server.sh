@@ -56,9 +56,17 @@ if [ -z "$PG_PASSWORD" ]; then
     exit 1
 fi
 
+# === Store Current Directory ===
+original_dir=$(pwd)
+
 # === PostgreSQL Setup ===
 echo "🛠️  Creating PostgreSQL user and database..."
-runuser -u postgres -- psql -h /var/run/postgresql -d postgres <<EOF
+
+# Change to the application directory before running the PostgreSQL setup
+cd "${APP_DIR}"
+
+# Ensure PostgreSQL commands are run by the 'postgres' user
+runuser -u postgres -- bash -c "psql -h /var/run/postgresql -d postgres <<EOF
 DO \$$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN
@@ -69,7 +77,7 @@ BEGIN
     END IF;
 END
 \$$;
-EOF
+EOF"
 
 if [ $? -ne 0 ]; then
     echo "❌ PostgreSQL setup failed. Please check the logs."
@@ -87,6 +95,11 @@ echo "$PG_PASSWORD" > "$PG_PASS_FILE"
 chmod 600 "$PG_PASS_FILE"  # Only root and postgres can read the file
 
 echo "✅ Password saved successfully. Only 'root' and 'postgres' can access it."
+
+# === Return to Original Directory ===
+cd "$original_dir"
+
+echo "✅ PostgreSQL setup completed and original directory restored."
 
 # === Optional cleanup ===
 if [ "$FORCE_REINSTALL" = true ]; then
