@@ -84,23 +84,42 @@ chmod 600 $PGPASSFILE
 # Ensure PostgreSQL commands are run by the 'postgres' user
 runuser -u postgres -- bash -c "
 psql -d postgres <<EOF
--- Step 1: Check if the 'patchpilot_user' role exists, and create it if necessary
-SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}';
+-- If --force is set, drop the existing database and user
+$(if [ "$FORCE_REINSTALL" = true ]; then echo "
+-- Drop the database and role if they exist
+DROP DATABASE IF EXISTS ${PG_DB};
+DROP ROLE IF EXISTS ${PG_USER};
+"; fi)
+
+-- Step 1: Check if the 'patchpilot_user' role exists, create it if necessary
+DO \$\$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN
+        CREATE ROLE ${PG_USER} WITH LOGIN PASSWORD '${PG_PASSWORD}';
+    END IF;
+END
+\$\$;
+
+-- Step 2: Check if the 'patchpilot_db' database exists, create it if necessary
+SELECT 1 FROM pg_catalog.pg_database WHERE datname = '${PG_DB}' LIMIT 1;
+\i /tmp/create_db.sql
 EOF
 "
 
-# Create the PostgreSQL user if it does not exist
-runuser -u postgres -- bash -c "
-psql -d postgres -c \"SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}';\" || psql -d postgres -c \"CREATE ROLE ${PG_USER} WITH LOGIN PASSWORD '${PG_PASSWORD}';\"
-"
-
-# Step 2: Check if the 'patchpilot_db' database exists, create it if necessary
-runuser -u postgres -- bash -c "
-psql -d postgres -c \"SELECT 1 FROM pg_catalog.pg_database WHERE datname = '${PG_DB}';\" || psql -d postgres -c \"CREATE DATABASE ${PG_DB} OWNER ${PG_USER};\"
-"
+# Step 3: Create the database using a separate script since CREATE DATABASE isn't allowed in DO blocks
+cat <<EOF > /tmp/create_db.sql
+DO \$\$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = '${PG_DB}') THEN
+        EXECUTE 'CREATE DATABASE ${PG_DB} OWNER ${PG_USER}';
+    END IF;
+END
+\$\$;
+EOF
 
 # Clean up the .pgpass file
 rm -f $PGPASSFILE
+rm -f /tmp/create_db.sql
 
 # === Save PostgreSQL password securely (Non-encrypted) ===
 echo "[*] Saving PostgreSQL password to ${PG_PASSWORD_FILE} ..."
@@ -200,6 +219,7 @@ if [ -z "${EXTRACTED_DIR}" ]; then
     echo "❌ Failed to locate extracted repo directory."
     exit 1
 fi
+
 echo "📂 Copying files into ${APP_DIR}"
 cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 
