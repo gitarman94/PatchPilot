@@ -43,11 +43,20 @@ else
     exit 1
 fi
 
-# === Generate a random password for PostgreSQL ===
-PG_PASSWORD=$(openssl rand -base64 32)
+# === Ask User for Custom PostgreSQL Password ===
 PG_USER="patchpilot_user"
 PG_DB="patchpilot_db"
 
+echo "🔑 Please enter your custom password for PostgreSQL user '${PG_USER}':"
+read -s PG_PASSWORD  # Read password securely
+
+# === Check if password was entered ===
+if [ -z "$PG_PASSWORD" ]; then
+    echo "❌ Password cannot be empty. Exiting."
+    exit 1
+fi
+
+# === PostgreSQL Setup ===
 echo "🛠️  Creating PostgreSQL user and database..."
 runuser -u postgres -- psql -h /var/run/postgresql -d postgres <<EOF
 DO \$$
@@ -62,15 +71,22 @@ END
 \$$;
 EOF
 
-# === Save PostgreSQL password ===
+if [ $? -ne 0 ]; then
+    echo "❌ PostgreSQL setup failed. Please check the logs."
+    exit 1
+fi
+
+# === Save PostgreSQL password securely ===
 PG_PASS_FILE="/opt/patchpilot_client/postgres_password.txt"
+echo "[*] Saving PostgreSQL password to ${PG_PASS_FILE} ..."
 
-echo "[*] Saving generated PostgreSQL password to ${PG_PASS_FILE} ..."
 mkdir -p "$(dirname "$PG_PASS_FILE")"
-chmod 700 "$(dirname "$PG_PASS_FILE")"
-echo "${PG_PASSWORD}" > "$PG_PASS_FILE"
-chmod 600 "$PG_PASS_FILE"
+chmod 700 "$(dirname "$PG_PASS_FILE")"  # Secure the directory
+chown root:postgres "$(dirname "$PG_PASS_FILE")"  # Make sure only root and postgres can access the directory
+echo "$PG_PASSWORD" > "$PG_PASS_FILE"
+chmod 600 "$PG_PASS_FILE"  # Only root and postgres can read the file
 
+echo "✅ Password saved successfully. Only 'root' and 'postgres' can access it."
 
 # === Optional cleanup ===
 if [ "$FORCE_REINSTALL" = true ]; then
@@ -195,6 +211,7 @@ systemctl daemon-reload
 echo "🚀 Enabling & starting PatchPilot service..."
 systemctl enable --now "${SERVICE_NAME}"
 
+# Get the server's IP address
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
 
@@ -204,12 +221,6 @@ echo "Username: ${PG_USER}"
 echo "Password: ${PG_PASSWORD}"
 echo "Database: ${PG_DB}"
 
-# Optional: Save the credentials to a file (uncomment if you want to store them)
-# echo "PostgreSQL Username: ${PG_USER}" > "${APP_DIR}/postgres_credentials.txt"
-# echo "PostgreSQL Password: ${PG_PASSWORD}" >> "${APP_DIR}/postgres_credentials.txt"
-# echo "PostgreSQL Database: ${PG_DB}" >> "${APP_DIR}/postgres_credentials.txt"
-# chmod 600 "${APP_DIR}/postgres_credentials.txt"  # Secure the file
-
 # === Finalizing Installation ===
 echo "🔄 Reloading systemd daemon..."
 systemctl daemon-reload
@@ -217,5 +228,6 @@ systemctl daemon-reload
 echo "🚀 Enabling & starting PatchPilot service..."
 systemctl enable --now "${SERVICE_NAME}"
 
+# Get the server's IP address
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
