@@ -253,6 +253,6 @@ systemctl daemon-reload
 
 echo "🚀 Enabling & starting PatchPilot service..."
 systemctl enable --now "${SERVICE_NAME}"
-
+chmod +x /opt/patchpilot_server/server_test.sh
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
