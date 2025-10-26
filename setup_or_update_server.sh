@@ -62,17 +62,12 @@ mkdir -p "${APP_DIR}"
 # Change to the application directory before running the PostgreSQL setup
 cd "${APP_DIR}"
 
-# Create the .pgpass file for automated authentication (without re-entering password)
-PGPASSFILE="/tmp/.pgpass"
-echo "localhost:5432:*:${PG_USER}:${PG_PASSWORD}" > $PGPASSFILE
-chmod 600 $PGPASSFILE
-
-# Ensure PostgreSQL commands are run by the 'postgres' user, passing the password
+# Ensure PostgreSQL commands are run by the 'postgres' user, using passwordless authentication
 runuser -u postgres -- bash -c "psql -h /var/run/postgresql -d postgres -w <<EOF
 DO \$\$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN
-        CREATE ROLE ${PG_USER} WITH LOGIN PASSWORD '${PG_PASSWORD}';
+        CREATE ROLE ${PG_USER} WITH LOGIN;
     END IF;
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_database WHERE datname = '${PG_DB}') THEN
         CREATE DATABASE ${PG_DB} OWNER ${PG_USER};
@@ -81,52 +76,14 @@ END
 \$\$;
 EOF"
 
-
-# Clean up the .pgpass file
-rm -f $PGPASSFILE
-
 # === Return to Original Directory ===
 cd "$original_dir"
-
-# === Save PostgreSQL password securely (Non-encrypted) ===
-PG_PASS_FILE="/opt/patchpilot_client/postgres_password.txt"
-echo "[*] Saving PostgreSQL password to ${PG_PASS_FILE} ..."
-
-mkdir -p "$(dirname "$PG_PASS_FILE")"
-chmod 700 "$(dirname "$PG_PASS_FILE")"  # Secure the directory
-echo "$PG_PASSWORD" > "$PG_PASS_FILE"
-chmod 600 "$PG_PASS_FILE"  # Only root and postgres can read the file
-
-echo "✅ Password saved successfully. Only 'root' and 'postgres' can access it."
 
 # === Optional cleanup ===
 if [ "$FORCE_REINSTALL" = true ]; then
     echo "🛑 Stopping and disabling systemd services..."
     systemctl stop "$SERVICE_NAME" 2>/dev/null || true
     systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-
-    echo "☠️ Killing all running patchpilot server.py instances..."
-    PIDS=$(pgrep -f "server.py" | grep -v "^$$\$" || true)
-    if [ -n "$PIDS" ]; then
-        for pid in $PIDS; do
-            if [ "$pid" -eq "$$" ]; then
-                continue
-            fi
-            echo "Sending SIGTERM to pid $pid"
-            set +e
-            kill -15 "$pid" || true
-            sleep 2
-            if kill -0 "$pid" 2>/dev/null; then
-                echo "Pid $pid still alive after SIGTERM, sending SIGKILL"
-                kill -9 "$pid" || true
-            else
-                echo "Pid $pid terminated cleanly"
-            fi
-            set -e
-        done
-    else
-        echo "No running patchpilot server.py processes found."
-    fi
 
     echo "🧹 Removing previous installation at $APP_DIR..."
     rm -rf "$APP_DIR"
