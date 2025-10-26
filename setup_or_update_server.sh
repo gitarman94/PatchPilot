@@ -67,6 +67,10 @@ fi
 echo "🛠️ Generating a secure password for PostgreSQL user 'patchpilot_user'..."
 PG_PASSWORD=$(openssl rand -base64 32)
 
+# Wait for PostgreSQL to start
+echo "🕐 Waiting for PostgreSQL to start..."
+sleep 5
+
 # === PostgreSQL Setup ===
 echo "🛠️  Creating PostgreSQL user and database..."
 
