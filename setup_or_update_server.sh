@@ -59,8 +59,8 @@ if [ -f "$PG_HBA_PATH" ]; then
     cp "$PG_HBA_PATH" "$PG_HBA_PATH.bak"
     echo "🔙 Backed up the original pg_hba.conf to pg_hba.conf.bak."
 
-    # Add a new line for local connections to allow peer authentication
-    echo "local   all             all                                     peer" >> "$PG_HBA_PATH"
+    # Replace all instances of 'scram-sha-256' with 'peer' for local connections
+    sed -i 's/scram-sha-256/peer/g' "$PG_HBA_PATH"
     echo "⚙️ Updated pg_hba.conf to use peer authentication for local connections."
 
     # Reload PostgreSQL service to apply the changes
