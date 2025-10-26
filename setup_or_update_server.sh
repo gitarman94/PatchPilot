@@ -38,14 +38,21 @@ echo "📦 Installing system packages (python3, venv, pip, curl, unzip, postgres
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update
     apt-get install -y python3 python3-venv python3-pip curl unzip postgresql postgresql-contrib libpq-dev
-elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y python3 python3-venv python3-pip curl unzip postgresql-server postgresql-contrib libpq-dev
-elif command -v yum >/dev/null 2>&1; then
-    yum install -y python3 python3-venv python3-pip curl unzip postgresql postgresql-contrib libpq-dev
 else
     echo "❌ Unsupported OS / package manager. Please install dependencies manually."
     exit 1
 fi
+
+# === Ensure PostgreSQL is fully running after installation ===
+echo "🛠️ Starting PostgreSQL service..."
+systemctl start postgresql || true
+
+# Wait for PostgreSQL to be fully ready
+until pg_isready -q; do
+    echo "Waiting for PostgreSQL to start..."
+    sleep 2
+done
+echo "PostgreSQL is ready!"
 
 # === Modify pg_hba.conf to allow passwordless authentication for user 'postgres' ===
 echo "🛠️ Modifying pg_hba.conf to allow passwordless authentication for user 'postgres'..."
@@ -79,6 +86,9 @@ mkdir -p "${APP_DIR}"
 
 # Change to the application directory before running the PostgreSQL setup
 cd "${APP_DIR}"
+
+# Set the PGPASSWORD environment variable to ensure no password prompt
+export PGPASSWORD="$PG_PASSWORD"
 
 # Create the .pgpass file for automated authentication (without re-entering password)
 PGPASSFILE="/tmp/.pgpass"
@@ -220,10 +230,13 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
+
+# Reload systemd to apply the new service
 echo "🚀 Enabling & starting PatchPilot service..."
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}"
 systemctl start "${SERVICE_NAME}"
 
+# Get the server IP address
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete! Visit: http://${SERVER_IP}:8080 to view the PatchPilot dashboard."
