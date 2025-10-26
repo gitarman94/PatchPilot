@@ -43,15 +43,9 @@ else
     exit 1
 fi
 
-# === Ask User for Custom Password ===
-echo "🔑 Please enter your custom password for PostgreSQL user 'patchpilot_user':"
-read -s PG_PASSWORD  # Read password securely
-
-# === Check if password was entered ===
-if [ -z "$PG_PASSWORD" ]; then
-    echo "❌ Password cannot be empty. Exiting."
-    exit 1
-fi
+# === Automatically Generate a Secure Password ===
+echo "🛠️ Generating a secure password for PostgreSQL user 'patchpilot_user'..."
+PG_PASSWORD=$(openssl rand -base64 32)
 
 PG_USER="patchpilot_user"
 PG_DB="patchpilot_db"
@@ -65,8 +59,13 @@ echo "🛠️  Creating PostgreSQL user and database..."
 # Change to the application directory before running the PostgreSQL setup
 cd "${APP_DIR}"
 
-# Ensure PostgreSQL commands are run by the 'postgres' user
-runuser -u postgres -- bash -c "psql -h /var/run/postgresql -d postgres <<EOF
+# Create the .pgpass file for automated authentication (without re-entering password)
+PGPASSFILE="/tmp/.pgpass"
+echo "localhost:5432:*:${PG_USER}:${PG_PASSWORD}" > $PGPASSFILE
+chmod 600 $PGPASSFILE
+
+# Ensure PostgreSQL commands are run by the 'postgres' user, passing the password
+runuser -u postgres -- bash -c "PGPASSFILE=$PGPASSFILE psql -h /var/run/postgresql -d postgres <<EOF
 DO \$$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN
@@ -78,6 +77,9 @@ BEGIN
 END
 \$$;
 EOF"
+
+# Clean up the .pgpass file
+rm -f $PGPASSFILE
 
 # === Return to Original Directory ===
 cd "$original_dir"
