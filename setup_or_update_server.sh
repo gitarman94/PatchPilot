@@ -56,6 +56,9 @@ original_dir=$(pwd)
 # === PostgreSQL Setup ===
 echo "🛠️  Creating PostgreSQL user and database..."
 
+# Create the application directory before attempting to access it
+mkdir -p "${APP_DIR}"
+
 # Change to the application directory before running the PostgreSQL setup
 cd "${APP_DIR}"
 
