@@ -68,8 +68,8 @@ echo "localhost:5432:*:${PG_USER}:${PG_PASSWORD}" > $PGPASSFILE
 chmod 600 $PGPASSFILE
 
 # Ensure PostgreSQL commands are run by the 'postgres' user, passing the password
-runuser -u postgres -- bash -c "PGPASSFILE=$PGPASSFILE psql -h /var/run/postgresql -d postgres <<EOF
-DO \$$
+runuser -u postgres -- bash -c "psql -h /var/run/postgresql -d postgres -w <<EOF
+DO \$\$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN
         CREATE ROLE ${PG_USER} WITH LOGIN PASSWORD '${PG_PASSWORD}';
@@ -78,8 +78,9 @@ BEGIN
         CREATE DATABASE ${PG_DB} OWNER ${PG_USER};
     END IF;
 END
-\$$;
+\$\$;
 EOF"
+
 
 # Clean up the .pgpass file
 rm -f $PGPASSFILE
