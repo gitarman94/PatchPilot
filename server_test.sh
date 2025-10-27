@@ -4,6 +4,7 @@ echo "==============================="
 echo " PatchPilot Server Test Script"
 echo "==============================="
 
+apt install jq -y
 # 1. Checking systemd service status
 echo "🔍  Checking systemd service 'patchpilot_server.service'..."
 service_status=$(systemctl is-active patchpilot_server.service)
