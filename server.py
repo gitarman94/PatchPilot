@@ -9,8 +9,6 @@ from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, render_template, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
-from sqlalchemy import inspect
-from sqlalchemy.exc import OperationalError
 
 app = Flask(__name__)
 CORS(app)
@@ -79,27 +77,18 @@ class ClientUpdate(db.Model):
     status = db.Column(db.String(50), nullable=False, default="pending")
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
+# --- Initialize DB at import time ---
 def init_db():
-    try:
-        os.makedirs(SERVER_DIR, exist_ok=True)
-        if not os.path.exists(SQLITE_DB_PATH):
-            open(SQLITE_DB_PATH, "a").close()
-        with app.app_context():
-            db.create_all()
-            app.logger.info("Database initialized successfully.")
-    except OperationalError as e:
-        app.logger.error(f"Database initialization error: {e}")
+    os.makedirs(SERVER_DIR, exist_ok=True)
+    if not os.path.exists(SQLITE_DB_PATH):
+        open(SQLITE_DB_PATH, "a").close()
+    with app.app_context():
+        db.create_all()
+        app.logger.info("Database initialized successfully.")
 
-def is_db_ready() -> bool:
-    engine = db.get_engine()
-    inspector = inspect(engine)
-    return inspector.has_table("client")
+init_db()  # <-- Ensures DB is ready before any request
 
-@app.before_request
-def ensure_db():
-    if not is_db_ready():
-        init_db()
-
+# --- SSE for clients ---
 def sse_generator():
     while True:
         data = {
@@ -116,6 +105,7 @@ def sse_generator():
 def sse_clients():
     return Response(sse_generator(), mimetype="text/event-stream")
 
+# --- Admin endpoints ---
 @app.route("/admin/force-reinstall/<client_id>", methods=["POST"])
 def force_reinstall_client(client_id):
     client = Client.query.get(client_id)
@@ -139,6 +129,7 @@ def allow_checkin_client(client_id):
     db.session.commit()
     return "", 204
 
+# --- API endpoints ---
 @app.route("/api/clients")
 def api_clients():
     draw = int(request.args.get("draw", "1"))
@@ -222,6 +213,7 @@ def client_update(client_id):
 def health_check():
     return jsonify({"status": "ok"})
 
+# --- Web routes ---
 @app.route("/")
 def index():
     clients = Client.query.all()
@@ -247,6 +239,6 @@ def approve_client(client_id):
     db.session.commit()
     return "", 204
 
+# --- Run server (only when executed directly) ---
 if __name__ == "__main__":
-    init_db()
     app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
