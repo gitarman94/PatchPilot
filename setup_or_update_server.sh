@@ -25,10 +25,10 @@ if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
         debian|ubuntu|linuxmint|pop|raspbian) ;;
-        *) echo "❌ This installer works only on Debian-based systems."; exit 1 ;;
+        *) echo "This installer works only on Debian-based systems."; exit 1 ;;
     esac
 else
-    echo "❌ Cannot determine OS – /etc/os-release missing."
+    echo "Cannot determine OS – /etc/os-release missing."
     exit 1
 fi
 
@@ -47,7 +47,7 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
             kill -9 "$pid" 2>/dev/null || true
         done
     fi
-    rm -rf "${APP_DIR}"
+    rm -rf "${APP_DIR}" || true
 fi
 
 mkdir -p "${APP_DIR}/updates"
@@ -112,6 +112,8 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
+
+chmod +x /opt/patchpilot_server/server_test.sh
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "Installation complete. Dashboard: http://${SERVER_IP}:8080"
