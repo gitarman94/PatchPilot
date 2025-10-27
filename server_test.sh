@@ -12,13 +12,8 @@ SERVICE_NAME="patchpilot_server.service"
 ENV_FILE="${SERVER_DIR}/admin_token.env"
 TOKEN_FILE="${SERVER_DIR}/admin_token.txt"
 
-# SQLite defaults (used when no PostgreSQL password file is present)
+# SQLite defaults
 SQLITE_DB="${SERVER_DIR}/patchpilot.db"
-
-# PostgreSQL defaults (kept for backward compatibility)
-PG_USER="patchpilot_user"
-PG_DB="patchpilot_db"
-PG_PASSWORD_FILE="${SERVER_DIR}/postgresql_pwd.txt"
 
 # --------------------------- Helpers ----------------------------
 function success() { echo -e "\033[0;32m✔️  $1\033[0m"; }
@@ -67,38 +62,18 @@ else
 fi
 
 # --------------------------- DB type ---------------------------
-if [[ -f "${PG_PASSWORD_FILE}" ]]; then
-    DB_BACKEND="postgresql"
-    info "PostgreSQL credentials detected."
-else
-    DB_BACKEND="sqlite"
-    info "No PostgreSQL password file – assuming SQLite ${SQLITE_DB}."
-fi
+info "Assuming SQLite backend, checking database file..."
 
 # ------------------------ DB connectivity ----------------------
-if [[ "${DB_BACKEND}" == "postgresql" ]]; then
-    info "Testing PostgreSQL connection..."
-
-    PG_PASSWORD=$(< "${PG_PASSWORD_FILE}")
-
-    PGPASSWORD="${PG_PASSWORD}" psql -U "${PG_USER}" -d "${PG_DB}" -h localhost -p 5432 -c '\q' \
-        >/dev/null 2>&1 && success "PostgreSQL connection succeeded." || {
-        failure "Unable to connect to PostgreSQL."
-        PGPASSWORD="${PG_PASSWORD}" psql -U "${PG_USER}" -d "${PG_DB}" -h localhost -p 5432 -c '\q' 2>&1 | tail -n 20
-        exit 1
-    }
+if [[ -f "${SQLITE_DB}" ]]; then
+    success "SQLite DB file exists ${SQLITE_DB}."
 else
-    info "Testing SQLite database file..."
+    failure "SQLite DB file not found at ${SQLITE_DB}."
+    exit 1
+fi
 
-    if [[ -f "${SQLITE_DB}" ]]; then
-        success "SQLite DB file exists ${SQLITE_DB}."
-    else
-        failure "SQLite DB file not found at ${SQLITE_DB}."
-        exit 1
-    fi
-
-    # Quick sanity check via the app’s SQLAlchemy objects
-    "${VENV_DIR}/bin/python" - <<'PYEND'
+# Quick sanity check via the app’s SQLAlchemy objects
+"${VENV_DIR}/bin/python" - <<'PYEND'
 import os, sys
 # make the app importable
 sys.path.insert(0, os.getenv("SERVER_DIR", "/opt/patchpilot_server"))
@@ -108,7 +83,7 @@ try:
         "SELECT name FROM sqlite_master WHERE type='table' AND name='client'"
     ).scalar()
     update_tbl = db.session.execute(
-        "SELECT name FROM sqlite_master WHERE type=''"
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='clientupdate'"
     ).scalar()
     if not client_tbl or not update_tbl:
         raise RuntimeError("Required tables are missing.")
@@ -118,8 +93,7 @@ except Exception as e:
     print(f"❌  SQLite sanity check failed: {e}")
     sys.exit(1)
 PYEND
-    [[ $? -eq 0 ]] && success "SQLite sanity check passed." || failure "SQLite sanity check failed."
-fi
+[[ $? -eq 0 ]] && success "SQLite sanity check passed." || failure "SQLite sanity check failed."
 
 # ------------------------ Python deps -------------------------
 info "Checking required Python packages inside the virtual‑env..."
