@@ -32,7 +32,7 @@ else
     exit 1
 fi
 
-# Cleanup old install first
+# Cleanup old install first if --force is used
 if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Cleaning up old installation..."
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
