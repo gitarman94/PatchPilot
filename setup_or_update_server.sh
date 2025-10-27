@@ -32,13 +32,9 @@ else
     exit 1
 fi
 
-export DEBIAN_FRONTEND=noninteractive
-echo "📦 Installing required packages..."
-apt-get update -qq
-apt-get install -y -qq python3 python3-venv python3-pip curl unzip openssl
-
+# Cleanup old install first
 if [[ "$FORCE_REINSTALL" = true ]]; then
-    echo "🧹 Cleaning up previous installation..."
+    echo "🧹 Cleaning up old installation..."
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
     pids=$(pgrep -f "server.py" || true)
@@ -52,19 +48,27 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
     rm -rf "${APP_DIR}"
 fi
 
-echo "🐍 Creating Python virtual environment..."
+# Install system packages
+echo "📦 Installing required packages..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq python3 python3-venv python3-pip curl unzip openssl
+
+# Setup application directories
 mkdir -p "${APP_DIR}/updates"
+
+# Create Python virtual environment and install Python packages
+echo "🐍 Creating Python virtual environment..."
 python3 -m venv "${VENV_DIR}"
 "${VENV_DIR}/bin/pip" install --upgrade pip setuptools wheel
-
 source "${VENV_DIR}/bin/activate"
 pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn
 
+# Download latest release
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
 
-echo "⬇️  Downloading repository ZIP..."
 curl -L "$ZIP_URL" -o latest.zip
 unzip -o latest.zip
 
@@ -73,19 +77,21 @@ cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 chmod +x "${APP_DIR}/server.py"
 chmod +x "${APP_DIR}/server_test.sh"
 
+# Ensure patchpilot user exists
 if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -s /usr/sbin/nologin patchpilot
 fi
 chown -R patchpilot:patchpilot "${APP_DIR}"
 
+# Setup SQLite database
 SQLITE_DB="${APP_DIR}/patchpilot.db"
 touch "$SQLITE_DB"
 chown patchpilot:patchpilot "$SQLITE_DB"
 chmod 600 "$SQLITE_DB"
 
+# Setup admin token
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
 ENV_FILE="${APP_DIR}/admin_token.env"
-
 if [[ ! -f "$TOKEN_FILE" ]]; then
     ADMIN_TOKEN=$(openssl rand -base64 32 | tr -d '=+/')
     echo "$ADMIN_TOKEN" > "$TOKEN_FILE"
@@ -93,10 +99,10 @@ if [[ ! -f "$TOKEN_FILE" ]]; then
 else
     ADMIN_TOKEN=$(cat "$TOKEN_FILE")
 fi
-
 printf "ADMIN_TOKEN=%s\n" "$ADMIN_TOKEN" > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
+# Setup systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=Patch Management Server
@@ -118,6 +124,8 @@ EOF
 systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
 
+# Output success message
 SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "✅ Installation complete! Dashboard: http://${SERVER_IP}:8080"
-echo "🔐 Admin token is stored at ${TOKEN_FILE}"
+echo "✅ Installation complete!"
+echo "🌐 Dashboard: http://${SERVER_IP}:8080"
+echo "🔑 Admin token is stored at ${TOKEN_FILE}"
