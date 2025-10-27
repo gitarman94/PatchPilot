@@ -5,7 +5,7 @@
             <li class="list-group-item"><strong>ID:</strong> {{ client.id }}</li>
             <li class="list-group-item"><strong>Hostname:</strong> {{ client.client_name or '—' }}</li>
             <li class="list-group-item"><strong>OS:</strong> {{ client.os_name or '—' }} {{ client.os_version or '' }}</li>
-            <li class="liststrong>CPU:</strong> {{ client.cpu or '—' }}</li>
+            <li class="list-group-item"><strong>CPU:</strong> {{ client.cpu or '—' }}</li>
             <li class="list-group-item"><strong>RAM:</strong> {{ client.ram or '—' }}</li>
             <li class="list-group-item"><strong>Disk:</strong> {{ client.disk_total or '—' }}/{{ client.disk_free or '—' }}</li>
             <li class="list-group-item"><strong>Uptime:</strong> {{ client.uptime or '—' }}</li>
@@ -56,7 +56,7 @@
         {% endif %}
     </div>
 
-   <div class="col-12 mt-4">
+    <div class="col-12 mt-4">
         {% if client.approved is not true %}
         <form method="post" action="/approve/{{ client.id }}" class="d-inline">
             <button type="submit" class="btn btn-warning">Approve client</button>
@@ -70,7 +70,3 @@
         </form>
     </div>
 </div>
-
-
-
-
