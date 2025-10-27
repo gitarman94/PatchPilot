@@ -23,14 +23,19 @@ for arg in "$@"; do
     esac
 done
 
-# OS check – only allow Debian‑based systems
+# OS check – allow only Debian‑based systems
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
         debian|ubuntu|linuxmint|pop|raspbian) ;;   # allowed
-        *) echo "❌ This installer works only onfi
+        *) echo "❌ This installer works only on Debian‑based systems."; exit 1 ;;
+    esac
+else
+    echo "❌ Cannot determine OS – /etc/os-release missing."
+    exit 1
+fi
 
- Install required Debian packages (no stray words)
+# Install required Debian packages
 export DEBIAN_FRONTEND=noninteractive
 echo "📦 Installing required packages..."
 apt-get update -qq
@@ -38,13 +43,13 @@ apt-get install -y -qq \
     python3 python3-venv python3-pip curl unzip
 
 # Force‑reinstall cleanup (if requested)
-if [[ "$" = true ]]; then
+if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Removing any previous installation..."
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 
-    # Kill any stray server.py processes
-    pids=$(pgrep -f "server.py" || true)
+    # Kill stray server.py processes
+    pids=$(pgrep.py" || true)
     if [[ -n "$pids" ]]; then
         for pid in $pids; do
             echo "Terminating pid $pid"
@@ -54,7 +59,6 @@ if [[ "$" = true ]]; then
         done
     fi
 
-    # Delete the whole application directory (including a stale venv)
     rm -rf "${APP_DIR}"
 fi
 
@@ -62,15 +66,14 @@ fi
 mkdir -p "${APP_DIR}"
 mkdir -p "${APP_DIR}/updates"
 
-# Create a fresh virtual environment (always runs)
+# Create a fresh virtual environment
 echo "🐍 Creating Python virtual environment..."
 python3 -m venv "${VENV_DIR}"
 
 # Ensure pip works inside the venv
 if [[ ! -x "${VENV_DIR}/bin/pip" ]]; then
     echo "Installing pip into venv..."
-    "${VENV_DIR}/bin/python" -m ensurepip --upgrade
-fi
+    "${VENV_DIR}/bin/python" -m ensurepip --
 "${VENV_DIR}/bin/pip" install --upgrade pip setuptools wheel
 
 # Install Python dependencies (SQLite only)
@@ -86,7 +89,7 @@ echo "⬇️  Downloading repository ZIP..."
 curl -L "$ZIP_URL" -o latest.zip
 unzip -o latest.zip
 
-# Find the extracted folder (named "<repo>-<branch>")
+# Extracted folder is named "<repo>-<branch>"
 EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
 if [[ -z "$EXTRACTED_DIR" ]]; then
     echo "❌ Failed to locate extracted repo directory."
@@ -131,6 +134,7 @@ printf "ADMIN_TOKEN=%s\n" "$ADMIN_TOKEN" > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
 echo "✅ Admin token saved to ${TOKEN_FILE}"
+echo "   (systemd will read it from ${ENV_FILE})"
 
 # Systemd service definition (runs as unprivileged user)
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
