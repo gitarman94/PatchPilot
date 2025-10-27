@@ -25,19 +25,20 @@ if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
         debian|ubuntu|linuxmint|pop|raspbian) ;;
-        *) echo "This installer works only on Debian-based systems."; exit 1 ;;
+        *) echo "❌ This installer works only on Debian-based systems."; exit 1 ;;
     esac
 else
-    echo "Cannot determine OS – /etc/os-release missing."
+    echo "❌ Cannot determine OS – /etc/os-release missing."
     exit 1
 fi
 
 export DEBIAN_FRONTEND=noninteractive
+echo "📦 Installing required packages..."
 apt-get update -qq
 apt-get install -y -qq python3 python3-venv python3-pip curl unzip openssl
 
 if [[ "$FORCE_REINSTALL" = true ]]; then
-    echo "Cleaning up previous PatchPilot installation..."
+    echo "🧹 Cleaning up previous installation..."
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
     pids=$(pgrep -f "server.py" || true)
@@ -51,10 +52,11 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
     rm -rf "${APP_DIR}"
 fi
 
+echo "🐍 Creating Python virtual environment..."
 mkdir -p "${APP_DIR}/updates"
-
 python3 -m venv "${VENV_DIR}"
 "${VENV_DIR}/bin/pip" install --upgrade pip setuptools wheel
+
 source "${VENV_DIR}/bin/activate"
 pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn
 
@@ -62,13 +64,13 @@ TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
 
+echo "⬇️  Downloading repository ZIP..."
 curl -L "$ZIP_URL" -o latest.zip
 unzip -o latest.zip
 
 EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
 cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 chmod +x "${APP_DIR}/server.py"
-
 chmod +x "${APP_DIR}/server_test.sh"
 
 if ! id -u patchpilot >/dev/null 2>&1; then
@@ -117,5 +119,5 @@ systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "Installation complete. Dashboard: http://${SERVER_IP}:8080"
-echo "Admin token is stored at ${TOKEN_FILE}"
+echo "✅ Installation complete! Dashboard: http://${SERVER_IP}:8080"
+echo "🔐 Admin token is stored at ${TOKEN_FILE}"
