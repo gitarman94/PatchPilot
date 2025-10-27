@@ -55,6 +55,7 @@
            style="width:100%">
         <thead>
         <tr>
+            <th><input type="checkbox" id="selectAll"></th> <!-- new column -->
             <th>Client ID</th>
             <th>Hostname</th>
             <th>OS</th>
@@ -68,10 +69,12 @@
             <th>Actions</th>
         </tr>
         </thead>
+        
         <tbody>
         {% for client in clients %}
         <tr data-client-id="{{ client.id }}">
-            <td><a href="#" class="client-link text-primary">{{ client.id }}</a></td>
+    <td><input type="checkbox" class="client-checkbox"></td>
+    <td><a href="#" class="client-link text-primary">{{ client.id }}</a></td>
             <td>{{ client.client_name or '—' }}</td>
             <td>{{ client.os_name or '—' }}</td>
             <td>{{ client.cpu or '—' }}</td>
@@ -227,5 +230,6 @@ $('#clientsTable').on('click', '.client-link', function(e){
 </script>
 </body>
 </html>
+
 
 
