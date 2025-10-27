@@ -51,6 +51,12 @@
     </div>
 
     <!-- DataTable -->
+    <div class="mb-3">
+        <button class="btn btn-outline-primary me-2" id="forcePatchBtn">Force Patch Install</button>
+        <button class="btn btn-outline-warning me-2" id="forceCheckinBtn">Force Check-in</button>
+        <button class="btn btn-outline-danger" id="forceReinstallBtn">Force Reinstall</button>
+    </div>
+
     <table id="clientsTable" class="display nowrap table table-striped table-hover"
            style="width:100%">
         <thead>
@@ -230,6 +236,7 @@ $('#clientsTable').on('click', '.client-link', function(e){
 </script>
 </body>
 </html>
+
 
 
 
