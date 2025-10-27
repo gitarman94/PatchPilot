@@ -36,11 +36,16 @@ else
     exit 1
 fi
 
+# Install required Debian packages
+export DEBIAN_FRONTEND=noninteractive
+echo "📦 Installing required packages..."
+apt-get update -qq
+apt-get install -y -qq \
+    python3 python3-venv python3-pip curl unzip jq build-essential libssl-dev libffi-dev python3-dev
+
 # Force-reinstall cleanup (if requested)
 if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Removing any previous installation..."
-
-    # Stop service if running
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 
@@ -55,14 +60,9 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
         done
     fi
 
-    # Remove the application directory and virtual environment
+    # Remove the previous installation folder
     rm -rf "${APP_DIR}"
-
-    # Remove temporary files if they exist
-    rm -rf "${TEMP_DIR}"
-
-    # Remove the downloaded ZIP file
-    rm -f "$TEMP_DIR/latest.zip"
+    echo "Removed previous installation files."
 fi
 
 # Create required directories
@@ -90,8 +90,8 @@ curl -L "$ZIP_URL" -o "${TEMP_DIR}/latest.zip"
 unzip -o "${TEMP_DIR}/latest.zip" -d "${TEMP_DIR}"
 
 # Extracted folder is named "<repo>-<branch>"
-EXTRACTED_DIR=$(find "$TEMP_DIR" -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
-if [[ -z "$EXTRACTED_DIR" ]]; then
+EXTRACTED_DIR="${TEMP_DIR}/PatchPilot-${BRANCH}"
+if [[ ! -d "$EXTRACTED_DIR" ]]; then
     echo "❌ Failed to locate extracted repo directory."
     exit 1
 fi
@@ -166,5 +166,6 @@ SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete! Dashboard: http://${SERVER_IP}:8080"
 echo "🔐 Admin token is stored at ${TOKEN_FILE}"
 
-# Cleanup: Remove the downloaded ZIP and temporary directory
+# Cleanup temporary files
 rm -rf "${TEMP_DIR}"
+
