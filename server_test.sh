@@ -99,21 +99,33 @@ else
 
     # Quick sanity check via the app’s SQLAlchemy objects
     "${VENV_DIR}/bin/python" - <<'PYEND'
-import os, sys
+import sys
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.sql import text
 
+# Import your Flask app here
+from server import app, db  # assuming 'app' and 'db' are in your 'server.py'
+
+# Make sure you're within the app context to use the database
 with app.app_context():
     try:
+        # Check if the 'client' table exists in the SQLite database
         client_tbl = db.session.execute(
             text("SELECT name FROM sqlite_master WHERE type='table' AND name='client'")
         ).scalar()
+        # Check if the 'client_update' table exists
         update_tbl = db.session.execute(
             text("SELECT name FROM sqlite_master WHERE type='table' AND name='client_update'")
         ).scalar()
+
+        # If either table is missing, raise an error
         if not client_tbl or not update_tbl:
             raise RuntimeError("Required tables are missing.")
+
+        # Get the count of rows in the 'client' table
         cnt = db.session.execute(text("SELECT COUNT(*) FROM client")).scalar()
         print(f"✔️  SQLite tables present, client count={cnt}")
+
     except Exception as e:
         print(f"❌  SQLite sanity check failed: {e}")
         sys.exit(1)
