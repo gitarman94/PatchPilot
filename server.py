@@ -80,13 +80,16 @@ class ClientUpdate(db.Model):
 
 def init_db():
     try:
-        engine = create_engine(app.config["SQLALCHEMY_DATABASE_URI"])
-        engine.connect()
-        inspector = inspect(engine)
-        if not inspector.has_table("client"):
+        # Ensure database file exists
+        if not os.path.exists(SQLITE_DB_PATH):
+            open(SQLITE_DB_PATH, "a").close()
+
+        # Create all tables defined in SQLAlchemy models if they don't exist
+        with app.app_context():
             db.create_all()
+            app.logger.info("Database initialized successfully.")
     except OperationalError as e:
-        app.logger.error(f"DB init error: {e}")
+        app.logger.error(f"Database initialization error: {e}")
 
 with app.app_context():
     init_db()
@@ -306,5 +309,6 @@ def health_check():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
+
 
 
