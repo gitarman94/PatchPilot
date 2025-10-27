@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 # --------------------------------------------------------------
-# server_test.sh – basic functional test for the PatchPilot server
+# PatchPilot server test script – works with the current SQLite‑based install
 # --------------------------------------------------------------
 
-set -euo pipefail
+# ------------------------------------------------------------------
+# Guard: abort if we are not really being run by Bash (dash will silently ignore this)
+# ------------------------------------------------------------------
+if [ -z "${BASH_VERSION-}" ]; then
+    be run with Bash.  Use:"
+    echo "     bash /opt/patchpilot_server/server_test.sh"
+    exit 
+fi
+
+set -euo pipefail          # Bash‑only options – safe now
 
 # -------------------------- Configuration -------------------------
 SERVER_DIR="/opt/patchpilot_server"
@@ -21,18 +30,10 @@ PG_DB="patchpilot_db"
 PG_PASSWORD_FILE="${SERVER_DIR}/postgresql_pwd.txt"
 
 # --------------------------- Helpers ----------------------------
-function success() {
-    echo -e "\033[0;32m✔️  $1\033[0m"
-}
-function failure() {
-    echo -e "\033[0;31m❌  $1\033[0m"
-}
-function info() {
-    echo -e "\033[0;34m🔍  $1\033[0m"
-}
-function warn() {
-    echo -e "\033[0;33m⚠️  $1\033[0m"
-}
+function success() { echo -e "\033[0;32m✔️  $1\033[0m"; }
+function failure() { echo -e "\033[0;31m❌  $1\033[0m"; }
+function info()    { echo -e "\033[0;34m🔍  $1\033[0m"; }
+function warn()    { echo -e "\033[0;33m⚠️  $1\033[0m"; }
 
 # --------------------------- Header ----------------------------
 echo "=============================="
@@ -51,23 +52,25 @@ else
         failure "Failed to start service via systemctl."
         exit 1
     }
-    # re‑check
     if systemctl is-active --quiet "${SERVICE_NAME}"; then
         success "Service started successfully."
     else
-        failure "Service still not running after start attemptfi
+        failure "Service still not running after start attempt."
+        exit 1
+    fi
+fi
 
- -------------------------- Health check -----------------------
+# -------------------------- Health check -----------------------
 info "Verifying HTTP health endpoint..."
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 HEALTH_URL="http://${SERVER_IP}:8080/api/health"
 
 if curl -s --max-time 5 "${HEALTH_URL}" | grep -q '"status":"ok"'; then
-    success "Health endpoint responded with status=ok."
+    success "Health endpoint returned status=ok."
 else
-    failure "Health endpoint not reachable or returned unexpected result."
-    warn "Fetching recent journal entries for diagnosis:"
+    failure "Health endpoint unreachable or returned unexpected data."
+    warn "Recent journal entries (service ${SERVICE_NAME}):"
     journalctl -u "${SERVICE_NAME}" -n 20 --no-pager
     exit 1
 fi
@@ -85,13 +88,8 @@ fi
 if [[ "${DB_BACKEND}" == "postgresql" ]]; then
     info "Testing PostgreSQL connection..."
 
-    if [[ ! -f "${PG_PASSWORD_FILE}" ]]; then
-        failure "Password file missing despite earlier detection."
-        exit 1
-    fi
     PG_PASSWORD=$(< "${PG_PASSWORD_FILE}")
 
-    # Use PGPASSWORD env var for non‑interactive auth
     PGPASSWORD="${PG_PASSWORD}" psql -U "${PG_USER}" -d "${PG_DB}" -h localhost -p 5432 -c '\q' \
         >/dev/null 2>&1 && success "PostgreSQL connection succeeded." || {
         failure "Unable to connect to PostgreSQL."
@@ -108,22 +106,23 @@ else
         exit 1
     fi
 
-    # Quick sanity check – can we open a connection via the app's SQLAlchemy instance?
+    # Quick sanity check via the app’s SQLAlchemy objects
     "${VENV_DIR}/bin/python" - <<'PYEND'
-import sys, os
+import os, sys
+# make the app importable
 sys.path.insert(0, os.getenv("SERVER_DIR", "/opt/patchpilot_server"))
 from server import db, Client, ClientUpdate
 try:
-    client_exists = db.session.execute(
+    client_tbl = db.session.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='client'"
     ).scalar()
-    update_exists = db.session.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='client_update'"
+    update_tbl = db.session.execute(
+        "SELECT name FROM sqlite_master WHERE type=''"
     ).scalar()
-    if not client_exists or not update_exists:
+    if not client_tbl or not update_tbl:
         raise RuntimeError("Required tables are missing.")
-    count = db.session.execute("SELECT COUNT(*) FROM client").scalar()
-    print(f"✔️  SQLite tables present, client count={count}")
+    cnt = db.session.execute("SELECT COUNT(*) FROM client").scalar()
+    print(f"✔️  SQLite tables present, client count={cnt}")
 except Exception as e:
     print(f"❌  SQLite sanity check failed: {e}")
     sys.exit(1)
