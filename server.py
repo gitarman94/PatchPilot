@@ -117,11 +117,9 @@ def force_reinstall_client(client_id):
     try:
         client = Client.query.get(client_id)
     except OperationalError:
-        # Table doesn't exist yet
-        return "Database table not initialized", 500
+        return "Database not initialized", 500
 
     if not client:
-        # No client with that ID yet
         return "Client not found", 404
 
     client.force_update = True
@@ -309,6 +307,7 @@ def health_check():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
+
 
 
 
