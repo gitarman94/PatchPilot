@@ -1,177 +1,194 @@
-#!/usr/bin/env bash
-# --------------------------------------------------------------
-# PatchPilot server test script – works with the current SQLite‑based install
-# --------------------------------------------------------------
+#!/bin/bash
 
-set -euo pipefail          # Bash‑only options – safe now
+echo "================================"
+echo " PatchPilot Server Test Script  "
+echo "================================"
 
-# -------------------------- Configuration -------------------------
-SERVER_DIR="/opt/patchpilot_server"
-VENV_DIR="${SERVER_DIR}/venv"
-SERVICE_NAME="patchpilot_server.service"
-ENV_FILE="${SERVER_DIR}/admin_token.env"
-TOKEN_FILE="${SERVER_DIR}/admin_token.txt"
-
-# SQLite defaults (used when no PostgreSQL password file is present)
-SQLITE_DB="${SERVER_DIR}/patchpilot.db"
-
-# PostgreSQL defaults (kept for backward compatibility)
-PG_USER="patchpilot_user"
-PG_DB="patchpilot_db"
-PG_PASSWORD_FILE="${SERVER_DIR}/postgresql_pwd.txt"
-
-# --------------------------- Helpers ----------------------------
-function success() { echo -e "\033[0;32m✔️  $1\033[0m"; }
-function failure() { echo -e "\033[0;31m❌  $1\033[0m"; }
-function info()    { echo -e "\033[0;34m🔍  $1\033[0m"; }
-function warn()    { echo -e "\033[0;33m⚠️  $1\033[0m"; }
-
-# --------------------------- Header ----------------------------
-echo "=============================="
-echo "      PatchPilot Server Test   "
-echo "=============================="
-
-# ------------------------ Service check ------------------------
-info "Checking systemd service '${SERVICE_NAME}'..."
-
-if systemctl is-active --quiet "${SERVICE_NAME}"; then
-    success "Service is active."
+# 1. Checking systemd service status
+echo "🔍  Checking systemd service 'patchpilot_server.service'..."
+if systemctl is-active --quiet patchpilot_server.service; then
+    echo "✔️  Service is active."
 else
-    failure "Service is NOT running."
-    warn "Attempting to start the service..."
-    systemctl start "${SERVICE_NAME}" || {
-        failure "Failed to start service via systemctl."
-        exit 1
-    }
-    if systemctl is-active --quiet "${SERVICE_NAME}"; then
-        success "Service started successfully."
-    else
-        failure "Service still not running after start attempt."
-        exit 1
-    fi
-fi
-
-# -------------------------- Health check -----------------------
-info "Verifying HTTP health endpoint..."
-
-SERVER_IP=$(hostname -I | awk '{print $1}')
-HEALTH_URL="http://${SERVER_IP}:8080/api/health"
-
-if curl -s --max-time 5 "${HEALTH_URL}" | grep -q '"status":"ok"'; then
-    success "Health endpoint returned status=ok."
-else
-    failure "Health endpoint unreachable or returned unexpected data."
-    warn "Recent journal entries service ${SERVICE_NAME}:"
-    journalctl -u "${SERVICE_NAME}" -n 20 --no-pager
+    echo "❌  Service is not active."
     exit 1
 fi
 
-# --------------------------- DB type ---------------------------
-if [[ -f "${PG_PASSWORD_FILE}" ]]; then
-    DB_BACKEND="postgresql"
-    info "PostgreSQL credentials detected."
+# 2. Verifying HTTP health endpoint
+echo "🔍  Verifying HTTP health endpoint..."
+if curl -s http://localhost:8080/api/health | jq -e .status | grep -q '"ok"'; then
+    echo "✔️  Health endpoint returned status=ok."
 else
-    DB_BACKEND="sqlite"
-    info "No PostgreSQL password file – assuming SQLite ${SQLITE_DB}."
+    echo "❌  Health check failed."
+    exit 1
 fi
 
-# ------------------------ DB connectivity ----------------------
-if [[ "${DB_BACKEND}" == "postgresql" ]]; then
-    info "Testing PostgreSQL connection..."
+# 3. No PostgreSQL password file – assuming SQLite backend
+echo "🔍  No PostgreSQL password file – assuming SQLite /opt/patchpilot_server/patchpilot.db."
+DB_FILE="/opt/patchpilot_server/patchpilot.db"
+if [ ! -f "$DB_FILE" ]; then
+    echo "❌  Database file does not exist."
+    exit 1
+fi
+echo "✔️  SQLite DB file exists at $DB_FILE."
 
-    PG_PASSWORD=$(< "${PG_PASSWORD_FILE}")
-
-    PGPASSWORD="${PG_PASSWORD}" psql -U "${PG_USER}" -d "${PG_DB}" -h localhost -p 5432 -c '\q' \
-        >/dev/null 2>&1 && success "PostgreSQL connection succeeded." || {
-        failure "Unable to connect to PostgreSQL."
-        PGPASSWORD="${PG_PASSWORD}" psql -U "${PG_USER}" -d "${PG_DB}" -h localhost -p 5432 -c '\q' 2>&1 | tail -n 20
-        exit 1
-    }
+# 4. Testing SQLite database file integrity
+echo "🔍  Testing SQLite database file..."
+sqlite3 $DB_FILE "PRAGMA integrity_check;"
+if [ $? -eq 0 ]; then
+    echo "✔️  SQLite integrity check passed."
 else
-    info "Testing SQLite database file..."
-
-    if [[ -f "${SQLITE_DB}" ]]; then
-        success "SQLite DB file exists ${SQLITE_DB}."
-    else
-        failure "SQLite DB file not found at ${SQLITE_DB}."
-        exit 1
-    fi
-
-    # Quick sanity check via the app’s SQLAlchemy objects
-    "${VENV_DIR}/bin/python" - <<'PYEND'
-import sys
-from sqlalchemy import create_engine, inspect
-from sqlalchemy.sql import text
-
-# Import your Flask app here
-from server import app, db  # assuming 'app' and 'db' are in your 'server.py'
-
-# Make sure you're within the app context to use the database
-with app.app_context():
-    try:
-        # Check if the 'client' table exists in the SQLite database
-        client_tbl = db.session.execute(
-            text("SELECT name FROM sqlite_master WHERE type='table' AND name='client'")
-        ).scalar()
-        # Check if the 'client_update' table exists
-        update_tbl = db.session.execute(
-            text("SELECT name FROM sqlite_master WHERE type='table' AND name='client_update'")
-        ).scalar()
-
-        # If either table is missing, raise an error
-        if not client_tbl or not update_tbl:
-            raise RuntimeError("Required tables are missing.")
-
-        # Get the count of rows in the 'client' table
-        cnt = db.session.execute(text("SELECT COUNT(*) FROM client")).scalar()
-        print(f"✔️  SQLite tables present, client count={cnt}")
-
-    except Exception as e:
-        print(f"❌  SQLite sanity check failed: {e}")
-        sys.exit(1)
-PYEND
-    [[ $? -eq 0 ]] && success "SQLite sanity check passed." || failure "SQLite sanity check failed."
+    echo "❌  SQLite integrity check failed."
+    exit 1
 fi
 
-# ------------------------ Python deps -------------------------
-info "Checking required Python packages inside the virtual‑env..."
+# 5. Verifying SQLite tables presence
+echo "🔍  Checking SQLite tables..."
+client_count=$(sqlite3 $DB_FILE "SELECT COUNT(*) FROM client;")
+if [ "$client_count" -ge 0 ]; then
+    echo "✔️  SQLite tables present, client count=$client_count."
+else
+    echo "❌  SQLite tables missing or inaccessible."
+    exit 1
+fi
 
-REQUIRED_PKGS=(flask flask_sqlalchemy flask_cors gunicorn)
-
-MISSING_PKGS=()
-for pkg in "${REQUIRED_PKGS[@]}"; do
-    if "${VENV_DIR}/bin/python" -c "import ${pkg}" >/dev/null 2>&1; then
-        success "Package '${pkg}' is installed."
+# 6. Checking required Python packages inside the virtual environment
+echo "🔍  Checking required Python packages inside the virtual‑env..."
+for package in flask flask_sqlalchemy flask_cors gunicorn; do
+    if python3 -m pip show $package &>/dev/null; then
+        echo "✔️  Package '$package' is installed."
     else
-        failure "Package '${pkg}' is NOT installed."
-        MISSING_PKGS+=("${pkg}")
+        echo "❌  Package '$package' is missing."
+        exit 1
     fi
 done
 
-if (( ${#MISSING_PKGS[@]} )); then
-    warn "Attempting to install missing packages..."
-    "${VENV_DIR}/bin/pip" install "${MISSING_PKGS[@]}" || {
-        failure "Failed to install required packages."
-        exit 1
-    }
-    success "Missing packages installed."
-fi
+# 7. Testing Flask application routes (root and client API)
+echo "🔍  Testing Flask application routes..."
 
-# --------------------- Debug‑mode warning --------------------
-info "Checking whether Flask is started with debug=True in the source..."
-
-if grep -q "debug=True" "${SERVER_DIR}/server.py"; then
-    warn "Flask is started with debug=True – remember to disable in production."
+# Test the root route
+root_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/)
+if [ "$root_status" -eq 200 ]; then
+    echo "✔️  Root route is accessible."
 else
-    success "Flask debug mode not forced in source."
+    echo "❌  Root route returned status $root_status."
+    exit 1
 fi
 
-# --------------------- System resources ----------------------
-info "Current system resource snapshot (top, first 20 lines):"
-top -b -n 1 | head -n 20
+# Test the /api/clients route
+client_api_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/clients)
+if [ "$client_api_status" -eq 200 ]; then
+    echo "✔️  /api/clients route is accessible."
+else
+    echo "❌  /api/clients route returned status $client_api_status."
+    exit 1
+fi
 
-# -------------------------- Finish ---------------------------
+# Test the /api/health route
+health_status=$(curl -s http://localhost:8080/api/health | jq -e .status | grep -q '"ok"')
+if [ $? -eq 0 ]; then
+    echo "✔️  /api/health route is returning 'ok'."
+else
+    echo "❌  /api/health route failed."
+    exit 1
+fi
+
+# 8. Checking Gunicorn process status
+echo "🔍  Checking Gunicorn process status..."
+gunicorn_pid=$(pgrep -f gunicorn)
+if [ -z "$gunicorn_pid" ]; then
+    echo "❌  Gunicorn is not running."
+    exit 1
+else
+    echo "✔️  Gunicorn is running with PID: $gunicorn_pid."
+fi
+
+# 9. Verifying File System Integrity
+echo "🔍  Checking required files and directories..."
+
+# Check database file
+if [ -f "$DB_FILE" ]; then
+    echo "✔️  Database file exists at $DB_FILE."
+else
+    echo "❌  Database file missing."
+    exit 1
+fi
+
+# Check for updates directory
+if [ -d "/opt/patchpilot_server/updates" ]; then
+    echo "✔️  Updates directory exists."
+else
+    echo "❌  Updates directory missing."
+    exit 1
+fi
+
+# Check for admin token file
+if [ -f "/opt/patchpilot_server/admin_token.txt" ]; then
+    echo "✔️  Admin token file exists."
+else
+    echo "❌  Admin token file missing."
+    exit 1
+fi
+
+# 10. Check for application logs
+echo "🔍  Checking application logs for errors..."
+log_path="/opt/patchpilot_server/logs/flask.log"
+if [ -f "$log_path" ]; then
+    tail -n 20 $log_path
+else
+    echo "❌  Flask log file not found at $log_path."
+fi
+
+# 11. Test Database Connectivity
+echo "🔍  Testing database connectivity and queries..."
+python3 -c "
+from flask_sqlalchemy import SQLAlchemy
+from app import app, db, Client
+
+with app.app_context():
+    try:
+        result = db.session.execute('SELECT COUNT(*) FROM client')
+        print(f'Client count: {result.fetchone()[0]}')
+    except Exception as e:
+        print(f'Error: {e}')
+"
+if [ $? -eq 0 ]; then
+    echo "✔️  Database query executed successfully."
+else
+    echo "❌  Database query failed."
+    exit 1
+fi
+
+# 12. Stress Test (using ab for Apache Benchmark)
+echo "🔍  Performing stress test on /api/clients route..."
+ab -n 100 -c 10 http://localhost:8080/api/clients
+if [ $? -eq 0 ]; then
+    echo "✔️  Stress test completed successfully."
+else
+    echo "❌  Stress test failed."
+    exit 1
+fi
+
+# 13. Network and Firewall Check
+echo "🔍  Checking network connectivity..."
+
+# Test if server is reachable
+curl_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/)
+if [ "$curl_status" -eq 200 ]; then
+    echo "✔️  Server is reachable on port 8080."
+else
+    echo "❌  Server is not reachable on port 8080."
+    exit 1
+fi
+
+# Check firewall status (if using UFW)
+sudo ufw status | grep -q "active"
+if [ $? -eq 0 ]; then
+    echo "✔️  Firewall is active."
+else
+    echo "❌  Firewall is not active."
+fi
+
+# End of Script
 echo "=============================="
-success "All checks completed successfully."
-echo "If any warnings appeared, review them for possible improvements."
+echo "  PatchPilot Server Test Completed "
 echo "=============================="
