@@ -35,17 +35,26 @@ fi
 # Cleanup old install first if --force is used
 if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Cleaning up old installation..."
-    systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-    systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
-    # Kill only existing server.py processes, but exclude this script
-    pids=$(pgrep -f "server.py" | grep -v $$ || true)
+
+    # Stop and disable systemd service if it exists
+    if systemctl list-units --full -all | grep -q "^${SERVICE_NAME}"; then
+        echo "🛑 Stopping systemd service ${SERVICE_NAME}..."
+        systemctl stop "${SERVICE_NAME}" || true
+        systemctl disable "${SERVICE_NAME}" || true
+    fi
+
+    # Kill any running server.py instances in the application directory
+    pids=$(pgrep -f "^${APP_DIR}/server.py$" || true)
     if [[ -n "$pids" ]]; then
         for pid in $pids; do
+            echo "🛑 Terminating running server.py process $pid..."
             kill -15 "$pid" 2>/dev/null || true
             sleep 2
             kill -9 "$pid" 2>/dev/null || true
         done
     fi
+
+    # Remove the old application directory
     rm -rf "${APP_DIR}"
 fi
 
