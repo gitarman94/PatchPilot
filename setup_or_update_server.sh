@@ -188,6 +188,7 @@ systemctl daemon-reload
 echo "Enabling and starting ${SERVICE_NAME}..."
 systemctl enable --now "${SERVICE_NAME}"
 
+chmod +x /opt/patchpilot_server/server_test.sh
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete! Dashboard: http://${SERVER_IP}:8080"
 echo "🔐 Admin token is stored at ${TOKEN_FILE}"
