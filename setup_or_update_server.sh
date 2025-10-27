@@ -37,6 +37,7 @@ apt-get update -qq
 apt-get install -y -qq python3 python3-venv python3-pip curl unzip openssl
 
 if [[ "$FORCE_REINSTALL" = true ]]; then
+    echo "Cleaning up previous PatchPilot installation..."
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
     pids=$(pgrep -f "server.py" || true)
@@ -47,7 +48,7 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
             kill -9 "$pid" 2>/dev/null || true
         done
     fi
-    rm -rf "${APP_DIR}" || true
+    rm -rf "${APP_DIR}"
 fi
 
 mkdir -p "${APP_DIR}/updates"
@@ -67,6 +68,8 @@ unzip -o latest.zip
 EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
 cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 chmod +x "${APP_DIR}/server.py"
+
+chmod +x "${APP_DIR}/server_test.sh"
 
 if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -s /usr/sbin/nologin patchpilot
@@ -112,8 +115,6 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
-
-chmod +x /opt/patchpilot_server/server_test.sh
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "Installation complete. Dashboard: http://${SERVER_IP}:8080"
