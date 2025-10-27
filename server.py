@@ -107,6 +107,14 @@ def sse_generator():
 def sse_clients():
     return Response(sse_generator(), mimetype="text/event-stream")
 
+@app.route("/admin/force-reinstall/<client_id>", methods=["POST"])
+def force_reinstall_client(client_id):
+    client = Client.query.get_or_404(client_id)
+    client.force_update = True  # or some reinstall flag
+    # you could add `client.reinstall_flag = True` if you implement actual reinstall
+    db.session.commit()
+    return ("", 204)
+
 @app.route("/api/clients")
 def api_clients():
     draw = int(request.args.get("draw", "1"))
@@ -288,3 +296,4 @@ def health_check():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
+
