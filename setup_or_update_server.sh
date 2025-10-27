@@ -11,7 +11,7 @@ APP_DIR="/opt/patchpilot_server"
 VENV_DIR="${APP_DIR}/venv"
 SERVICE_NAME="patchpilot_server.service"
 SYSTEMD_DIR="/etc/systemd/system"
-TEMP_DIR=$(mktemp -d)
+TMP_DIR=$(mktemp -d)
 
 # Optional flags
 FORCE_REINSTALL=false
@@ -41,15 +41,17 @@ export DEBIAN_FRONTEND=noninteractive
 echo "📦 Installing required packages..."
 apt-get update -qq
 apt-get install -y -qq \
-    python3 python3-venv python3-pip curl unzip jq build-essential libssl-dev libffi-dev python3-dev
+    python3 python3-venv python3-pip curl unzip jq
 
 # Force-reinstall cleanup (if requested)
 if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Removing any previous installation..."
+    
+    # Stop and disable service if it exists
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 
-    # Kill stray server.py processes
+    # Remove any running Python processes (especially server.py)
     pids=$(pgrep -f "server.py" || true)
     if [[ -n "$pids" ]]; then
         for pid in $pids; do
@@ -60,14 +62,18 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
         done
     fi
 
-    # Remove the previous installation folder
+    # Remove previous application files and directories
     rm -rf "${APP_DIR}"
-    echo "Removed previous installation files."
+
+    # Clean up any temporary files
+    rm -rf "$TMP_DIR"
+    rm -f /tmp/latest.zip
 fi
 
 # Create required directories
 mkdir -p "${APP_DIR}"
 mkdir -p "${APP_DIR}/updates"
+mkdir -p "$TMP_DIR"
 
 # Create a fresh virtual environment (always runs)
 echo "🐍 Creating Python virtual environment..."
@@ -86,12 +92,12 @@ pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn
 
 # Pull the latest source from GitHub
 echo "⬇️  Downloading repository ZIP..."
-curl -L "$ZIP_URL" -o "${TEMP_DIR}/latest.zip"
-unzip -o "${TEMP_DIR}/latest.zip" -d "${TEMP_DIR}"
+curl -L "$ZIP_URL" -o /tmp/latest.zip
+unzip -o /tmp/latest.zip -d "$TMP_DIR"
 
 # Extracted folder is named "<repo>-<branch>"
-EXTRACTED_DIR="${TEMP_DIR}/PatchPilot-${BRANCH}"
-if [[ ! -d "$EXTRACTED_DIR" ]]; then
+EXTRACTED_DIR=$(find "$TMP_DIR" -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
+if [[ -z "$EXTRACTED_DIR" ]]; then
     echo "❌ Failed to locate extracted repo directory."
     exit 1
 fi
@@ -166,6 +172,6 @@ SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete! Dashboard: http://${SERVER_IP}:8080"
 echo "🔐 Admin token is stored at ${TOKEN_FILE}"
 
-# Cleanup temporary files
-rm -rf "${TEMP_DIR}"
-
+# Clean up temp files after installation
+rm -rf "$TMP_DIR"
+rm -f /tmp/latest.zip
