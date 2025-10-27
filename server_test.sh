@@ -3,15 +3,6 @@
 # PatchPilot server test script – works with the current SQLite‑based install
 # --------------------------------------------------------------
 
-# ------------------------------------------------------------------
-# Guard: abort if we are not really being run by Bash (dash will silently ignore this)
-# ------------------------------------------------------------------
-if [ -z "${BASH_VERSION-}" ]; then
-    be run with Bash.  Use:"
-    echo "     bash /opt/patchpilot_server/server_test.sh"
-    exit 
-fi
-
 set -euo pipefail          # Bash‑only options – safe now
 
 # -------------------------- Configuration -------------------------
