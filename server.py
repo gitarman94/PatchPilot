@@ -107,13 +107,23 @@ def sse_generator():
 def sse_clients():
     return Response(sse_generator(), mimetype="text/event-stream")
 
+from sqlalchemy.exc import OperationalError
+
 @app.route("/admin/force-reinstall/<client_id>", methods=["POST"])
 def force_reinstall_client(client_id):
-    client = Client.query.get_or_404(client_id)
-    client.force_update = True  # or some reinstall flag
-    # you could add `client.reinstall_flag = True` if you implement actual reinstall
+    try:
+        client = Client.query.get(client_id)
+    except OperationalError:
+        # Table doesn't exist yet
+        return "Database table not initialized", 500
+
+    if not client:
+        # No client with that ID yet
+        return "Client not found", 404
+
+    client.force_update = True
     db.session.commit()
-    return ("", 204)
+    return "", 204
 
 @app.route("/api/clients")
 def api_clients():
@@ -296,4 +306,5 @@ def health_check():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
+
 
