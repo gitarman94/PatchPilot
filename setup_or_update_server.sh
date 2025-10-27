@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Configuration
+# -------------------- Configuration --------------------
 GITHUB_USER="gitarman94"
 GITHUB_REPO="PatchPilot"
 BRANCH="main"
@@ -9,10 +9,10 @@ ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${B
 
 APP_DIR="/opt/patchpilot_server"          # project directory
 VENV_DIR="${APP_DIR}/venv"
-="patchpilot_server.service"
+SERVICE_NAME="patchpilot_server.service"
 SYSTEMD_DIR="/etc/systemd/system"
 
-# Flags (optional)
+# -------------------- Flags (optional) --------------------
 FORCE_REINSTALL=false
 UPGRADE=false
 
@@ -23,7 +23,7 @@ for arg in "$@"; do
     esac
 done
 
-# ---------- OS only ----------
+# -------------------- OS check – Debian only --------------------
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
@@ -34,19 +34,20 @@ else
     echo "❌ Cannot determine OS – /etc/os-release missing."; exit 1
 fi
 
-# ---------- Install required Debian packages ----------
+# -------------------- Install required Debian packages --------------------
 export DEBIAN_FRONTEND=noninteractive
 echo "📦 Installing required packages..."
 apt-get update -qq
 apt-get install -y -qq \
-    python-venv python3-pip curl unzip
+    python3 python3-venv python3-pip curl unzip
 
-# ---------- Optional force‑reinstall ----------
+# -------------------- Optional force‑reinstall cleanup --------------------
 if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Removing any previous installation..."
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 
+    # Kill any stray server.py processes that might still be running
     pids=$(pgrep -f "server.py" || true)
     if [[ -n "$pids" ]]; then
         for pid in $pids; do
@@ -57,61 +58,64 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
         done
     fi
 
-    rm -rf "${APP_DIR}"   # wipes everything, including a stale venv
+    # Remove the whole application directory – this also deletes a stale venv
+    rm -rf "${APP_DIR}"
 fi
 
-# ---------- Create required directories ----------
-mkdir -p "${APP_DIR}"
-mkdir -p "${APP_DIR}/updates"
+# -------------------- Create required directories --------------------
+mkdir -p "${APP_DIRp "${APP_DIR}/updates"
 
-# ---------- Create a fresh virtual environment ----------
+# -------------------- Create a fresh virtual environment --------------------
 # At this point ${VENV_DIR} definitely does NOT exist
 echo "🐍 Creating Python virtual environment..."
 python3 -m venv "${VENV_DIR}"
 
-# ---------- Ensure pip works inside the venv ----------
+# -------------------- Ensure pip works inside the venv --------------------
 if [[ ! -x "${VENV_DIR}/bin/pip" ]]; then
     echo "Installing pip into venv..."
     "${VENV_DIR}/bin/python" -m ensurepip --upgrade
 fi
 "${VENV_DIR}/bin/pip" install --upgrade pip setuptools wheel
 
-# ---------- Install Python dependencies (SQLite only) ----------
+# -------------------- Install Python dependencies (SQLite only) --------------------
 source "${VENV_DIR}/bin/activate"
 pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn
 
-# ---------- Pull latest source from GitHub ----------
+# -------------------- Pull latest source from GitHub --------------------
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
 
-echo "⬇️  Downloading repository ZIP..."
-curl -L "$ZIP_URL" -o latest.zip
+echo "⬇️  Downloading repository ZIPL "$ZIP_URL" -o latest.zip
 unzip -o latest.zip
 
-# Extracted folder is named "<repo>-<branch>"
+# The extracted folder is named "<repo>-<branch>"
 EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
 if [[ -z "$EXTRACTED_DIR" ]]; then
     echo "❌ Failed to locate extracted repo directory."
-    exit 1
-fi
+    exit 1fi
 
 echo "Copying files to ${APP_DIR}..."
 cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 chmod +x "${APP_DIR}/server.py"
 
-# ---------- Create unprivileged service user (if missing) ----------
+# -------------------- Create unprivileged service user (if missing) --------------------
 if ! id -u patchpilot >/dev/null 2>&1; then
     echo "Creating service user 'patchpilot'..."
     useradd -r -s /usr/sbin/nologin patchpilot
 fi
 chown -R patchpilot:patchpilot "${APP_DIR}"
 
-# ---------- SQLite DB file creation and permissions ----------
-SQLITE_DB="${APP_DIR}/patchpilot patchpilot:patchpilot "$SQLITE_DB"
+# -------------------- SQLite DB file creation and permission --------------------
+SQLITE_DB="${APP_DIR}/patchpilot.db"
+if [[ ! -f "$SQLITE_DB" ]]; then
+    echo "Creating empty SQLite DB file..."
+    touch "$SQLITE_DB"
+fi
+chown patchpilot:patchpilot "$SQLITE_DB"
 chmod 600 "$SQLITE_DB"
 
-# ---------- Generate admin token (saved in project directory) ----------
+# -------------------- Generate admin token (saved in project directory) --------------------
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
 ENV_FILE="${APP_DIR}/admin_token.env"
 
@@ -131,7 +135,7 @@ chmod 600 "${ENV_FILE}"
 echo "✅ Admin token saved to ${TOKEN_FILE}"
 echo "   (systemd will read it from ${ENV_FILE})"
 
-# ---------- Systemd service definition ----------
+# -------------------- Systemd service definition (runs as unprivileged user) --------------------
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=Patch Management Server
@@ -150,7 +154,7 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-# ---------- Enable & start the service ----------
+# -------------------- Enable & start the service --------------------
 echo "Reloading systemd daemon..."
 systemctl daemon-reload
 
