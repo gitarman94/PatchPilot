@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Configuration
+# Config
 GITHUB_USER="gitarman94"
 GITHUB_REPO="PatchPilot"
 BRANCH="main"
@@ -12,7 +12,7 @@ VENV_DIR="${APP_DIR}/venv"
 SERVICE_NAME="patchpilot_server.service"
 SYSTEMD_DIR="/etc/systemd/system"
 
-# Flags (optional)
+# Optional flags
 FORCE_REINSTALL=false
 UPGRADE=false
 
@@ -23,26 +23,22 @@ for arg in "$@"; do
     esac
 done
 
-# Verify Debian‑based OS
+# OS check – only allow Debian‑based systems
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
-        debian|ubuntu|linuxmint|pop|raspbian) ;;
-        *) echo "❌ This installer works only on Debian‑based systems."; exit 1 ;;
-    esac
-else
-    echo "❌ Cannot determine OS – /etc/os-release missing."; exit 1
-fi
+        debian|ubuntu|linuxmint|pop|raspbian) ;;   # allowed
+        *) echo "❌ This installer works only onfi
 
-# Install required packages
+ Install required Debian packages (no stray words)
 export DEBIAN_FRONTEND=noninteractive
 echo "📦 Installing required packages..."
 apt-get update -qq
 apt-get install -y -qq \
     python3 python3-venv python3-pip curl unzip
 
-# Force reinstall cleanup (if requested)
-if [[ "$FORCE_REINSTALL" = true ]]; then
+# Force‑reinstall cleanup (if requested)
+if [[ "$" = true ]]; then
     echo "🧹 Removing any previous installation..."
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
@@ -58,7 +54,7 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
         done
     fi
 
-    # Remove the whole application directory (including a stale venv)
+    # Delete the whole application directory (including a stale venv)
     rm -rf "${APP_DIR}"
 fi
 
@@ -81,7 +77,7 @@ fi
 source "${VENV_DIR}/bin/activate"
 pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn
 
-# Pull latest source from GitHub
+# Pull the latest source from GitHub
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
@@ -108,7 +104,7 @@ if ! id -u patchpilot >/dev/null 2>&1; then
 fi
 chown -R patchpilot:patchpilot "${APP_DIR}"
 
-# SQLite DB file creation and permission
+# SQLite DB creation and permission
 SQLITE_DB="${APP_DIR}/patchpilot.db"
 if [[ ! -f "$SQLITE_DB" ]]; then
     echo "Creating empty SQLite DB file..."
@@ -130,7 +126,7 @@ else
     ADMIN_TOKEN=$(cat "$TOKEN_FILE")
 fi
 
-# Create a tiny env‑file for systemd to source
+# Environment file for systemd
 printf "ADMIN_TOKEN=%s\n" "$ADMIN_TOKEN" > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
@@ -157,7 +153,8 @@ WantedBy=multi-user.target
 EOF
 
 # Enable & start the service
-echo "Reloading systemdsystemctl daemon-reload
+echo "Reloading systemd daemon..."
+systemctl daemon-reload
 
 echo "Enabling and starting ${SERVICE_NAME}..."
 systemctl enable --now "${SERVICE_NAME}"
