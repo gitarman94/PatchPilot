@@ -9,7 +9,7 @@
           href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
           crossorigin="anonymous">
 
-    <!-- DataTables (search, sort, pagination, export, column‑visibility) -->
+    <!-- DataTables -->
     <link rel="stylesheet"
           href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css"/>
     <link rel="stylesheet"
@@ -17,7 +17,7 @@
     <link rel="stylesheet"
           href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css"/>
 
-    <!-- Font Awesome for icons -->
+    <!-- Font Awesome -->
     <link rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
           crossorigin="anonymous"/>
@@ -38,6 +38,9 @@
         .status-updates { color:#ffc107; font-weight:bold; }
         .toast-container { position:fixed; top:1rem; right:1rem; z-index:1055; }
         .modal-body { min-height:200px; }
+        table.dataTable tbody td.select-checkbox { cursor: pointer; }
+        table.dataTable tbody td.select-checkbox:before { content: "\f096"; font-family: FontAwesome; margin-right: 5px; }
+        table.dataTable tbody tr.selected td.select-checkbox:before { content: "\f046"; }
     </style>
 </head>
 <body>
@@ -50,18 +53,27 @@
         </button>
     </div>
 
-    <!-- DataTable -->
+    <!-- Bulk action buttons -->
     <div class="mb-3">
-        <button class="btn btn-outline-primary me-2" id="forcePatchBtn">Force Patch Install</button>
-        <button class="btn btn-outline-warning me-2" id="forceCheckinBtn">Force Check-in</button>
-        <button class="btn btn-outline-danger" id="forceReinstallBtn">Force Reinstall</button>
+        <button id="bulkForcePatch" class="btn btn-outline-primary me-2">
+            <i class="fa-solid fa-rotate me-1"></i>Force Patch Install
+        </button>
+        <button id="bulkForceCheckin" class="btn btn-outline-info me-2">
+            <i class="fa-solid fa-check-double me-1"></i>Force Check-in
+        </button>
+        <button id="bulkForceReinstall" class="btn btn-outline-danger me-2">
+            <i class="fa-solid fa-arrow-rotate-left me-1"></i>Force Reinstall
+        </button>
+        <button id="bulkApprove" class="btn btn-outline-success">
+            <i class="fa-solid fa-check me-1"></i>Approve Selected
+        </button>
     </div>
 
-    <table id="clientsTable" class="display nowrap table table-striped table-hover"
-           style="width:100%">
+    <!-- DataTable -->
+    <table id="clientsTable" class="display nowrap table table-striped table-hover" style="width:100%">
         <thead>
         <tr>
-            <th><input type="checkbox" id="selectAll"></th> <!-- new column -->
+            <th></th> <!-- Checkbox column -->
             <th>Client ID</th>
             <th>Hostname</th>
             <th>OS</th>
@@ -75,12 +87,11 @@
             <th>Actions</th>
         </tr>
         </thead>
-        
         <tbody>
         {% for client in clients %}
         <tr data-client-id="{{ client.id }}">
-    <td><input type="checkbox" class="client-checkbox"></td>
-    <td><a href="#" class="client-link text-primary">{{ client.id }}</a></td>
+            <td class="select-checkbox"></td>
+            <td><a href="#" class="client-link text-primary">{{ client.id }}</a></td>
             <td>{{ client.client_name or '—' }}</td>
             <td>{{ client.os_name or '—' }}</td>
             <td>{{ client.cpu or '—' }}</td>
@@ -129,7 +140,7 @@
     <!-- Toast container -->
     <div class="toast-container"></div>
 
-    <!-- Detail modal (filled via AJAX) -->
+    <!-- Detail modal -->
     <div class="modal fade" id="clientDetailModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -149,7 +160,6 @@
 <script src="https://code.jquery.com/jquery-3.7.0.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
         crossorigin="anonymous"></script>
-
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
@@ -157,7 +167,7 @@
 <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
 
 <script>
-/* persist dark mode */
+/* Dark mode */
 if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('dark-mode');
 document.getElementById('darkModeToggle').addEventListener('click', () => {
     document.body.classList.toggle('dark-mode');
@@ -165,9 +175,9 @@ document.getElementById('darkModeToggle').addEventListener('click', () => {
         document.body.classList.contains('dark-mode') ? 'enabled' : 'disabled');
 });
 
-/* toast helper */
+/* Toast helper */
 function showToast(message, type='success') {
-    const toast = $(` 
+    const toast = $(`
         <div class="toast align-items-center text-bg-${type} border-0 mb-2" role="alert">
             <div class="d-flex">
                 <div class="toast-body">${message}</div>
@@ -176,11 +186,10 @@ function showToast(message, type='success') {
             </div>
         </div>`);
     $('.toast-container').append(toast);
-    const bsToast = new bootstrap.Toast(toast[0], {delay:3000});
-    bsToast.show();
+    new bootstrap.Toast(toast[0], {delay:3000}).show();
 }
 
-/* DataTables init with export/column‑visibility */
+/* DataTables init */
 const table = $('#clientsTable').DataTable({
     responsive:true,
     pageLength:10,
@@ -193,50 +202,79 @@ const table = $('#clientsTable').DataTable({
         {extend:'print', text:'Print'}
     ],
     columnDefs:[
-        {orderable:false, targets:[10]}
-    ]
+        {orderable:false, targets:[0,11]} // checkbox & actions
+    ],
+    select: {
+        style: 'multi',
+        selector: 'td.select-checkbox'
+    }
 });
 
-/* generic POST helper (adds admin token) */
-function postAction(url, successMsg) {
-    $.post(url, {'admin_token':'{{ ADMIN_TOKEN or "" }}'})
+/* generic POST helper */
+function postAction(url, data={}, successMsg="Action completed") {
+    data['admin_token'] = '{{ ADMIN_TOKEN or "" }}';
+    $.post(url, data)
         .done(() => showToast(successMsg))
         .fail(() => showToast('Action failed','danger'));
 }
 
-/* row‑level buttons */
+/* Row buttons */
 $('#clientsTable').on('click', '.approve-btn', function(){
     const id = $(this).closest('tr').data('client-id');
-    postAction(`/approve/${id}`, `Client ${id} approved`);
+    postAction(`/approve/${id}`, {}, `Client ${id} approved`);
 });
 
 $('#clientsTable').on('click', '.force-btn', function(){
     const id = $(this).closest('tr').data('client-id');
-    postAction(`/admin/force-update/${id}`, `Force update sent to ${id}`);
+    postAction(`/admin/force-update/${id}`, {}, `Force update sent to ${id}`);
 });
 
 $('#clientsTable').on('click', '.checkin-btn', function(){
     const id = $(this).closest('tr').data('client-id');
-    postAction(`/admin/allow-checkin/${id}`, `Check‑in allowed for ${id}`);
+    postAction(`/admin/allow-checkin/${id}`, {}, `Check‑in allowed for ${id}`);
 });
 
-/* load client details into modal */
+/* Bulk action buttons */
+function getSelectedIds() {
+    return table.rows({selected:true}).nodes().to$().map(function(){ return $(this).data('client-id'); }).get();
+}
+
+$('#bulkForcePatch').click(function(){
+    const ids = getSelectedIds();
+    if(!ids.length) return showToast('No clients selected','warning');
+    ids.forEach(id => postAction(`/admin/force-update/${id}`, {}, `Force patch sent to ${id}`));
+});
+
+$('#bulkForceCheckin').click(function(){
+    const ids = getSelectedIds();
+    if(!ids.length) return showToast('No clients selected','warning');
+    ids.forEach(id => postAction(`/admin/allow-checkin/${id}`, {}, `Check‑in allowed for ${id}`));
+});
+
+$('#bulkForceReinstall').click(function(){
+    const ids = getSelectedIds();
+    if(!ids.length) return showToast('No clients selected','warning');
+    if(!confirm(`Force reinstall on ${ids.length} clients?`)) return;
+    ids.forEach(id => postAction(`/admin/force-reinstall/${id}`, {}, `Reinstall triggered for ${id}`));
+});
+
+$('#bulkApprove').click(function(){
+    const ids = getSelectedIds();
+    if(!ids.length) return showToast('No clients selected','warning');
+    ids.forEach(id => postAction(`/approve/${id}`, {}, `Client ${id} approved`));
+});
+
+/* Client row click for details */
 $('#clientsTable').on('click', '.client-link', function(e){
     e.preventDefault();
-    const clientId = $(this).closest('tr').data('client-id');
-    const modal = new bootstrap.Modal('#clientDetailModal');
-    $('#clientDetailBody').html(`
-        <div class="text-center py-5"><div class="spinner-border" role="status"></div></div>
-    `);
-    modal.show();
-    $.get(`/clients/${clientId}`)
-        .done(html => $('#clientDetailBody').html(html))
-        .fail(() => $('#clientDetailBody').html('<p class="text-danger">Failed to load details.</p>'));
+    const id = $(this).closest('tr').data('client-id');
+    $('#clientDetailBody').html('<div class="text-center py-5"><div class="spinner-border"></div></div>');
+    $('#clientDetailModal').modal('show');
+    $.get(`/api/client/${id}`, function(data){
+        $('#clientDetailBody').html(data);
+    });
 });
 </script>
+
 </body>
 </html>
-
-
-
-
