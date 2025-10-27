@@ -15,9 +15,6 @@ from sqlalchemy.exc import OperationalError
 app = Flask(__name__)
 CORS(app)
 
-# ----------------------------------------------------------------
-# Configuration
-# ----------------------------------------------------------------
 SERVER_DIR = "/opt/patchpilot_server"
 UPDATE_CACHE_DIR = os.path.join(SERVER_DIR, "updates")
 os.makedirs(UPDATE_CACHE_DIR, exist_ok=True)
@@ -29,7 +26,7 @@ db = SQLAlchemy(app)
 
 def load_admin_token() -> str:
     token = os.getenv("ADMIN_TOKEN")
-   :
+    if token:
         return token
     token_file = os.path.join(SERVER_DIR, "admin_token.txt")
     if os.path.exists(token_file):
@@ -39,15 +36,12 @@ def load_admin_token() -> str:
 
 ADMIN_TOKEN = load_admin_token()
 
-# ----------------------------------------------------------------
-# Models (unchanged)
-# ----------------------------------------------------------------
 class Client(db.Model):
     __tablename__ = "client"
 
     id = db.Column(db.String(36), primary_key=True)
     client_name = db.Column(db.String(100))
-    ip.String(45))
+    ip_address = db.Column(db.String(45))
     approved = db.Column(db.Boolean, default=False)
     allow_checkin = db.Column(db.Boolean, default=True)
     force_update = db.Column(db.Boolean, default=False)
@@ -60,7 +54,7 @@ class Client(db.Model):
     os_version = db.Column(db.String(50))
     cpu = db.Column(db.String(100))
     ram = db.Column(db.String(50))
-    = db.Column(db.String(50))
+    disk_total = db.Column(db.String(50))
     disk_free = db.Column(db.String(50))
     uptime_val = db.Column("uptime", db.String(50))
     serial_number = db.Column(db.String(50), unique=True, nullable=True)
@@ -77,27 +71,13 @@ class ClientUpdate(db.Model):
     __tablename__ = "client_update"
 
     id = db.Column(db.Integer, primary_key=True)
-    client_id = db.Column(db.String(36), db.ForeignKey("client.id"),
-                         nullable=False, index=True)
+    client_id = db.Column(db.String(36), db.ForeignKey("client.id"), nullable=False, index=True)
     kb_or_package = db.Column(db.String(200), nullable=False)
     title = db.Column(db.String(200), nullable=True)
     severity = db.Column(db.String(50), nullable=True)
     status = db.Column(db.String(50), nullable=False, default="pending")
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
-# ----------------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------------
-def generate_token() -> str:
-    import base64, os
-    return base64.urlsafe_b64encode(os.urandom(24)).decode()
-
-def auth_admin(payload) -> bool:
-    return payload.get("admin_token") == ADMIN_TOKEN
-
-# ----------------------------------------------------------------
-# Database initialisation
-# ----------------------------------------------------------------
 def init_db():
     try:
         engine = create_engine(app.config["SQLALCHEMY_DATABASE_URI"])
@@ -111,17 +91,12 @@ def init_db():
 with app.app_context():
     init_db()
 
-# ----------------------------------------------------------------
-# Server‑sent events (optional live status)
-# ----------------------------------------------------------------
 def sse_generator():
     while True:
         data = {
             "ts": int(time.time()),
             "clients": [
-                {"id": c.id,
-                 "online": c.is_online(),
-                 "updates": c.updates_available}
+                {"id": c.id, "online": c.is_online(), "updates": c.updates_available}
                 for c in Client.query.all()
             ]
         }
@@ -130,11 +105,8 @@ def sse_generator():
 
 @app.route("/sse/clients")
 def sse_clients():
-    return Response(s mimetype="text/event-stream")
+    return Response(sse_generator(), mimetype="text/event-stream")
 
-# ----------------------------------------------------------------
-# DataTables server‑side pagination
-# ----------------------------------------------------------------
 @app.route("/api/clients")
 def api_clients():
     draw = int(request.args.get("draw", "1"))
@@ -171,7 +143,7 @@ def api_clients():
             c.uptime(),
             "🟢" if c.is_online() else "🔴",
             "Yes" if c.updates_available else "No",
-            c.id  # placeholder for actions column
+            c.id
         ])
 
     return jsonify(draw=draw,
@@ -179,9 +151,6 @@ def api_clients():
                    recordsFiltered=total,
                    data=data)
 
-# ----------------------------------------------------------------
-# Dashboard page
-# ----------------------------------------------------------------
 @app.route("/")
 def index():
     clients = Client.query.all()
@@ -190,9 +159,6 @@ def index():
                            now=datetime.utcnow(),
                            ADMIN_TOKEN=ADMIN_TOKEN)
 
-# ----------------------------------------------------------------
-# Client detail (used by the modal)
-# ----------------------------------------------------------------
 @app.route("/clients/<client_id>")
 def client_detail(client_id):
     client = Client.query.get_or_404(client_id)
@@ -203,19 +169,13 @@ def client_detail(client_id):
                            ADMIN_TOKEN=ADMIN_TOKEN,
                            now=datetime.utcnow())
 
-# ----------------------------------------------------------------
-# Approve client
-# ----------------------------------------------------------------
 @app.route("/approve/<client_id>", methods=["POST"])
-def approve_client):
+def approve_client(client_id):
     client = Client.query.get_or_404(client_id)
     client.approved = True
     db.session.commit()
     return ("", 204)
 
-# ----------------------------------------------------------------
-# Force update
-# ----------------------------------------------------------------
 @app.route("/admin/force-update/<client_id>", methods=["POST"])
 def force_update_client(client_id):
     client = Client.query.get_or_404(client_id)
@@ -223,9 +183,6 @@ def force_update_client(client_id):
     db.session.commit()
     return ("", 204)
 
-# ----------------------------------------------------------------
-# Allow check‑in
-# ----------------------------------------------------------------
 @app.route("/admin/allow-checkin/<client_id>", methods=["POST"])
 def allow_checkin_client(client_id):
     client = Client.query.get_or_404(client_id)
@@ -233,9 +190,6 @@ def allow_checkin_client(client_id):
     db.session.commit()
     return ("", 204)
 
-# ----------------------------------------------------------------
-# Global force‑all (button on dashboard)
-# ----------------------------------------------------------------
 @app.route("/api/clients/force_all", methods=["POST"])
 def force_all_clients():
     payload = request.get_json(silent=True) or request.form
@@ -246,9 +200,6 @@ def force_all_clients():
     db.session.commit()
     return jsonify({"status": "all clients forced to update"})
 
-# ----------------------------------------------------------------
-# Send commands (install updates)
-# ----------------------------------------------------------------
 @app.route("/api/clients/<client_id>/commands", methods=["POST"])
 def send_command(client_id):
     client = Client.query.get_or_404(client_id)
@@ -257,19 +208,15 @@ def send_command(client_id):
         return jsonify({"error": "Unauthorized"}), 401
 
     action = payload.get("action")
-    updates = (payload.getlist("updates")
-               if hasattr(payload, "getlist")
-               else payload.get("updates", []))
+    updates = (payload.getlist("updates") if hasattr(payload, "getlist") else payload.get("updates", []))
 
     if action == "install_selected_updates" and updates:
         for upd in updates:
-            cu = ClientUpdate.query.filter_by(client_id=client.id,
-                                              kb_or_package=upd).first()
+            cu = ClientUpdate.query.filter_by(client_id=client.id, kb_or_package=upd).first()
             if cu:
                 cu.status = "installing"
     elif action == "install_all_updates":
-        for cu in ClientUpdate.query.filter_by(client_id=client.id,
-                                              status="pending").all():
+        for cu in ClientUpdate.query.filter_by(client_id=client.id, status="pending").all():
             cu.status = "installing"
     else:
         return jsonify({"error": "Unknown action"}), 400
@@ -277,9 +224,6 @@ def send_command(client_id):
     db.session.commit()
     return jsonify({"status": "command queued"})
 
-# ----------------------------------------------------------------
-# Register a new client
-# ----------------------------------------------------------------
 @app.route("/api/clients", methods=["POST"])
 def add_client():
     data = request.get_json(silent=True)
@@ -312,9 +256,6 @@ def add_client():
     db.session.commit()
     return jsonify({"token": token})
 
-# ----------------------------------------------------------------
-# Client telemetry / check‑in
-# ----------------------------------------------------------------
 @app.route("/api/clients/<client_id>", methods=["POST"])
 def client_update(client_id):
     client = Client.query.get_or_404(client_id)
@@ -341,9 +282,6 @@ def client_update(client_id):
     db.session.commit()
     return jsonify({"status": "checked in successfully"})
 
-# ----------------------------------------------------------------
-# Health check
-# ----------------------------------------------------------------
 @app.route("/api/health", methods=["GET"])
 def health_check():
     return jsonify({"status": "ok"})
