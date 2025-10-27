@@ -81,7 +81,7 @@ if [[ -f "${PG_PASSWORD_FILE}" ]]; then
     info "PostgreSQL credentials detected."
 else
     DB_BACKEND="sqlite"
-    info "No PostgreSQL password file – assuming SQLite (${SQLITE_DB})."
+    info "No PostgreSQL password file – assuming SQLite ${SQLITE_DB}."
 fi
 
 # ------------------------ DB connectivity ----------------------
@@ -100,7 +100,7 @@ else
     info "Testing SQLite database file..."
 
     if [[ -f "${SQLITE_DB}" ]]; then
-        success "SQLite DB file exists (${SQLITE_DB})."
+        success "SQLite DB file exists ${SQLITE_DB}."
     else
         failure "SQLite DB file not found at ${SQLITE_DB}."
         exit 1
