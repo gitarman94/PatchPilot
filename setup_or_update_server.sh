@@ -40,11 +40,13 @@ export DEBIAN_FRONTEND=noninteractive
 echo "📦 Installing required packages..."
 apt-get update -qq
 apt-get install -y -qq \
-    python3 python3-venv python3-pip curl unzip
+    python3 python3-venv python3-pip curl unzip jq
 
-# Force‑reinstall cleanup (if requested)
+# Force-reinstall cleanup (if requested)
 if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Removing any previous installation..."
+
+    # Stop and disable the systemd service
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 
@@ -59,7 +61,30 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
         done
     fi
 
+    # Remove previous application directory and its contents
+    echo "Removing previous installation files..."
     rm -rf "${APP_DIR}"
+
+    # Remove systemd service file
+    echo "Removing systemd service definition..."
+    rm -f "${SYSTEMD_DIR}/${SERVICE_NAME}"
+
+    # Remove virtual environment
+    echo "Removing virtual environment..."
+    rm -rf "${VENV_DIR}"
+
+    # Optionally remove SQLite DB
+    SQLITE_DB="${APP_DIR}/patchpilot.db"
+    if [[ -f "$SQLITE_DB" ]]; then
+        echo "Removing SQLite database..."
+        rm -f "$SQLITE_DB"
+    fi
+
+    # Optionally remove the patchpilot service user (if not used elsewhere)
+    if id -u patchpilot >/dev/null 2>&1; then
+        echo "Removing patchpilot service user..."
+        userdel patchpilot || true
+    fi
 fi
 
 # Create required directories
