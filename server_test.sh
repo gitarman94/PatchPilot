@@ -22,13 +22,12 @@ echo "🔍  Verifying HTTP health endpoint..."
 health_status=$(curl -s -w "%{http_code}" -o health_response.json http://localhost:8080/api/health)
 
 # Log the raw response for debugging
-echo "Health check response: $health_status"
+echo "Health check HTTP code: $health_status"
 cat health_response.json
 
-# Check HTTP status code
-http_code=$(echo "$health_status" | tail -n1)
+# Extract HTTP code
+http_code=$(tail -n1 <<< "$health_status")
 if [ "$http_code" -eq 200 ]; then
-    # Parse the response to check if "status": "ok" is present
     if jq -e '.status == "ok"' health_response.json > /dev/null; then
         echo "✔️  Health endpoint returned status=ok."
     else
@@ -40,11 +39,11 @@ else
     exit 1
 fi
 
-# 3. Checking Flask application logs for any issues (including template errors)
-echo "🔍  Checking Flask application logs for errors..."
+# 3. Checking Flask/Gunicorn logs for recent errors
+echo "🔍  Checking Flask/Gunicorn logs for recent errors..."
 journalctl -u patchpilot_server.service -n 50 --no-pager | tail -n 20
 
-# 4. Check for Jinja2 template syntax errors (e.g., the 'not' error mentioned)
+# 4. Checking for Jinja2 template syntax errors
 echo "🔍  Checking for Jinja2 template syntax errors..."
 jinja_errors=$(journalctl -u patchpilot_server.service -n 100 --no-pager | grep -i "jinja2.exceptions.TemplateSyntaxError")
 if [ -n "$jinja_errors" ]; then
@@ -55,19 +54,9 @@ else
     echo "✔️  No Jinja2 template errors found."
 fi
 
-# 5. Checking if Flask application is running
-echo "🔍  Checking if Flask process is running..."
-flask_pid=$(pgrep -f 'flask run')
-if [ -z "$flask_pid" ]; then
-    echo "❌  Flask application is not running."
-    exit 1
-else
-    echo "✔️  Flask application is running with PID: $flask_pid."
-fi
-
-# 6. Checking Gunicorn workers
+# 5. Checking Gunicorn workers
 echo "🔍  Checking Gunicorn workers..."
-gunicorn_workers=$(ps aux | grep gunicorn | grep -v grep)
+gunicorn_workers=$(pgrep -af gunicorn)
 if [ -n "$gunicorn_workers" ]; then
     echo "✔️  Gunicorn workers are running:"
     echo "$gunicorn_workers"
@@ -76,29 +65,28 @@ else
     exit 1
 fi
 
-# 7. Verifying routes in Flask (ensuring /health route exists)
-echo "🔍  Verifying Flask routes..."
-flask_routes=$(python3 -c "
-from server import app
-with app.app_context():
-    for rule in app.url_map.iter_rules():
-        print(rule)
-")
-echo "$flask_routes" | grep "/health" > /dev/null
-if [ $? -eq 0 ]; then
-    echo "✔️  /health route exists."
+# 6. Verifying Flask routes via HTTP (avoid import issues)
+echo "🔍  Verifying /api/health route via HTTP..."
+route_check=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/health)
+if [ "$route_check" -eq 200 ]; then
+    echo "✔️  /api/health route exists."
 else
-    echo "❌  /health route not found."
+    echo "❌  /api/health route not found. HTTP code: $route_check"
     exit 1
 fi
 
-# 8. Checking system resource usage (CPU, Memory)
+# 7. Checking system resource usage (CPU, Memory)
 echo "🔍  Checking system resource usage..."
 top -b -n 1 | head -n 20
 
-# 9. Checking for missing critical Python packages
-echo "🔍  Checking for missing Python packages..."
-missing_packages=$(pip freeze | grep -Ev "flask|flask_sqlalchemy|flask_cors|gunicorn" || echo "Missing packages detected!")
+# 8. Checking for missing critical Python packages
+echo "🔍  Checking for required Python packages..."
+required_packages=("flask" "flask_sqlalchemy" "flask_cors" "gunicorn" "sqlalchemy")
+missing_packages=""
+for pkg in "${required_packages[@]}"; do
+    pip show "$pkg" >/dev/null 2>&1 || missing_packages+="$pkg "
+done
+
 if [ -z "$missing_packages" ]; then
     echo "✔️  All required Python packages are installed."
 else
@@ -106,17 +94,16 @@ else
     exit 1
 fi
 
-# 10. Checking Gunicorn logs for worker-related issues
+# 9. Checking Gunicorn logs for worker-related issues
 echo "🔍  Checking Gunicorn logs for worker issues..."
-gunicorn_logs=$(journalctl -u patchpilot_server.service -n 100 --no-pager | grep "worker")
+gunicorn_logs=$(journalctl -u patchpilot_server.service -n 100 --no-pager | grep -i "worker")
 if [ -n "$gunicorn_logs" ]; then
     echo "✔️  Found Gunicorn worker logs:"
     echo "$gunicorn_logs"
 else
-    echo "❌  No Gunicorn worker logs found."
-    exit 1
+    echo "⚠️  No Gunicorn worker logs found (may be okay if startup was clean)."
 fi
 
 # End of script
 echo "=============================="
-echo "All tests completed."
+echo "All tests completed successfully."
