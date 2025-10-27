@@ -99,6 +99,11 @@ touch "$SQLITE_DB"
 chown patchpilot:patchpilot "$SQLITE_DB"
 chmod 600 "$SQLITE_DB"
 
+# Initialize the database here to ensure it's ready before the service starts
+echo "📦 Initializing database..."
+source "${VENV_DIR}/bin/activate"
+python3 -c "from server import init_db; init_db()"
+
 # Setup admin token
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
 ENV_FILE="${APP_DIR}/admin_token.env"
@@ -131,6 +136,7 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
+# Start the service *after* database initialization
 systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
 
