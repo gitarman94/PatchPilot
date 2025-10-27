@@ -131,7 +131,6 @@ printf "ADMIN_TOKEN=%s\n" "$ADMIN_TOKEN" > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
 echo "✅ Admin token saved to ${TOKEN_FILE}"
-echo "   (systemd will read it from ${ENV_FILE})"
 
 # Systemd service definition (runs as unprivileged user)
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
