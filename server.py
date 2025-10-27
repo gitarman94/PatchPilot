@@ -1,45 +1,55 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
-import json
 import base64
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify, render_template, abort, send_from_directory
+from flask import Flask, request, jsonify, render_template, abort, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.exc import OperationalError
+from werkzeug.utils import safe_join
 
-# Initialize Flask application and enable CORS
+# Flask app initialisation
 app = Flask(__name__)
 CORS(app)
 
-# == CONFIG ==
+# Directories
 SERVER_DIR = "/opt/patchpilot_server"
 UPDATE_CACHE_DIR = os.path.join(SERVER_DIR, "updates")
-if not os.path.isdir(UPDATE_CACHE_DIR):
-    os.makedirs(UPDATE_CACHE_DIR, exist_ok=True)
+os.makedirs(UPDATE_CACHE_DIR, exist_ok=True)
 
+# Helper: read PostgreSQL password
 def read_postgresql_password():
-    password_file = '/opt/patchpilot_server/postgresql_pwd.txt'
+    password_file = "/opt/patchpilot_server/postgresql_pwd.txt"
     if os.path.exists(password_file):
-        with open(password_file, 'r') as file:
-            return file.read().strip()  # Remove extra whitespace/newline
-    else:
-        raise FileNotFoundError(f"{password_file} not found!")
+        with open(password_file, "r") as f:
+            return f.read().strip()
+    raise FileNotFoundError(f"{password_file} not found!")
 
-# Fetch PostgreSQL password from the file
+# Database configuration
 try:
-    password = read_postgresql_password()
+    pg_password = read_postgresql_password()
 except FileNotFoundError as e:
-    print(f"Error: {e}")
+    print(f"❌ {e}")
     exit(1)
 
-# Setup PostgreSQL URI
-app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql://patchpilot_user:{password}@localhost/patchpilot_db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config["SQLALCHEMY_DATABASE_URI"] = (
+    f"postgresql://patchpilot_user:{pg_password}@localhost/patchpilot_db"
+)
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
-# == MODELS ==
+# Admin token – must be supplied via environment variable
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
+if not ADMIN_TOKEN:
+    raise RuntimeError("Environment variable ADMIN_TOKEN must be set for production.")
+
+# Models
 class Client(db.Model):
+    __tablename__ = "client"
+
     id = db.Column(db.String(36), primary_key=True)
     client_name = db.Column(db.String(100))
     ip_address = db.Column(db.String(45))
@@ -56,10 +66,10 @@ class Client(db.Model):
     os_version = db.Column(db.String(50))
     cpu = db.Column(db.String(100))
     ram = db.Column(db.String(50))
-    disk_total = db.Column(db.String(50))
+    disk_total =.String(50))
     disk_free = db.Column(db.String(50))
     uptime_val = db.Column("uptime", db.String(50))
-    serial_number = db.Column(db.String(50), unique=True, nullable=True)  # New field for serial number
+    serial_number = db.Column(db.String(50), unique=True, nullable=True)
 
     def is_online(self):
         if not self.last_checkin:
@@ -71,208 +81,229 @@ class Client(db.Model):
 
 
 class ClientUpdate(db.Model):
+    __tablename__ = "client_update"
+
     id = db.Column(db.Integer, primary_key=True)
-    client_id = db.Column(db.String(36), db.ForeignKey('client.id'), nullable=False)
+    client_id = db.Column(
+        db.String(36), db.ForeignKey("client.id"), nullable=False, index=True
+    )
     kb_or_package = db.Column(db.String(200), nullable=False)
     title = db.Column(db.String(200), nullable=True)
     severity = db.Column(db.String(50), nullable=True)
-    status = db.Column(db.String(50), nullable=False, default='pending')  # pending/installing/installed/failed
+    status = db.Column(db.String(50), nullable=False, default="pending")
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
-# == HELPER FUNCTIONS ==
 
-def generate_token():
+# Helper utilities
+def generate_token() -> str:
+    """Return a URL‑safe random token."""
     return base64.urlsafe_b64encode(os.urandom(24)).decode()
 
-def auth_client(client, token):
-    if token is None:
+
+def auth_client(client_obj: Client, token: str | None) -> bool:
+    """Validate bearer token supplied by a client."""
+    if not token:
         return False
     if token.startswith("Bearer "):
-        token = token[7:]
-    return token == client.token
+        token = token[7:].strip()
+    return token == client_obj.token
 
-# == DATABASE INITIALIZATION ==
+
+# Database initialisation
 def initialize_database():
+    """Create tables if they do not exist."""
     try:
-        # Test database connection
-        engine = create_engine(app.config['SQLALCHEMY_DATABASE_URI'])
-        engine.connect()
+        engine = create_engine(app.config["SQLALCHEMY_DATABASE_URI"])
+        engine.connect()  # sanity check
 
-        # If tables do not exist, create them
-        if not engine.dialect.has_table(engine, 'client'):
+        inspector = inspect(engine)
+        if not inspector.has_table("client"):
             db.create_all()
-            print("⚡ Database tables created.")
+            app.logger.info("⚡ Database tables created.")
         else:
-            print("⚡ Database already initialized.")
+            app.logger.info("⚡ Database already initialized.")
     except OperationalError as e:
-        print(f"❌ Failed to connect to the database: {e}")
+        app.logger.error(f"❌ Failed to connect to the database: {e}")
 
-# Initialize database tables only if they don't exist
+
 with app.app_context():
     initialize_database()
 
-# == ROUTES ==
 
-@app.route('/api/health', methods=['GET'])
+# Health check
+@app.route("/api/health", methods=["GET"])
 def health_check():
-    return jsonify({'status': 'ok'})
+    return jsonify({"status": "ok"})
 
-# --- DASHBOARD ---
-@app.route('/')
+
+# Dashboard
+@app.route("/")
 def index():
     clients = Client.query.all()
-    return render_template('client.html', clients=clients, now=datetime.utcnow())
+    return render_template("client.html", clients=clients, now=datetime.utcnow())
 
-# --- CLIENT DETAIL ---
-@app.route('/clients/<client_id>')
+
+# Client detail page
+@app.route("/clients/<client_id>")
 def client_detail(client_id):
-    client = Client.query.get(client_id)
-    if not client:
-        abort(404)
+    client = Client.query.get_or_404(client_id)
     updates = ClientUpdate.query.filter_by(client_id=client_id).all()
-    ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'dummy_admin_token')
-    return render_template('client_detail.html', client=client, updates=updates, ADMIN_TOKEN=ADMIN_TOKEN)
+    return render_template(
+        "client_detail.html", client=client, updates=updates, ADMIN_TOKEN=ADMIN_TOKEN
+    )
 
-# --- APPROVE CLIENT ---
-@app.route('/approve/<client_id>', methods=['POST'])
+
+# Approve client
+@app.route("/approve/<client_id>", methods=["POST"])
 def approve_client(client_id):
-    client = Client.query.get(client_id)
-    if not client:
-        abort(404)
+    client = Client.query.get_or_404(client_id)
     client.approved = True
     db.session.commit()
-    return ('', 204)
+    return ("", 204)
 
-# --- FORCE UPDATE ---
-@app.route('/admin/force-update/<client_id>', methods=['POST'])
+
+# Force update
+@app.route("/admin/force-update/<client_id>", methods=["POST"])
 def force_update_client(client_id):
-    client = Client.query.get(client_id)
-    if not client:
-        abort(404)
+    client = Client.query.get_or_404(client_id)
     client.force_update = True
     db.session.commit()
-    return ('', 204)
+    return ("", 204)
 
-# --- ALLOW CHECKIN ---
-@app.route('/admin/allow-checkin/<client_id>', methods=['POST'])
+
+# Allow check‑in
+@app.route("/admin/allow-checkin/<client_id>", methods=["POST"])
 def allow_checkin_client(client_id):
-    client = Client.query.get(client_id)
-    if not client:
-        abort(404)
+    client = Client.query.get_or_404(client_id)
     client.allow_checkin = True
     db.session.commit()
-    return ('', 204)
+    return ("", 204)
 
-# --- SERVE UPDATES ---
-@app.route('/updates/<path:filename>', methods=['GET'])
+
+# Serve files from the updates cache (with safety checks)
+@app.route("/updates/<path:filename>", methods=["GET"])
 def serve_update_file(filename):
-    return send_from_directory(UPDATE_CACHE_DIR, filename, as_attachment=True)
+    safe_path = safe_join(UPDATE_CACHE_DIR, filename)
+    if not safe_path or not os.path.isfile(safe_path):
+        abort(404)
+    return send_file(safe_path, as_attachment=True)
 
-# --- CLIENT COMMANDS FROM DASHBOARD ---
-@app.route('/api/clients/<client_id>/commands', methods=['POST'])
+
+# Send commands to a client
+@app.route("/api/clients/<client_id>/commands", methods=["POST"])
 def send_command(client_id):
-    client = Client.query.get(client_id)
-    if not client:
-        return jsonify({'error': 'Client not found'}), 404
+    client = Client.query.get_or_404(client_id)
 
-    # Accept either JSON or form
-    data = request.get_json() or request.form
-    admin_token = data.get('admin_token') or ''
-    if admin_token != os.getenv('ADMIN_TOKEN', 'dummy_admin_token'):
-        return jsonify({'error': 'Unauthorized'}), 401
+    payload = request.get_json(silent=True) or request.form
+    if not payload:
+        return jsonify({"error": "Invalid payload"}), 400
 
-    action = data.get('action')
-    updates = data.getlist('updates') if hasattr(data, 'getlist') else data.get('updates', [])
+    if payload.get("admin_token") != ADMIN_TOKEN:
+        return jsonify({"error": "Unauthorized"}), 401
 
-    if action == 'install_selected_updates' and updates:
+    action = payload.get("action")
+    updates = (
+        payload.getlist("updates")
+        if hasattr(payload, "getlist")
+        else payload.get("updates", [])
+    )
+
+    if action == "install_selected_updates" and updates:
         for kb in updates:
-            cu = ClientUpdate.query.filter_by(client_id=client.id, kb_or_package=kb).first()
+            cu = ClientUpdate.query.filter_by(
+                client_id=client.id, kb_or_package=kb
+            ).first()
             if cu:
-                cu.status = 'installing'
-    elif action == 'install_all_updates':
-        for cu in ClientUpdate.query.filter_by(client_id=client.id, status='pending').all():
-            cu.status = 'installing'
+                cu.status = "installing"
+    elif action == "install_all_updates":
+        for cu in ClientUpdate.query.filter_by(
+            client_id=client.id, status="pending"
+        ).all():
+            cu.status = "installing"
     else:
-        return jsonify({'error': 'Unknown action'}), 400
+        return jsonify({"error": "Unknown action"}), 400
 
     db.session.commit()
-    return jsonify({'status': 'command queued'})
+    return jsonify({"status": "command queued"})
 
-# --- FORCE ALL CLIENTS ---
-@app.route('/api/clients/force_all', methods=['POST'])
+
+# Force all clients (admin‑only)
+@app.route("/api/clients/force_all", methods=["POST"])
 def force_all_clients():
+    payload = request.get_json(silent=True) or {}
+    if payload.get("admin_token") != ADMIN_TOKEN:
+        return jsonify({"error": "Unauthorized"}), 401
+
     for client in Client.query.all():
         client.force_update = True
     db.session.commit()
-    return jsonify({'status': 'all clients forced to check updates'})
+    return jsonify({"status": "all clients forced to check updates"})
 
-# --- REGISTER CLIENT ---
-@app.route('/api/clients', methods=['POST'])
+
+# Register a new client
+@app.route("/api/clients", methods=["POST"])
 def add_client():
-    data = request.json
-    if not data or 'id' not in data:
-        return jsonify({'error': 'Invalid data'}), 400
+    data = request.get_json(silent=True)
+    if not data or "id" not in data:
+        return jsonify({"error": "Invalid data"}), 400
 
-    client = Client.query.get(data['id'])
-    
-    # If client is found by serial number, we update its information (e.g. reinstall case)
+    client = Client.query.get(data["id"])
+
     if not client:
-        client = Client.query.filter_by(serial_number=data.get('serial_number')).first()
+        client = Client.query.filter_by(serial_number=data.get("serial_number")).first()
         if client:
-            # Handle case of reinstallation: generate new token, update information
             client.token = generate_token()
-            client.client_name = data.get('client_name', client.client_name)
+            client.client_name = data.get(
+                "client_name", client.client_name
+            )  # keep existing if not supplied
             client.ip_address = request.remote_addr
             db.session.commit()
-            return jsonify({'token': client.token})
+            return jsonify({"token": client.token})
 
     if client:
-        return jsonify({'error': 'Client already exists'}), 400
+        return jsonify({"error": "Client already exists"}), 400
 
-    # New client registration
     token = generate_token()
-    serial_number = data.get('serial_number')  # Store serial number during registration
     client = Client(
-        id=data['id'],
-        client_name=data.get('client_name', 'Unnamed Client'),
+        id=data["id"],
+        client_name=data.get("client_name", "Unnamed Client"),
         ip_address=request.remote_addr,
         token=token,
-        serial_number=serial_number  # Save serial number
+        serial_number=data.get("serial_number"),
     )
     db.session.add(client)
     db.session.commit()
-    return jsonify({'token': token})
+    return jsonify})
 
-# --- CLIENT UPDATE CHECKIN ---
-@app.route('/api/clients/<client_id>', methods=['POST'])
+
+# Client check‑in (telemetry)
+@app.route("/api/clients/<client_id>", methods=["POST"])
 def client_update(client_id):
-    client = Client.query.get(client_id)
-    if not client:
-        return jsonify({'error': 'Client not found'}), 404
+    client = Client.query.get_or_404(client_id)
 
-    data = request.json
-    if not data:
-        return jsonify({'error': 'Invalid data'}), 400
+    payload = request.get_json(silent=True)
+    if not payload:
+        return jsonify({"error": "Invalid data"}), 400
 
-    client_token = data.get('token') or request.headers.get('Authorization')
+    client_token = payload.get("token") or request.headers.get("Authorization")
     if not auth_client(client, client_token):
-        return jsonify({'error': 'Unauthorized'}), 401
+        return jsonify({"error": "Unauthorized"}), 401
 
-    # --- telemetry ---
-    client.client_name = data.get('client_name', client.client_name)
+    client.client_name = payload.get("client_name", client.client_name)
     client.ip_address = request.remote_addr
     client.last_checkin = datetime.utcnow()
-    client.os_name = data.get('os_name', client.os_name)
-    client.os_version = data.get('os_version', client.os_version)
-    client.cpu = data.get('cpu', client.cpu)
-    client.ram = data.get('ram', client.ram)
-    client.disk_total = data.get('disk_total', client.disk_total)
-    client.disk_free = data.get('disk_free', client.disk_free)
-    client.uptime_val = data.get('uptime', client.uptime_val)
+    client.os_name = payload.get("os_name", client.os_name)
+    client.os_version = payload.get("os_version", client.os_version)
+    client.cpu = payload.get("cpu", client.cpu)
+    client.ram = payload.get("ram", client.ram)
+    client.disk_total = payload.get("disk_total", client.disk_total)
+    client.disk_free = payload.get("disk_free", client.disk_free)
+    client.uptime_val = payload.get("uptime", client.uptime_val)
+
     db.session.commit()
+    return jsonify({"status": "checked in successfully"})
 
-    return jsonify({'status': 'checked in successfully'})
 
-# == APP RUNNING ==
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+if __name__ == "__main__":
+    # Used only when running directly (e.g., for debugging)
+    app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
