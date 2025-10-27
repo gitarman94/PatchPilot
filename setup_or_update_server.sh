@@ -49,7 +49,7 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 
     # Kill stray server.py processes
-    pids=$(pgrep.py" || true)
+    pids=$(pgrep -f "server.py" || true)
     if [[ -n "$pids" ]]; then
         for pid in $pids; do
             echo "Terminating pid $pid"
@@ -73,7 +73,8 @@ python3 -m venv "${VENV_DIR}"
 # Ensure pip works inside the venv
 if [[ ! -x "${VENV_DIR}/bin/pip" ]]; then
     echo "Installing pip into venv..."
-    "${VENV_DIR}/bin/python" -m ensurepip --
+    "${VENV_DIR}/bin/python" -m ensurepip --upgrade
+fi
 "${VENV_DIR}/bin/pip" install --upgrade pip setuptools wheel
 
 # Install Python dependencies (SQLite only)
@@ -144,8 +145,7 @@ After=network.target
 
 [Service]
 User=patchpilot
-Group=patchpilot
-WorkingDirectory=${APP_DIR}
+GroupAPP}
 EnvironmentFile=${ENV_FILE}
 ExecStart=${VENV_DIR}/bin/gunicorn -w 4 -b 0.0.0.0:8080 server:app
 ExecReload=/bin/kill -s HUP \$MAINPID
