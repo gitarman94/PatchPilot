@@ -100,19 +100,19 @@ else
     # Quick sanity check via the app’s SQLAlchemy objects
     "${VENV_DIR}/bin/python" - <<'PYEND'
 import os, sys
-from server import app, db
+from sqlalchemy.sql import text
 
 with app.app_context():
     try:
         client_tbl = db.session.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='client'"
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='client'")
         ).scalar()
         update_tbl = db.session.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='client_update'"
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='client_update'")
         ).scalar()
         if not client_tbl or not update_tbl:
             raise RuntimeError("Required tables are missing.")
-        cnt = db.session.execute("SELECT COUNT(*) FROM client").scalar()
+        cnt = db.session.execute(text("SELECT COUNT(*) FROM client")).scalar()
         print(f"✔️  SQLite tables present, client count={cnt}")
     except Exception as e:
         print(f"❌  SQLite sanity check failed: {e}")
