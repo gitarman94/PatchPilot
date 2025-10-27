@@ -23,7 +23,7 @@ for arg in "$@"; do
     esac
 done
 
-# OS check – allow only Debian‑based systems
+# OS check – only allow Debian‑based systems
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
@@ -66,7 +66,7 @@ fi
 mkdir -p "${APP_DIR}"
 mkdir -p "${APP_DIR}/updates"
 
-# Create a fresh virtual environment
+# Create a fresh virtual environment (always runs)
 echo "🐍 Creating Python virtual environment..."
 python3 -m venv "${VENV_DIR}"
 
@@ -145,7 +145,8 @@ After=network.target
 
 [Service]
 User=patchpilot
-GroupAPP}
+Group=patchpilot
+WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_FILE}
 ExecStart=${VENV_DIR}/bin/gunicorn -w 4 -b 0.0.0.0:8080 server:app
 ExecReload=/bin/kill -s HUP \$MAINPID
