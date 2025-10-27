@@ -11,6 +11,7 @@ APP_DIR="/opt/patchpilot_server"
 VENV_DIR="${APP_DIR}/venv"
 SERVICE_NAME="patchpilot_server.service"
 SYSTEMD_DIR="/etc/systemd/system"
+TEMP_DIR=$(mktemp -d)
 
 # Optional flags
 FORCE_REINSTALL=false
@@ -35,18 +36,11 @@ else
     exit 1
 fi
 
-# Install required Debian packages
-export DEBIAN_FRONTEND=noninteractive
-echo "📦 Installing required packages..."
-apt-get update -qq
-apt-get install -y -qq \
-    python3 python3-venv python3-pip curl unzip jq
-
 # Force-reinstall cleanup (if requested)
 if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Removing any previous installation..."
 
-    # Stop and disable the systemd service
+    # Stop service if running
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 
@@ -61,30 +55,14 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
         done
     fi
 
-    # Remove previous application directory and its contents
-    echo "Removing previous installation files..."
+    # Remove the application directory and virtual environment
     rm -rf "${APP_DIR}"
 
-    # Remove systemd service file
-    echo "Removing systemd service definition..."
-    rm -f "${SYSTEMD_DIR}/${SERVICE_NAME}"
+    # Remove temporary files if they exist
+    rm -rf "${TEMP_DIR}"
 
-    # Remove virtual environment
-    echo "Removing virtual environment..."
-    rm -rf "${VENV_DIR}"
-
-    # Optionally remove SQLite DB
-    SQLITE_DB="${APP_DIR}/patchpilot.db"
-    if [[ -f "$SQLITE_DB" ]]; then
-        echo "Removing SQLite database..."
-        rm -f "$SQLITE_DB"
-    fi
-
-    # Optionally remove the patchpilot service user (if not used elsewhere)
-    if id -u patchpilot >/dev/null 2>&1; then
-        echo "Removing patchpilot service user..."
-        userdel patchpilot || true
-    fi
+    # Remove the downloaded ZIP file
+    rm -f "$TEMP_DIR/latest.zip"
 fi
 
 # Create required directories
@@ -107,16 +85,12 @@ source "${VENV_DIR}/bin/activate"
 pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn
 
 # Pull the latest source from GitHub
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
-cd "$TMPDIR"
-
 echo "⬇️  Downloading repository ZIP..."
-curl -L "$ZIP_URL" -o latest.zip
-unzip -o latest.zip
+curl -L "$ZIP_URL" -o "${TEMP_DIR}/latest.zip"
+unzip -o "${TEMP_DIR}/latest.zip" -d "${TEMP_DIR}"
 
 # Extracted folder is named "<repo>-<branch>"
-EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
+EXTRACTED_DIR=$(find "$TEMP_DIR" -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
 if [[ -z "$EXTRACTED_DIR" ]]; then
     echo "❌ Failed to locate extracted repo directory."
     exit 1
@@ -188,7 +162,9 @@ systemctl daemon-reload
 echo "Enabling and starting ${SERVICE_NAME}..."
 systemctl enable --now "${SERVICE_NAME}"
 
-chmod +x /opt/patchpilot_server/server_test.sh
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete! Dashboard: http://${SERVER_IP}:8080"
 echo "🔐 Admin token is stored at ${TOKEN_FILE}"
+
+# Cleanup: Remove the downloaded ZIP and temporary directory
+rm -rf "${TEMP_DIR}"
