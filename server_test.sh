@@ -4,6 +4,9 @@ echo "==============================="
 echo " PatchPilot Server Test Script"
 echo "==============================="
 
+# Activate virtualenv
+source /opt/patchpilot_server/venv/bin/activate
+
 # Install jq if not already installed
 apt install jq -y
 
