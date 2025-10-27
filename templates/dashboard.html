@@ -50,14 +50,6 @@
         </button>
     </div>
 
-    <!-- Global “Force all” button -->
-    <form method="post" action="/api/clients/force_all" class="mb-3 d-inline-block">
-        <input type="hidden" name="admin_token" value="{{ ADMIN_TOKEN or '' }}">
-        <button type="submit" class="btn btn-outline-primary">
-            <i class="fa-solid fa-rotate me-1"></i>Force all clients
-        </button>
-    </form>
-
     <!-- DataTable -->
     <table id="clientsTable" class="display nowrap table table-striped table-hover"
            style="width:100%">
@@ -235,4 +227,5 @@ $('#clientsTable').on('click', '.client-link', function(e){
 </script>
 </body>
 </html>
+
 
