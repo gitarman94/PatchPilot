@@ -57,7 +57,7 @@
     </div>
 
     <div class="col-12 mt-4">
-        {% if not client.approved %}
+        {% if client.approved is not defined or not client.approved %}
         <form method="post" action="/approve/{{ client.id }}" class="d-inline">
             <button type="submit" class="btn btn-warning">Approve client</button>
         </form>
@@ -70,3 +70,4 @@
         </form>
     </div>
 </div>
+
