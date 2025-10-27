@@ -10,9 +10,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.exc import OperationalError
-from werkzeug.utils import safe_join
-
-# Flask app initialisation
+from werkzeug.utils import safe_join# Flask app initialisation
 app = Flask(__name__)
 CORS(app)
 
@@ -33,13 +31,11 @@ def load_admin_token() -> str:
     token = os.getenv("ADMIN_TOKEN")
     if token:
         return token
-
     token_file = os.path.join(SERVER_DIR, "admin_token.txt")
     if os.path.exists(token_file):
         with open(token_file, "r") as f:
             return f.read().strip()
-
-    # Fallback (should never happen)
+    # Fallback – should never happen
     return base64.urlsafe_b64encode(os.urandom(24)).decode()
 
 
@@ -100,7 +96,7 @@ def generate_token() -> str:
 
 
 def auth_client(client_obj: Client, token: str | None) -> bool:
-    """Validate the bearer token supplied by a client."""
+    """Validate bearer token supplied by a client."""
     if not token:
         return False
     if token.startswith("Bearer "):
@@ -236,14 +232,10 @@ def add_client():
     if not data or "id" not in data:
         return jsonify({"error": "Invalid data"}), 400
 
-    # Try to fetch by explicit ID first
     client = Client.query.get(data["id"])
 
-    # If not found, try to match by serial number (helps re‑enroll)
     if not client:
-        client = Client.query.filter_by(
-            serial_number=data.get("serial_number")
-        ).first()
+        client = Client.query.filter_by(serial_number=data.get("serial_number")).first()
         if client:
             client.token = generate_token()
             client.client_name = data.get("client_name", client.client_name)
@@ -251,11 +243,9 @@ def add_client():
             db.session.commit()
             return jsonify({"token": client.token})
 
-    # If a client with that exact ID already exists, abort
     if client:
         return jsonify({"error": "Client already exists"}), 400
 
-    # Create a brand‑new client record
     token = generate_token()
     client = Client(
         id=data["id"],
@@ -297,5 +287,5 @@ def client_update(client_id):
 
 
 if __name__ == "__main__":
-    # Used only when running directly (e.g., for debugging)
+    # Run directly only for debugging
     app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
