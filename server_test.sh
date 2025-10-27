@@ -15,10 +15,11 @@ fi
 
 # 2. Verifying HTTP health endpoint
 echo "🔍  Verifying HTTP health endpoint..."
-if curl -s http://localhost:8080/api/health | jq -e .status | grep -q '"ok"'; then
+health_status=$(curl -s http://localhost:8080/api/health)
+if [[ "$health_status" == *"\"status\":\"ok\""* ]]; then
     echo "✔️  Health endpoint returned status=ok."
 else
-    echo "❌  Health check failed."
+    echo "❌  Health check failed or returned unexpected response."
     exit 1
 fi
 
