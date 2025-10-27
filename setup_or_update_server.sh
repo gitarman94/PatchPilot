@@ -37,7 +37,8 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Cleaning up old installation..."
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
-    pids=$(pgrep -f "server.py" || true)
+    # Kill only existing server.py processes, but exclude this script
+    pids=$(pgrep -f "server.py" | grep -v $$ || true)
     if [[ -n "$pids" ]]; then
         for pid in $pids; do
             kill -15 "$pid" 2>/dev/null || true
