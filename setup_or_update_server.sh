@@ -23,14 +23,12 @@ for arg in "$@"; do
     esac
 done
 
-# Install system dependencies (non‑interactive)
+# Install system dependencies (Debian only)
 export DEBIAN_FRONTEND=noninteractive
 echo "📦 Installing required packages..."
-if command -v apt-get >/dev/null 2>&1; then
-    apt-get update -qq
-    apt-get install -y -qq python3 python3-venv python3-pip curl unzip    echo "❌ Unsupported OS – apt-get not found."
-    exit 1
-fi
+apt-get update -qq
+apt-get install -y -qq \
+    python3 python3-venv python3-pip curl unzip
 
 # Optional force‑reinstall cleanup
 if [[ "$FORCE_REINSTALL" = true ]]; then
@@ -74,7 +72,6 @@ if [[ ! -x "${VENV_DIR}/bin/pip" ]]; then
     echo "Installing pip into venv..."
     "${VENV_DIR}/bin/python" -m ensurepip --upgrade
 fi
-
 "${VENV_DIR}/bin/pip" install --upgrade pip setuptools wheel
 
 # Install Python dependencies (SQLite only)
@@ -97,7 +94,8 @@ if [[ -z "$EXTRACTED_DIR" ]]; then
 fi
 
 echo "Copying files to ${APP_DIR}..."
-cp -r "${EXTRACTED_DIR}/"* "${APP_DIRx "${APP_DIR}/server.py"
+cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
+chmod +x "${APP_DIR}/server.py"
 
 # Create unprivileged service user (if missing)
 if ! id -u patchpilot >/dev/null 2>&1; then
