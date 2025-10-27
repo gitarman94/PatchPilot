@@ -108,7 +108,7 @@
                 {% endif %}
             </td>
             <td class="text-nowrap">
-                {% not client.approved %}
+                {% if not client.approved %}
                     <button class="btn btn-sm btn-outline-success approve-btn" title="Approve">
                         <i class="fa-solid fa-check"></i>
                     </button>
@@ -166,7 +166,7 @@ document.getElementById('darkModeToggle').addEventListener('click', () => {
 
 /* toast helper */
 function showToast(message, type='success') {
-    const toast = $(`
+    const toast = $(` 
         <div class="toast align-items-center text-bg-${type} border-0 mb-2" role="alert">
             <div class="d-flex">
                 <div class="toast-body">${message}</div>
