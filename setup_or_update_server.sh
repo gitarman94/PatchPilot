@@ -5,14 +5,14 @@ set -euo pipefail
 GITHUB_USER="gitarman94"
 GITHUB_REPO="PatchPilot"
 BRANCH="main"
-ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.zip"
+ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_RE}//heads/${BRANCH}.zip"
 
 APP_DIR="/opt/patchpilot_server"
 VENV_DIR="${APP_DIR}/venv"
 SERVICE_NAME="patchpilot_server.service"
 SYSTEMD_DIR="/etc/systemd/system"
 
-# Optional flags
+# Flags (optional)
 FORCE_REINSTALL=false
 UPGRADE=false
 
@@ -25,7 +25,7 @@ done
 
 # OS check – only allow Debian‑derived systems
 if [[ -f /etc/os-release ]]; then
-    . /etc/os-release
+
     case "$ID" in
         debian|ubuntu|linuxmint|pop|raspbian) ;;   # allowed
         *) echo "❌ This installer works only on Debian‑based systems."; exit 1 ;;
@@ -56,27 +56,18 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
             kill -9 "$pid" 2>/dev/null || true
         done
     fi
-    rm -rf "${APP_DIR}"
+
+    rm -rf "${APP_DIR}"   # removes everything, including a stale venv
 fi
 
 # Create required directories
 mkdir -p "${APP_DIR}"
-mkdir -p "${VENV_DIR}"
 mkdir -p "${APP_DIR}/updates"
 
-# Virtual‑env setup
-if [[ "$FORCE_REINSTALL" = true && -d "${VENV_DIR}" ]]; then
-    rm -rf "${VENV_DIR}"
-fi
-
-if [[ "$UPGRADE" = true && -d "${VENV_DIR}" && ! -x "${VENV_DIR}/bin/activate" ]]; then
-    rm -rf "${VENV_DIR}"
-fi
-
-if [[ ! -d "${VENV_DIR}" ]]; then
-    echo "🐍 Creating Python virtual environment..."
-    python3 -m venv "${VENV_DIR}"
-fi
+# Create a fresh virtual environment
+# At this point ${VENV_DIR} definitely does NOT exist (either never created or removed above)
+echo "🐍 Creating Python virtual environment..."
+python3 -m venv "${VENV_DIR}"
 
 # Ensure pip works inside the venv
 if [[ ! -x "${VENV_DIR}/bin/pip" ]]; then
@@ -90,7 +81,7 @@ source "${VENV_DIR}/bin/activate"
 pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn
 
 # Pull latest source from GitHub
-TMPDIR=$(mktemp -d)
+TMPmktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
 
@@ -98,6 +89,7 @@ echo "⬇️  Downloading repository ZIP..."
 curl -L "$ZIP_URL" -o latest.zip
 unzip -o latest.zip
 
+# The extracted folder is named "<repo>-<branch>"
 EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
 if [[ -z "$EXTRACTED_DIR" ]]; then
     echo "❌ Failed to locate extracted repo directory."
@@ -130,7 +122,7 @@ if [[ ! -f "$TOKEN_FILE" ]]; then
     echo "Generating admin token..."
     ADMIN_TOKEN=$(openssl rand -base64 32 | tr -d '=+/')
     echo "${ADMIN_TOKEN}" > "${TOKEN_FILE}"
-    chmod 600 "${TOKEN_FILE}"
+    chmod 600TOKEN_FILE}"
 else
     ADMIN_TOKEN=$(cat "${TOKEN_FILE}")
 fi
