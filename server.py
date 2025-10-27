@@ -5,6 +5,7 @@ import os
 import json
 import time
 from datetime import datetime, timedelta
+from secrets import token_urlsafe
 
 from flask import Flask, request, jsonify, render_template, Response
 from flask_sqlalchemy import SQLAlchemy
@@ -24,6 +25,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{SQLITE_DB_PATH}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
+
 def load_admin_token() -> str:
     token = os.getenv("ADMIN_TOKEN")
     if token:
@@ -34,7 +36,13 @@ def load_admin_token() -> str:
             return f.read().strip()
     return ""
 
+
 ADMIN_TOKEN = load_admin_token()
+
+
+def generate_token(length=32) -> str:
+    return token_urlsafe(length)
+
 
 class Client(db.Model):
     __tablename__ = "client"
@@ -67,6 +75,7 @@ class Client(db.Model):
     def uptime(self):
         return self.uptime_val or "N/A"
 
+
 class ClientUpdate(db.Model):
     __tablename__ = "client_update"
 
@@ -78,21 +87,27 @@ class ClientUpdate(db.Model):
     status = db.Column(db.String(50), nullable=False, default="pending")
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
+
 def init_db():
+    """Initialize the database, creating tables if they don't exist."""
     try:
-        # Ensure database file exists
         if not os.path.exists(SQLITE_DB_PATH):
             open(SQLITE_DB_PATH, "a").close()
-
-        # Create all tables defined in SQLAlchemy models if they don't exist
+        engine = create_engine(app.config["SQLALCHEMY_DATABASE_URI"])
+        inspector = inspect(engine)
         with app.app_context():
-            db.create_all()
-            app.logger.info("Database initialized successfully.")
+            if not inspector.has_table("client"):
+                db.create_all()
+                app.logger.info("Database tables created.")
+            else:
+                app.logger.info("Database already initialized.")
     except OperationalError as e:
         app.logger.error(f"Database initialization error: {e}")
 
+
 with app.app_context():
     init_db()
+
 
 def sse_generator():
     while True:
@@ -106,25 +121,26 @@ def sse_generator():
         yield f"data: {json.dumps(data)}\n\n"
         time.sleep(5)
 
+
 @app.route("/sse/clients")
 def sse_clients():
     return Response(sse_generator(), mimetype="text/event-stream")
 
-from sqlalchemy.exc import OperationalError
+
+def auth_admin(payload):
+    token = payload.get("admin_token") if payload else None
+    return token == ADMIN_TOKEN
+
 
 @app.route("/admin/force-reinstall/<client_id>", methods=["POST"])
 def force_reinstall_client(client_id):
-    try:
-        client = Client.query.get(client_id)
-    except OperationalError:
-        return "Database not initialized", 500
-
+    client = Client.query.get(client_id)
     if not client:
         return "Client not found", 404
-
     client.force_update = True
     db.session.commit()
     return "", 204
+
 
 @app.route("/api/clients")
 def api_clients():
@@ -148,7 +164,6 @@ def api_clients():
     total = query.count()
     rows = query.order_by(Client.id).offset(start).limit(length).all()
 
-    now = datetime.utcnow()
     data = []
     for c in rows:
         data.append([
@@ -165,49 +180,45 @@ def api_clients():
             c.id
         ])
 
-    return jsonify(draw=draw,
-                   recordsTotal=total,
-                   recordsFiltered=total,
-                   data=data)
+    return jsonify(draw=draw, recordsTotal=total, recordsFiltered=total, data=data)
+
 
 @app.route("/")
 def index():
     clients = Client.query.all()
-    return render_template("dashboard.html",
-                           clients=clients,
-                           now=datetime.utcnow(),
-                           ADMIN_TOKEN=ADMIN_TOKEN)
+    return render_template("dashboard.html", clients=clients, now=datetime.utcnow(), ADMIN_TOKEN=ADMIN_TOKEN)
+
 
 @app.route("/clients/<client_id>")
 def client_detail(client_id):
     client = Client.query.get_or_404(client_id)
     updates = ClientUpdate.query.filter_by(client_id=client_id).all()
-    return render_template("client_detail.html",
-                           client=client,
-                           updates=updates,
-                           ADMIN_TOKEN=ADMIN_TOKEN,
-                           now=datetime.utcnow())
+    return render_template("client_detail.html", client=client, updates=updates, ADMIN_TOKEN=ADMIN_TOKEN, now=datetime.utcnow())
+
 
 @app.route("/approve/<client_id>", methods=["POST"])
 def approve_client(client_id):
     client = Client.query.get_or_404(client_id)
     client.approved = True
     db.session.commit()
-    return ("", 204)
+    return "", 204
+
 
 @app.route("/admin/force-update/<client_id>", methods=["POST"])
 def force_update_client(client_id):
     client = Client.query.get_or_404(client_id)
     client.force_update = True
     db.session.commit()
-    return ("", 204)
+    return "", 204
+
 
 @app.route("/admin/allow-checkin/<client_id>", methods=["POST"])
 def allow_checkin_client(client_id):
     client = Client.query.get_or_404(client_id)
     client.allow_checkin = True
     db.session.commit()
-    return ("", 204)
+    return "", 204
+
 
 @app.route("/api/clients/force_all", methods=["POST"])
 def force_all_clients():
@@ -218,6 +229,7 @@ def force_all_clients():
         c.force_update = True
     db.session.commit()
     return jsonify({"status": "all clients forced to update"})
+
 
 @app.route("/api/clients/<client_id>/commands", methods=["POST"])
 def send_command(client_id):
@@ -243,6 +255,7 @@ def send_command(client_id):
     db.session.commit()
     return jsonify({"status": "command queued"})
 
+
 @app.route("/api/clients", methods=["POST"])
 def add_client():
     data = request.get_json(silent=True)
@@ -250,7 +263,6 @@ def add_client():
         return jsonify({"error": "Invalid data"}), 400
 
     client = Client.query.get(data["id"])
-
     if not client:
         client = Client.query.filter_by(serial_number=data.get("serial_number")).first()
         if client:
@@ -275,10 +287,10 @@ def add_client():
     db.session.commit()
     return jsonify({"token": token})
 
+
 @app.route("/api/clients/<client_id>", methods=["POST"])
 def client_update(client_id):
     client = Client.query.get_or_404(client_id)
-
     payload = request.get_json(silent=True)
     if not payload:
         return jsonify({"error": "Invalid data"}), 400
@@ -301,13 +313,11 @@ def client_update(client_id):
     db.session.commit()
     return jsonify({"status": "checked in successfully"})
 
+
 @app.route("/api/health", methods=["GET"])
 def health_check():
     return jsonify({"status": "ok"})
 
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
-
-
-
-
