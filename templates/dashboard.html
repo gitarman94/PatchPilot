@@ -2,290 +2,236 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Patch Manager Dashboard</title>
+    <title>PatchPilot Dashboard</title>
+
+    <!-- Bootstrap 5 -->
     <link rel="stylesheet"
           href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-          integrity="sha384‑9ndCyUa5iZ0r+0E0vx+X2RjyQ+8XK8cYrFQp0S6Z6ZqD6A8m9aX9Q5UfjyxT279C"
           crossorigin="anonymous">
+
+    <!-- DataTables (search, sort, pagination, export, column‑visibility) -->
+    <link rel="stylesheet"
+          href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css"/>
+    <link rel="stylesheet"
+          href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css"/>
+    <link rel="stylesheet"
+          href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css"/>
+
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+          crossorigin="anonymous"/>
+
     <style>
         :root {
             --bg-light: #f9f9f9;
-            --bg-dark: #121212;
-            --primary-light: #007bff;
-            --primary-dark: #1e90ff;
-            --text-light: #333;
+            --bg-dark:  #121212;
+            --text-light: #212529;
             --text-dark: #e5e5e5;
-            --status-online-light: #28a745;
-            --status-offline-light: #dc3545;
-            --status-updates-light: #ffc107;
-            --status-online-dark: #45a049;
-            --status-offline-dark: #e24e53;
-            --status-updates-dark: #ffb84d;
-            --card-bg-light: white;
-            --card-bg-dark: #333;
-            --btn-light: #007bff;
-            --btn-dark: #1e90ff;
-            --table-bg-light: white;
-            --table-bg-dark: #2a2a2a;
-            --table-hover-light: #f0f8ff;
-            --table-hover-dark: #333;
+            --primary: #0d6efd;
+            --primary-dark: #1e90ff;
         }
-
-        body {
-            font-family: 'Arial', sans-serif;
-            margin: 2em;
-            background-color: var(--bg-light);
-            color: var(--text-light);
-            transition: background-color 0.3s, color 0.3s;
-        }
-
-        body.dark-mode {
-            background-color: var(--bg-dark);
-            color: var(--text-dark);
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        .table {
-            background-color: var(--table-bg-light);
-            border-radius: 8px;
-            box-shadow: 0 0 12px rgba(0, 0, 0, 0.1);
-            margin-top: 2em;
-            border-collapse: separate;
-        }
-
-        body.dark-mode .table {
-            background-color: var(--table-bg-dark);
-        }
-
-        th, td {
-            text-align: left;
-            padding: 1em;
-        }
-
-        th {
-            background-color: #f1f1f1;
-        }
-
-        body.dark-mode th {
-            background-color: #444;
-        }
-
-        .status-online {
-            color: var(--status-online-light);
-            font-weight: bold;
-        }
-
-        body.dark-mode .status-online {
-            color: var(--status-online-dark);
-        }
-
-        .status-offline {
-            color: var(--status-offline-light);
-            font-weight: bold;
-        }
-
-        body.dark-mode .status-offline {
-            color: var(--status-offline-dark);
-        }
-
-        .status-updates {
-            color: var(--status-updates-light);
-            font-weight: bold;
-        }
-
-        body.dark-mode .status-updates {
-            color: var(--status-updates-dark);
-        }
-
-        .status-global {
-            margin-bottom: 1.5em;
-        }
-
-        .btn {
-            padding: 0.6em 1.2em;
-            border-radius: 6px;
-        }
-
-        .btn-approve {
-            background-color: var(--btn-light);
-            color: white;
-        }
-
-        body.dark-mode .btn-approve {
-            background-color: var(--btn-dark);
-        }
-
-        .btn-force {
-            background-color: #ffc107;
-            color: white;
-        }
-
-        .btn-update {
-            background-color: #28a745;
-            color: white;
-        }
-
-        .btn-global {
-            background-color: var(--btn-light);
-            color: white;
-            margin-bottom: 1em;
-        }
-
-        body.dark-mode .btn-global {
-            background-color: var(--btn-dark);
-        }
-
-        .btn:hover {
-            opacity: 0.9;
-        }
-
-        .actions-button {
-            display: flex;
-            gap: 10px;
-        }
-
-        .actions-button form {
-            margin: 0;
-        }
-
-        .status-col {
-            font-weight: bold;
-        }
-
-        .table-hover tbody tr:hover {
-            background-color: var(--table-hover-light);
-        }
-
-        body.dark-mode .table-hover tbody tr:hover {
-            background-color: var(--table-hover-dark);
-        }
-
-        .header-buttons {
-            display: flex;
-            gap: 20px;
-            align-items: center;
-            margin-bottom: 1em;
-        }
-
-        .dark-mode-toggle {
-            cursor: pointer;
-            padding: 0.5em 1em;
-            background-color: var(--btn-light);
-            border-radius: 4px;
-            color: white;
-            font-size: 1rem;
-        }
-
-        body.dark-mode .dark-mode-toggle {
-            background-color: var(--btn-dark);
-        }
+        body { background: var(--bg-light); color: var(--text-light); transition: background .3s, color .3s; }
+        body.dark-mode { background: var(--bg-dark); color: var(--text-dark); }
+        .status-online { color:#28a745; font-weight:bold; }
+        .status-offline { color:#dc3545; font-weight:bold; }
+        .status-updates { color:#ffc107; font-weight:bold; }
+        .toast-container { position:fixed; top:1rem; right:1rem; z-index:1055; }
+        .modal-body { min-height:200px; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1 class="display-4">🛠️ Patch Manager Dashboard</h1>
+<div class="container py-4">
 
-        <!-- Dark Mode Toggle Button -->
-        <div class="header-buttons">
-            <button class="dark-mode-toggle" id="darkModeToggle">🌙 Dark Mode</button>
-            <form method="post" action="/api/clients/force_all" class="mb-3">
-                <input type="hidden" name="admin_token" value="{{ ADMIN_TOKEN or '' }}">
-                <button class="btn btn-global">🔄 Force Update All Clients</button>
-            </form>
-        </div>
-
-        <!-- Clients Table -->
-        <table class="table table-striped table-hover">
-            <thead>
-                <tr>
-                    <th>Client ID</th>
-                    <th>Hostname</th>
-                    <th>OS</th>
-                    <th>CPU</th>
-                    <th>RAM</th>
-                    <th>Disk</th>
-                    <th>Patch Status</th>
-                    <th>Uptime</th>
-                    <th>Status</th>
-                    <th>Updates</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for client in clients %}
-                <tr>
-                    <td><a href="/clients/{{ client.id }}" class="text-primary">{{ client.id }}</a></td>
-                    <td>{{ client.client_name or '—' }}</td>
-                    <td>{{ client.os or '—' }}</td>
-                    <td>{{ client.cpu or '—' }}</td>
-                    <td>{{ client.ram or '—' }}</td>
-                    <td>{{ client.disk or '—' }}</td>
-                    <td>
-                        {% if client.updates_available %}
-                            <span class="badge bg-warning text-dark">⚠️ Updates Pending</span>
-                        {% else %}
-                            <span class="badge bg-success">✅ Up to Date</span>
-                        {% endif %}
-                    </td>
-                    <td>{{ client.uptime or '—' }}</td>
-                    <td class="status-col">
-                        {% if client.last_checkin and (now - client.last_checkin).total_seconds() < 600 %}
-                            <span class="status-online">🟢 Online</span>
-                        {% else %}
-                            <span class="status-offline">🔴 Offline</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if client.updates_available %}
-                            <span class="status-updates">⚠️ Updates Available</span>
-                        {% else %}
-                            <span class="status-updates">✅ No Updates</span>
-                        {% endif %}
-                    </td>
-                    <td class="actions-button">
-                        {% if not client.approved %}
-                            <form method="post" action="/approve/{{ client.id }}">
-                                <button type="submit" class="btn btn-approve btn-sm">✅ Approve</button>
-                            </form>
-                        {% endif %}
-                        <form method="post" action="/admin/force-update/{{ client.id }}">
-                            <button type="submit" class="btn btn-force btn-sm">🔄 Force Update</button>
-                        </form>
-                        <form method="post" action="/admin/allow-checkin/{{ client.id }}">
-                            <button type="submit" class="btn btn-update btn-sm">✔️ Allow Check-in</button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="h3"><i class="fa-solid fa-toolbox me-2"></i>PatchPilot Dashboard</h1>
+        <button id="darkModeToggle" class="btn btn-outline-secondary">
+            <i class="fa-solid fa-moon"></i>
+        </button>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
-            integrity="sha384‑ENjdO4Dr2bkBIFxQ3dufDdJl9DChLzGp9Pz92zIcOjm4z6FE" crossorigin="anonymous"></script>
-    
-    <script>
-        // Check if dark mode is enabled in localStorage
-        const darkModeSetting = localStorage.getItem('darkMode');
-        if (darkModeSetting === 'enabled') {
-            document.body.classList.add('dark-mode');
-        }
+    <!-- Global “Force all” button -->
+    <form method="post" action="/api/clients/force_all" class="mb-3 d-inline-block">
+        <input type="hidden" name="admin_token" value="{{ ADMIN_TOKEN or '' }}">
+        <button type="submit" class="btn btn-outline-primary">
+            <i class="fa-solid fa-rotate me-1"></i>Force all clients
+        </button>
+    </form>
 
-        // Toggle Dark Mode
-        const darkModeToggle = document.getElementById('darkModeToggle');
-        darkModeToggle.addEventListener('click', () => {
-            document.body.classList.toggle('dark-mode');
-            // Save the theme preference to localStorage
-            if (document.body.classList.contains('dark-mode')) {
-                localStorage.setItem('darkMode', 'enabled');
-            } else {
-                localStorage.setItem('darkMode', 'disabled');
-            }
-        });
-    </script>
+    <!-- DataTable -->
+    <table id="clientsTable" class="display nowrap table table-striped table-hover"
+           style="width:100%">
+        <thead>
+        <tr>
+            <th>Client ID</th>
+            <th>Hostname</th>
+            <th>OS</th>
+            <th>CPU</th>
+            <th>RAM</th>
+            <th>Disk</th>
+            <th>Patch Status</th>
+            <th>Uptime</th>
+            <th>Status</th>
+            <th>Updates</th>
+            <th>Actions</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for client in clients %}
+        <tr data-client-id="{{ client.id }}">
+            <td><a href="#" class="client-link text-primary">{{ client.id }}</a></td>
+            <td>{{ client.client_name or '—' }}</td>
+            <td>{{ client.os_name or '—' }}</td>
+            <td>{{ client.cpu or '—' }}</td>
+            <td>{{ client.ram or '—' }}</td>
+            <td>{{ client.disk_total or '—' }}/{{ client.disk_free or '—' }}</td>
+            <td>
+                {% if client.updates_available %}
+                    <span class="badge bg-warning text-dark">⚠️ Pending</span>
+                {% else %}
+                    <span class="badge bg-success">✅ Up‑to‑date</span>
+                {% endif %}
+            </td>
+            <td>{{ client.uptime or '—' }}</td>
+            <td>
+                {% if client.last_checkin and (now - client.last_checkin).total_seconds() < 600 %}
+                    <span class="status-online">🟢 Online</span>
+                {% else %}
+                    <span class="status-offline">🔴 Offline</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if client.updates_available %}
+                    <span class="status-updates">⚠️ Yes</span>
+                {% else %}
+                    <span class="status-updates">✅ No</span>
+                {% endif %}
+            </td>
+            <td class="text-nowrap">
+                {% not client.approved %}
+                    <button class="btn btn-sm btn-outline-success approve-btn" title="Approve">
+                        <i class="fa-solid fa-check"></i>
+                    </button>
+                {% endif %}
+                <button class="btn btn-sm btn-outline-warning force-btn" title="Force update">
+                    <i class="fa-solid fa-rotate"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-info checkin-btn" title="Allow check‑in">
+                    <i class="fa-solid fa-check-double"></i>
+                </button>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Toast container -->
+    <div class="toast-container"></div>
+
+    <!-- Detail modal (filled via AJAX) -->
+    <div class="modal fade" id="clientDetailModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Client Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="clientDetailBody">
+                    <div class="text-center py-5"><div class="spinner-border" role="status"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://code.jquery.com/jquery-3.7.0.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
+        crossorigin="anonymous"></script>
+
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.print.min.js"></script>
+<script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+
+<script>
+/* persist dark mode */
+if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('dark-mode');
+document.getElementById('darkModeToggle').addEventListener('click', () => {
+    document.body.classList.toggle('dark-mode');
+    localStorage.setItem('darkMode',
+        document.body.classList.contains('dark-mode') ? 'enabled' : 'disabled');
+});
+
+/* toast helper */
+function showToast(message, type='success') {
+    const toast = $(`
+        <div class="toast align-items-center text-bg-${type} border-0 mb-2" role="alert">
+            <div class="d-flex">
+                <div class="toast-body">${message}</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto"
+                        data-bs-dismiss="toast"></button>
+            </div>
+        </div>`);
+    $('.toast-container').append(toast);
+    const bsToast = new bootstrap.Toast(toast[0], {delay:3000});
+    bsToast.show();
+}
+
+/* DataTables init with export/column‑visibility */
+const table = $('#clientsTable').DataTable({
+    responsive:true,
+    pageLength:10,
+    dom:'Bfrtip',
+    buttons:[
+        {extend:'colvis', text:'Columns'},
+        {extend:'csv',   text:'CSV'},
+        {extend:'excel', text:'Excel'},
+        {extend:'pdf',   text:'PDF'},
+        {extend:'print', text:'Print'}
+    ],
+    columnDefs:[
+        {orderable:false, targets:[10]}
+    ]
+});
+
+/* generic POST helper (adds admin token) */
+function postAction(url, successMsg) {
+    $.post(url, {'admin_token':'{{ ADMIN_TOKEN or "" }}'})
+        .done(() => showToast(successMsg))
+        .fail(() => showToast('Action failed','danger'));
+}
+
+/* row‑level buttons */
+$('#clientsTable').on('click', '.approve-btn', function(){
+    const id = $(this).closest('tr').data('client-id');
+    postAction(`/approve/${id}`, `Client ${id} approved`);
+});
+
+$('#clientsTable').on('click', '.force-btn', function(){
+    const id = $(this).closest('tr').data('client-id');
+    postAction(`/admin/force-update/${id}`, `Force update sent to ${id}`);
+});
+
+$('#clientsTable').on('click', '.checkin-btn', function(){
+    const id = $(this).closest('tr').data('client-id');
+    postAction(`/admin/allow-checkin/${id}`, `Check‑in allowed for ${id}`);
+});
+
+/* load client details into modal */
+$('#clientsTable').on('click', '.client-link', function(e){
+    e.preventDefault();
+    const clientId = $(this).closest('tr').data('client-id');
+    const modal = new bootstrap.Modal('#clientDetailModal');
+    $('#clientDetailBody').html(`
+        <div class="text-center py-5"><div class="spinner-border" role="status"></div></div>
+    `);
+    modal.show();
+    $.get(`/clients/${clientId}`)
+        .done(html => $('#clientDetailBody').html(html))
+        .fail(() => $('#clientDetailBody').html('<p class="text-danger">Failed to load details.</p>'));
+});
+</script>
 </body>
 </html>
