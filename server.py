@@ -5,12 +5,11 @@ import os
 import json
 import time
 from datetime import datetime, timedelta
-from secrets import token_urlsafe
 
 from flask import Flask, request, jsonify, render_template, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import inspect
 from sqlalchemy.exc import OperationalError
 
 app = Flask(__name__)
@@ -23,8 +22,8 @@ os.makedirs(UPDATE_CACHE_DIR, exist_ok=True)
 SQLITE_DB_PATH = os.path.join(SERVER_DIR, "patchpilot.db")
 app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{SQLITE_DB_PATH}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-db = SQLAlchemy(app)
 
+db = SQLAlchemy(app)
 
 def load_admin_token() -> str:
     token = os.getenv("ADMIN_TOKEN")
@@ -36,13 +35,7 @@ def load_admin_token() -> str:
             return f.read().strip()
     return ""
 
-
 ADMIN_TOKEN = load_admin_token()
-
-
-def generate_token(length=32) -> str:
-    return token_urlsafe(length)
-
 
 class Client(db.Model):
     __tablename__ = "client"
@@ -75,7 +68,6 @@ class Client(db.Model):
     def uptime(self):
         return self.uptime_val or "N/A"
 
-
 class ClientUpdate(db.Model):
     __tablename__ = "client_update"
 
@@ -87,27 +79,26 @@ class ClientUpdate(db.Model):
     status = db.Column(db.String(50), nullable=False, default="pending")
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
-
 def init_db():
-    """Initialize the database, creating tables if they don't exist."""
     try:
+        os.makedirs(SERVER_DIR, exist_ok=True)
         if not os.path.exists(SQLITE_DB_PATH):
             open(SQLITE_DB_PATH, "a").close()
-        engine = create_engine(app.config["SQLALCHEMY_DATABASE_URI"])
-        inspector = inspect(engine)
         with app.app_context():
-            if not inspector.has_table("client"):
-                db.create_all()
-                app.logger.info("Database tables created.")
-            else:
-                app.logger.info("Database already initialized.")
+            db.create_all()
+            app.logger.info("Database initialized successfully.")
     except OperationalError as e:
         app.logger.error(f"Database initialization error: {e}")
 
+def is_db_ready() -> bool:
+    engine = db.get_engine()
+    inspector = inspect(engine)
+    return inspector.has_table("client")
 
-with app.app_context():
-    init_db()
-
+@app.before_request
+def ensure_db():
+    if not is_db_ready():
+        init_db()
 
 def sse_generator():
     while True:
@@ -121,16 +112,9 @@ def sse_generator():
         yield f"data: {json.dumps(data)}\n\n"
         time.sleep(5)
 
-
 @app.route("/sse/clients")
 def sse_clients():
     return Response(sse_generator(), mimetype="text/event-stream")
-
-
-def auth_admin(payload):
-    token = payload.get("admin_token") if payload else None
-    return token == ADMIN_TOKEN
-
 
 @app.route("/admin/force-reinstall/<client_id>", methods=["POST"])
 def force_reinstall_client(client_id):
@@ -141,6 +125,19 @@ def force_reinstall_client(client_id):
     db.session.commit()
     return "", 204
 
+@app.route("/admin/force-update/<client_id>", methods=["POST"])
+def force_update_client(client_id):
+    client = Client.query.get_or_404(client_id)
+    client.force_update = True
+    db.session.commit()
+    return "", 204
+
+@app.route("/admin/allow-checkin/<client_id>", methods=["POST"])
+def allow_checkin_client(client_id):
+    client = Client.query.get_or_404(client_id)
+    client.allow_checkin = True
+    db.session.commit()
+    return "", 204
 
 @app.route("/api/clients")
 def api_clients():
@@ -161,6 +158,7 @@ def api_clients():
                 Client.ram.ilike(like)
             )
         )
+
     total = query.count()
     rows = query.order_by(Client.id).offset(start).limit(length).all()
 
@@ -180,113 +178,20 @@ def api_clients():
             c.id
         ])
 
-    return jsonify(draw=draw, recordsTotal=total, recordsFiltered=total, data=data)
-
-
-@app.route("/")
-def index():
-    clients = Client.query.all()
-    return render_template("dashboard.html", clients=clients, now=datetime.utcnow(), ADMIN_TOKEN=ADMIN_TOKEN)
-
-
-@app.route("/clients/<client_id>")
-def client_detail(client_id):
-    client = Client.query.get_or_404(client_id)
-    updates = ClientUpdate.query.filter_by(client_id=client_id).all()
-    return render_template("client_detail.html", client=client, updates=updates, ADMIN_TOKEN=ADMIN_TOKEN, now=datetime.utcnow())
-
-
-@app.route("/approve/<client_id>", methods=["POST"])
-def approve_client(client_id):
-    client = Client.query.get_or_404(client_id)
-    client.approved = True
-    db.session.commit()
-    return "", 204
-
-
-@app.route("/admin/force-update/<client_id>", methods=["POST"])
-def force_update_client(client_id):
-    client = Client.query.get_or_404(client_id)
-    client.force_update = True
-    db.session.commit()
-    return "", 204
-
-
-@app.route("/admin/allow-checkin/<client_id>", methods=["POST"])
-def allow_checkin_client(client_id):
-    client = Client.query.get_or_404(client_id)
-    client.allow_checkin = True
-    db.session.commit()
-    return "", 204
-
+    return jsonify(draw=draw,
+                   recordsTotal=total,
+                   recordsFiltered=total,
+                   data=data)
 
 @app.route("/api/clients/force_all", methods=["POST"])
 def force_all_clients():
     payload = request.get_json(silent=True) or request.form
-    if not auth_admin(payload):
+    if payload.get("token") != ADMIN_TOKEN:
         return jsonify({"error": "Unauthorized"}), 401
     for c in Client.query.all():
         c.force_update = True
     db.session.commit()
     return jsonify({"status": "all clients forced to update"})
-
-
-@app.route("/api/clients/<client_id>/commands", methods=["POST"])
-def send_command(client_id):
-    client = Client.query.get_or_404(client_id)
-    payload = request.get_json(silent=True) or request.form
-    if not auth_admin(payload):
-        return jsonify({"error": "Unauthorized"}), 401
-
-    action = payload.get("action")
-    updates = (payload.getlist("updates") if hasattr(payload, "getlist") else payload.get("updates", []))
-
-    if action == "install_selected_updates" and updates:
-        for upd in updates:
-            cu = ClientUpdate.query.filter_by(client_id=client.id, kb_or_package=upd).first()
-            if cu:
-                cu.status = "installing"
-    elif action == "install_all_updates":
-        for cu in ClientUpdate.query.filter_by(client_id=client.id, status="pending").all():
-            cu.status = "installing"
-    else:
-        return jsonify({"error": "Unknown action"}), 400
-
-    db.session.commit()
-    return jsonify({"status": "command queued"})
-
-
-@app.route("/api/clients", methods=["POST"])
-def add_client():
-    data = request.get_json(silent=True)
-    if not data or "id" not in data:
-        return jsonify({"error": "Invalid data"}), 400
-
-    client = Client.query.get(data["id"])
-    if not client:
-        client = Client.query.filter_by(serial_number=data.get("serial_number")).first()
-        if client:
-            client.token = generate_token()
-            client.client_name = data.get("client_name", client.client_name)
-            client.ip_address = request.remote_addr
-            db.session.commit()
-            return jsonify({"token": client.token})
-
-    if client:
-        return jsonify({"error": "Client already exists"}), 400
-
-    token = generate_token()
-    client = Client(
-        id=data["id"],
-        client_name=data.get("client_name", "Unnamed Client"),
-        ip_address=request.remote_addr,
-        token=token,
-        serial_number=data.get("serial_number"),
-    )
-    db.session.add(client)
-    db.session.commit()
-    return jsonify({"token": token})
-
 
 @app.route("/api/clients/<client_id>", methods=["POST"])
 def client_update(client_id):
@@ -313,11 +218,35 @@ def client_update(client_id):
     db.session.commit()
     return jsonify({"status": "checked in successfully"})
 
-
 @app.route("/api/health", methods=["GET"])
 def health_check():
     return jsonify({"status": "ok"})
 
+@app.route("/")
+def index():
+    clients = Client.query.all()
+    return render_template("dashboard.html",
+                           clients=clients,
+                           now=datetime.utcnow(),
+                           ADMIN_TOKEN=ADMIN_TOKEN)
+
+@app.route("/clients/<client_id>")
+def client_detail(client_id):
+    client = Client.query.get_or_404(client_id)
+    updates = ClientUpdate.query.filter_by(client_id=client_id).all()
+    return render_template("client_detail.html",
+                           client=client,
+                           updates=updates,
+                           ADMIN_TOKEN=ADMIN_TOKEN,
+                           now=datetime.utcnow())
+
+@app.route("/approve/<client_id>", methods=["POST"])
+def approve_client(client_id):
+    client = Client.query.get_or_404(client_id)
+    client.approved = True
+    db.session.commit()
+    return "", 204
 
 if __name__ == "__main__":
+    init_db()
     app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
