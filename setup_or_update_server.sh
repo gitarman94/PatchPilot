@@ -23,7 +23,7 @@ for arg in "$@"; do
     esac
 done
 
-# OS check – only allow Debian‑based systems
+# OS check – allow only Debian‑based systems
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
