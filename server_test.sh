@@ -70,7 +70,7 @@ if curl -s --max-time 5 "${HEALTH_URL}" | grep -q '"status":"ok"'; then
     success "Health endpoint returned status=ok."
 else
     failure "Health endpoint unreachable or returned unexpected data."
-    warn "Recent journal entries (service ${SERVICE_NAME}):"
+    warn "Recent journal entries service ${SERVICE_NAME}:"
     journalctl -u "${SERVICE_NAME}" -n 20 --no-pager
     exit 1
 fi
