@@ -10,6 +10,7 @@ use std::thread;
 use std::time::Duration;
 use reqwest::blocking::Client;
 use serde_json::json;
+use std::process::Command;
 
 #[cfg(not(windows))]
 fn run_linux_client_loop() -> Result<()> {
@@ -24,11 +25,12 @@ fn run_linux_client_loop() -> Result<()> {
 
     loop {
         // Send heartbeat to check adoption status
-        let system_info = system_info::get_system_info()?; // Fetch system info from system_info.rs
+        let hostname = get_hostname(); // Fetch the system's hostname
+        let system_info = system_info::get_system_info()?;
         let response = client.post(format!("{}/api/devices/heartbeat", server_url))
             .json(&json!( {
-                "client_id": "unique-client-id", // Use unique client ID here
-                "system_info": system_info // Add the actual system info
+                "client_id": hostname, // Use hostname as unique identifier
+                "system_info": system_info // Add the system info in heartbeat
             }))
             .send();
 
@@ -36,88 +38,42 @@ fn run_linux_client_loop() -> Result<()> {
             Ok(resp) if resp.status().is_success() => {
                 let status: serde_json::Value = resp.json()?;
                 if status["adopted"].as_bool() == Some(true) {
-                    info!("Client approved. Starting system report loop...");
-                    break; // Proceed to normal reporting after adoption
+                    info!("Client approved.");
+                    break;
                 } else {
-                    info!("Waiting for approval...");
+                    info!("Client awaiting approval.");
                 }
-            },
-            Ok(resp) => {
-                error!("Received non-successful status: {}", resp.status());
-                retries -= 1;
-                if retries == 0 {
-                    error!("Failed to check adoption status after multiple attempts.");
-                    return Err(anyhow::anyhow!("Adoption check failed")).into();
-                }
-                thread::sleep(Duration::from_secs(5)); // retry after a delay
             },
             Err(e) => {
+                error!("Error sending heartbeat: {:?}", e);
                 retries -= 1;
-                error!("Failed to send heartbeat: {}", e);
                 if retries == 0 {
-                    error!("Failed to check adoption status after multiple attempts.");
-                    return Err(anyhow::anyhow!("Adoption check failed")).into();
+                    break;
                 }
-                thread::sleep(Duration::from_secs(5)); // retry after a delay
             }
         }
 
-        // Wait for the next heartbeat
-        thread::sleep(Duration::from_secs(30)); // Heartbeat interval
+        // Sleep before retry
+        thread::sleep(Duration::from_secs(60));  // Retry every minute
     }
 
-    // Report system info once adopted
-    loop {
-        info!("Sending system update...");
+    Ok(())
+}
 
-        let system_info = system_info::get_system_info()?; // Fetch system info from system_info.rs
-        let response = client.post(format!("{}/api/devices/update_status", server_url))
-            .json(&json!( {
-                "client_id": "unique-client-id",
-                "status": "active", // Customize status if needed
-                "system_info": system_info // Send system info here
-            }))
-            .send();
-
-        if let Err(e) = response {
-            error!("Failed to send system info: {:?}", e);
-        }
-
-        // Wait before sending the next update
-        thread::sleep(Duration::from_secs(600)); // Regular update interval
-    }
+// Fetch the hostname from the system
+fn get_hostname() -> String {
+    let output = Command::new("hostname")
+        .output()
+        .expect("Failed to execute command");
+    String::from_utf8_lossy(&output.stdout).to_string().trim().to_string()
 }
 
 fn main() -> Result<()> {
-    // Init logger
-    SimpleLogger::init(LevelFilter::Info, Config::default()).unwrap();
+    // Initialize logging
+    SimpleLogger::init(LevelFilter::Info, Config::default())?;
 
-    info!("Rust Patch Client starting...");
-
-    // Spawn self-update thread
-    thread::spawn(|| {
-        loop {
-            if let Err(e) = self_update::check_and_update() {
-                error!("Self-update failed: {:?}", e);
-            }
-            thread::sleep(Duration::from_secs(3600)); // hourly
-        }
-    });
-
-    // Run platform-specific main loop
-    #[cfg(windows)]
-    {
-        if let Err(e) = windows_service::run_service() {
-            error!("Failed to run Windows service: {:?}", e);
-        }
-    }
-
-    #[cfg(not(windows))]
-    {
-        if let Err(e) = run_linux_client_loop() {
-            error!("Linux client loop failed: {:?}", e);
-        }
-    }
+    // Run the client loop for Linux
+    run_linux_client_loop()?;
 
     Ok(())
 }
