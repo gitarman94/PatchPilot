@@ -11,9 +11,7 @@ CONFIG_PATH="$INSTALL_DIR/config.json"
 SERVER_URL_FILE="$INSTALL_DIR/server_url.txt"
 SERVICE_FILE="/etc/systemd/system/patchpilot_client.service"
 
-# --- Remove nmap and auto-detection ---
 detect_server() {
-  echo "[*] No PatchPilot server found automatically. Please enter the server IP manually."
   read -rp "Enter the PatchPilot server IP (e.g., 192.168.1.100): " input_ip
   input_ip="${input_ip#http://}"
   input_ip="${input_ip#https://}"
