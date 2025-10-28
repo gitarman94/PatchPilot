@@ -26,28 +26,29 @@ detect_server() {
   echo "[*] Searching for PatchPilot server using nmap..."
 
   # Quick nmap scan of the subnet to check for servers on port 8080
-  SERVER_IP=$(nmap -p 8080 --open --min-rate=1000 -T4 "$SUBNET" | grep "Nmap scan report for" | awk '{print $5}')
+  nmap -p 8080 --open --min-rate=1000 -T4 "$SUBNET" | grep -i "Nmap scan report for" | awk '{print $5}' | while read -r SERVER_IP; do
+    # Filter out any "localdomain" or invalid IPs
+    if [[ "$SERVER_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      echo "[*] Found server at $SERVER_IP. Verifying PatchPilot..."
 
-  if [ -n "$SERVER_IP" ]; then
-    # If nmap finds a server on port 8080, perform an HTTP GET request to check if it's PatchPilot
-    echo "[*] Found server at $SERVER_IP on port 8080. Verifying..."
+      # Send a basic HTTP GET request to check for a unique identifier or header
+      RESPONSE=$(curl -s -I "http://$SERVER_IP:8080/api" | grep -i "X-PatchPilot")
 
-    # Send a basic HTTP GET request to check for a unique identifier or header
-    RESPONSE=$(curl -s -I "http://$SERVER_IP:8080/api" | grep -i "X-PatchPilot")
-
-    if [ -n "$RESPONSE" ]; then
-      # If the header exists, we found the PatchPilot server
-      echo "[+] Found PatchPilot server at $SERVER_IP"
-      DISCOVERED_SERVER="http://$SERVER_IP:8080/api"
-      return 0  # Success
+      if [ -n "$RESPONSE" ]; then
+        # If the header exists, we found the PatchPilot server
+        echo "[+] Found PatchPilot server at http://$SERVER_IP:8080"
+        DISCOVERED_SERVER="http://$SERVER_IP:8080/api"
+        return 0  # Success
+      else
+        echo "[*] Server at $SERVER_IP is not identified as a PatchPilot server. Skipping."
+      fi
     else
-      echo "[*] Server at $SERVER_IP is not identified as a PatchPilot server. Skipping."
-      return 1  # Failure
+      echo "[*] Skipping invalid IP: $SERVER_IP"
     fi
-  else
-    echo "[*] No server found with nmap on port 8080"
-    return 1  # Failure
-  fi
+  done
+
+  echo "[*] No PatchPilot server found."
+  return 1  # Failure
 }
 
 # --- Load Rust environment ---
