@@ -171,11 +171,11 @@ def heartbeat():
     app.logger.info(f"New client {client_id} added. Awaiting approval.")
     return jsonify({'adopted': False, 'message': 'New client. Awaiting approval.'})
 
-# Initialize the database if necessary
-@app.before_first_request
-def create_tables():
+# Initialize the database tables manually
+def init_db():
     """Creates the database tables if they don't exist yet."""
-    db.create_all()
+    with app.app_context():
+        db.create_all()
 
 # User authentication routes
 @login_manager.user_loader
@@ -207,5 +207,7 @@ def dashboard():
     return render_template('dashboard.html')
 
 if __name__ == '__main__':
+    # Initialize the database before starting the app
+    init_db()
     app.logger.info("Starting the PatchPilot server...")
     socketio.run(app, debug=True)
