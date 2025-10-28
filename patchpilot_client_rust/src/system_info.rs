@@ -1,28 +1,12 @@
 use anyhow::{Result, anyhow};
-use std::process::Command;
 use serde_json::json;
+use std::process::Command;
 
 #[cfg(windows)]
 mod windows {
     use super::*;
 
-    pub fn get_system_info() -> Result<serde_json::Value> {
-        let serial_number = get_serial_number()?;
-        let os_info = get_os_info()?;
-        let cpu_info = get_cpu_info()?;
-        let memory_info = get_memory_info()?;
-
-        let system_info = json!({
-            "serial_number": serial_number,
-            "os_info": os_info,
-            "cpu": cpu_info,
-            "memory": memory_info,
-        });
-
-        Ok(system_info)
-    }
-
-    fn get_serial_number() -> Result<String> {
+    pub fn get_serial_number() -> Result<String> {
         let serial_number = Command::new("wmic")
             .arg("bios")
             .arg("get")
@@ -45,7 +29,7 @@ mod windows {
         Ok(serial_number)
     }
 
-    fn get_os_info() -> Result<String> {
+    pub fn get_os_info() -> Result<String> {
         let os_version = Command::new("systeminfo")
             .arg("/fo")
             .arg("CSV")
@@ -60,7 +44,7 @@ mod windows {
         Ok(os_version_str)
     }
 
-    fn get_cpu_info() -> Result<f32> {
+    pub fn get_cpu_info() -> Result<f32> {
         let cpu_load = Command::new("wmic")
             .arg("cpu")
             .arg("get")
@@ -84,7 +68,7 @@ mod windows {
         Ok(cpu_load)
     }
 
-    fn get_memory_info() -> Result<serde_json::Value> {
+    pub fn get_memory_info() -> Result<serde_json::Value> {
         let memory_stats = Command::new("systeminfo")
             .arg("/fo")
             .arg("CSV")
@@ -124,25 +108,8 @@ mod windows {
 #[cfg(unix)]
 mod unix {
     use super::*;
-    use std::process::Command;
 
-    pub fn get_system_info() -> Result<serde_json::Value> {
-        let serial_number = get_serial_number()?;
-        let os_info = get_os_info()?;
-        let cpu_info = get_cpu_info()?;
-        let memory_info = get_memory_info()?;
-
-        let system_info = json!({
-            "serial_number": serial_number,
-            "os_info": os_info,
-            "cpu": cpu_info,
-            "memory": memory_info,
-        });
-
-        Ok(system_info)
-    }
-
-    fn get_serial_number() -> Result<String> {
+    pub fn get_serial_number() -> Result<String> {
         let serial_number = Command::new("dmidecode")
             .arg("-s")
             .arg("system-serial-number")
@@ -164,7 +131,7 @@ mod unix {
         Ok(serial_number)
     }
 
-    fn get_os_info() -> Result<String> {
+    pub fn get_os_info() -> Result<String> {
         let uname_output = Command::new("uname")
             .arg("-a")
             .output()
@@ -178,7 +145,7 @@ mod unix {
         Ok(system_info)
     }
 
-    fn get_cpu_info() -> Result<f32> {
+    pub fn get_cpu_info() -> Result<f32> {
         let cpu_load = Command::new("top")
             .arg("-b")
             .arg("-n1")
@@ -206,7 +173,7 @@ mod unix {
         Ok(cpu_load)
     }
 
-    fn get_memory_info() -> Result<serde_json::Value> {
+    pub fn get_memory_info() -> Result<serde_json::Value> {
         let free_memory = Command::new("free")
             .arg("-b")
             .output()
@@ -230,13 +197,39 @@ mod unix {
     }
 }
 
-#[cfg(not(windows))]
+// Unified function to get system info, uses the platform-specific modules
 pub fn get_system_info() -> Result<serde_json::Value> {
-    unix::get_system_info()
-}
+    #[cfg(windows)]
+    {
+        let serial_number = windows::get_serial_number()?;
+        let os_info = windows::get_os_info()?;
+        let cpu_info = windows::get_cpu_info()?;
+        let memory_info = windows::get_memory_info()?;
 
-#[cfg(windows)]
-pub fn get_system_info() -> Result<serde_json::Value> {
-    windows::get_system_info()
-}
+        let system_info = json!({
+            "serial_number": serial_number,
+            "os_info": os_info,
+            "cpu": cpu_info,
+            "memory": memory_info,
+        });
 
+        Ok(system_info)
+    }
+
+    #[cfg(unix)]
+    {
+        let serial_number = unix::get_serial_number()?;
+        let os_info = unix::get_os_info()?;
+        let cpu_info = unix::get_cpu_info()?;
+        let memory_info = unix::get_memory_info()?;
+
+        let system_info = json!({
+            "serial_number": serial_number,
+            "os_info": os_info,
+            "cpu": cpu_info,
+            "memory": memory_info,
+        });
+
+        Ok(system_info)
+    }
+}
