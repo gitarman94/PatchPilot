@@ -165,9 +165,8 @@ def bulk_approve():
     return jsonify({"status": "success", "message": "Selected clients approved."})
 
 # Initialize the database if necessary
-@app.before_request
-def create_tables():
-    """Creates the database tables if they don't exist yet."""
+def init_db():
+    """Create tables and initialize the database."""
     db.create_all()
 
 # No login or authentication required, so we can directly show the dashboard
@@ -178,5 +177,6 @@ def dashboard():
     return render_template('dashboard.html', clients=clients, now=datetime.utcnow())
 
 if __name__ == '__main__':
+    # Run the database initialization function once at startup
+    init_db()
     socketio.run(app, debug=True)
-
