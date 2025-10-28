@@ -7,19 +7,59 @@ use log::{info, error};
 use simplelog::{Config, LevelFilter, SimpleLogger};
 use std::thread;
 use std::time::Duration;
+use reqwest::blocking::Client;
+use serde_json::json;
 
 #[cfg(not(windows))]
 fn run_linux_client_loop() -> Result<()> {
     info!("Linux Patch Client starting...");
 
-    // Your Linux client main loop here, for example:
+    // Linux client main loop
+    let client = Client::new();
+    let server_url = "http://127.0.0.1:8080";  // Replace with actual server URL
+
     loop {
-        // Placeholder: do Linux-specific patch client tasks
-        info!("Linux client heartbeat...");
+        // Send heartbeat to check adoption status
+        let response = client.post(format!("{}/api/devices/heartbeat", server_url))
+            .json(&json!({ "client_id": "unique-client-id" })) // Use unique client ID here
+            .send();
 
-        // You can add your Linux update checks, system info reports, etc. here
+        match response {
+            Ok(resp) if resp.status().is_success() => {
+                let status: serde_json::Value = resp.json()?;
+                if status["adopted"].as_bool() == Some(true) {
+                    info!("Client approved. Starting system report loop...");
+                    break; // Proceed to normal reporting after adoption
+                } else {
+                    info!("Waiting for approval...");
+                }
+            },
+            _ => error!("Failed to check adoption status."),
+        }
 
-        thread::sleep(Duration::from_secs(600)); // e.g., 10 minutes
+        // Wait for the next heartbeat
+        thread::sleep(Duration::from_secs(30)); // Heartbeat interval
+    }
+
+    // Report system info once adopted
+    loop {
+        info!("Sending system update...");
+
+        // Report system status
+        let response = client.post(format!("{}/api/devices/update_status", server_url))
+            .json(&json!({
+                "client_id": "unique-client-id",
+                "status": "active", // Can customize status if needed
+                "system_info": "System info goes here"
+            }))
+            .send();
+
+        if let Err(e) = response {
+            error!("Failed to send system info: {:?}", e);
+        }
+
+        // Wait before sending the next update
+        thread::sleep(Duration::from_secs(600)); // Regular update interval
     }
 }
 
@@ -42,12 +82,12 @@ fn main() -> Result<()> {
     // Run platform-specific main loop
     #[cfg(windows)]
     {
-        windows_service::run_service()?;
+        windows_service::run_service()?; // Windows service management
     }
 
     #[cfg(not(windows))]
     {
-        run_linux_client_loop()?;
+        run_linux_client_loop()?; // Linux client loop
     }
 
     Ok(())
