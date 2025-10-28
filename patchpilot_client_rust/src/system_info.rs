@@ -187,7 +187,7 @@ mod unix {
             .arg("Cpu(s)")
             .arg("|")
             .arg("sed")
-            .arg("'s/.*, *\([0-9.]*\)%* id.*/\\1/')")
+            .arg(r"'s/.*, *\([0-9.]*\)%* id.*/\\1/'")
             .arg("|")
             .arg("awk")
             .arg("'BEGIN {print 100 - $1}'")
@@ -239,3 +239,4 @@ pub fn get_system_info() -> Result<serde_json::Value> {
 pub fn get_system_info() -> Result<serde_json::Value> {
     windows::get_system_info()
 }
+
