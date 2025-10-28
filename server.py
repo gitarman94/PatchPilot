@@ -154,6 +154,12 @@ def get_clients():
         clients_data.append(client_info)
     
     return jsonify(clients_data)
+#Get health status of server
+@app.route('/api/health', methods=['GET'])
+def health():
+    """Return a simple health check response."""
+    return jsonify({'status': 'ok'})
+
 
 # Root route - Dashboard
 @app.route('/')
@@ -165,3 +171,4 @@ def dashboard():
 if __name__ == '__main__':
     app.logger.info("Starting the PatchPilot server...")
     app.run(debug=True)
+
