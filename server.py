@@ -165,7 +165,7 @@ def bulk_approve():
     return jsonify({"status": "success", "message": "Selected clients approved."})
 
 # Initialize the database if necessary
-@app.before_first_request
+@app.before_request
 def create_tables():
     """Creates the database tables if they don't exist yet."""
     db.create_all()
@@ -179,3 +179,4 @@ def dashboard():
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)
+
