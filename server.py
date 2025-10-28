@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 
 # Initialize the Flask app
 app = Flask(__name__)
@@ -21,11 +20,6 @@ app.secret_key = os.getenv('SECRET_KEY', 'defaultsecretkey')
 # Initialize the database and other Flask extensions
 db = SQLAlchemy(app)
 socketio = SocketIO(app)
-login_manager = LoginManager(app)
-
-# Celery setup for background tasks
-from celery import Celery
-celery = Celery(app.name, broker='redis://localhost:6379/0')
 
 # --- Logging Configuration ---
 LOG_FILE = 'server.log'
@@ -80,13 +74,6 @@ class ActionLog(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     admin_user = db.Column(db.String(100), nullable=False)
     client = db.relationship('Client', back_populates='action_logs')
-
-# User model for RBAC
-class User(db.Model, UserMixin):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(100), unique=True, nullable=False)
-    password_hash = db.Column(db.String(200), nullable=False)
-    role = db.Column(db.String(50), nullable=False)  # Admin, Viewer, etc.
 
 # Helper to log admin actions
 def log_action(client_id, action, status, admin_user):
@@ -171,43 +158,17 @@ def heartbeat():
     app.logger.info(f"New client {client_id} added. Awaiting approval.")
     return jsonify({'adopted': False, 'message': 'New client. Awaiting approval.'})
 
-# Initialize the database tables manually
-def init_db():
+# Initialize the database if necessary
+@app.before_first_request
+def create_tables():
     """Creates the database tables if they don't exist yet."""
-    with app.app_context():
-        db.create_all()
+    db.create_all()
 
-# User authentication routes
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        user = User.query.filter_by(username=username).first()
-        if user and user.password_hash == password:  # Add password verification
-            login_user(user)
-            app.logger.info(f"User {username} logged in successfully.")
-            return redirect(url_for('dashboard'))
-    return render_template('login.html')
-
-@app.route('/logout')
-@login_required
-def logout():
-    app.logger.info(f"User {current_user.username} logged out.")
-    logout_user()
-    return redirect(url_for('login'))
-
+# Remove authentication routes and login requirement
 @app.route('/')
-@login_required
 def dashboard():
     return render_template('dashboard.html')
 
 if __name__ == '__main__':
-    # Initialize the database before starting the app
-    init_db()
     app.logger.info("Starting the PatchPilot server...")
     socketio.run(app, debug=True)
