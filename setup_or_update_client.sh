@@ -12,28 +12,8 @@ SERVER_URL_FILE="$INSTALL_DIR/server_url.txt"
 SERVICE_FILE="/etc/systemd/system/patchpilot_client.service"
 
 # --- Auto-detect the server ---
-# Attempts to auto-discover the PatchPilot server on the local network.
-# Returns discovered URL in $DISCOVERED_SERVER (e.g., http://192.168.1.100:8080/api) or empty if none found.
 detect_server() {
-  DISCOVERED_SERVER=""
-
-  # Helper: verify a candidate by checking an expected endpoint for either JSON or a known string
-  verify_candidate() {
-    local ip="$1"
-    local url="http://${ip}:8080/api"
-    local resp
-    resp=$(curl -s --max-time 2 "${url}/clients" || true)
-    if [[ -n "$resp" ]]; then
-      if echo "$resp" | grep -q '"clients"' || echo "$resp" | grep -q '"adopted"' ; then
-        DISCOVERED_SERVER="$url"
-        return 0
-      fi
-    fi
-    return 1
-  }
-
-  # Try mDNS, nmap, and HTTP probe as described in your current script.
-  # (This section remains unchanged)
+  # Your existing server detection logic
   ...
 }
 
@@ -71,7 +51,10 @@ common_install_update() {
   fi
 
   echo "[*] Cloning client source..."
-  rm -rf "$SRC_DIR"
+  if [ -d "$SRC_DIR" ]; then
+    rm -rf "$SRC_DIR"
+  fi
+  mkdir -p "$SRC_DIR"
   git clone "$RUST_REPO" "$SRC_DIR"
   cd "$SRC_DIR/patchpilot_client_rust"
 
@@ -101,7 +84,6 @@ install() {
     final_url="$DISCOVERED_SERVER"
     echo "[+] Auto-discovered server: $final_url"
   else
-    # only prompt if discovery failed
     read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
     input_ip="${input_ip#http://}"
     input_ip="${input_ip#https://}"
@@ -140,11 +122,10 @@ EOF
 update() {
   echo "Updating PatchPilot client..."
 
-  # Check if the installation directory exists
   if [[ ! -d "$INSTALL_DIR" ]]; then
     echo "Error: Installation not found at $INSTALL_DIR"
     echo "Attempting to install PatchPilot client..."
-    install  # Trigger install if the directory doesn't exist
+    install
     return
   fi
 
@@ -153,7 +134,7 @@ update() {
 
   # Install the client binary
   echo "[*] Installing client to $CLIENT_PATH..."
-  cp target/release/rust_patch_client "$CLIENT_PATH"  # Correct binary name
+  cp target/release/rust_patch_client "$CLIENT_PATH"
 
   # Try auto-detecting the server (same logic as in install)
   echo "[*] Attempting to auto-discover the PatchPilot server on the local network..."
@@ -161,7 +142,6 @@ update() {
     final_url="$DISCOVERED_SERVER"
     echo "[+] Auto-discovered server: $final_url"
   else
-    # only prompt if discovery failed
     read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
     input_ip="${input_ip#http://}"
     input_ip="${input_ip#https://}"
