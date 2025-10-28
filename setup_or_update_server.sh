@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Retrieve the GitHub token from the environment variable or command line arguments
+# Use the command-line argument for GITHUB_TOKEN if provided, otherwise fall back to the environment variable
+GITHUB_TOKEN="${1:-${GITHUB_TOKEN}}"
+
+# Check if GITHUB_TOKEN is set
 if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-    echo "❌ GitHub token is required. Please set the GITHUB_TOKEN environment variable."
+    echo "❌ GitHub token is required. Please set the GITHUB_TOKEN environment variable or pass it as an argument."
     exit 1
 fi
 
