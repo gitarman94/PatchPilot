@@ -15,20 +15,34 @@ SERVICE_FILE="/etc/systemd/system/patchpilot_client.service"
 detect_server() {
   echo "Attempting to discover server on the local network..."
 
-  # Define your local network range (adjust to match your network)
-  NETWORK="192.168.1"  # Replace with your network address (e.g., 192.168.1)
+  # Get the local IP and calculate the subnet dynamically using ip route
+  LOCAL_IP=$(hostname -I | awk '{print $1}')
+  NETWORK=$(ip route | grep "^default" | awk '{print $3}' | cut -d. -f1-3)
+  SUBNET="${NETWORK}.0/24"  # Subnet based on local IP address
 
-  # Loop through the possible IP addresses in the subnet (1-254)
+  echo "Detected local network: $SUBNET"
+
+  # Use mDNS to discover the PatchPilot server
+  echo "[*] Searching for PatchPilot server via mDNS..."
+  if avahi-browse -t _patchpilot._tcp --resolve | grep "PatchPilot" >/dev/null; then
+    # If the server is found via mDNS, set the discovered server URL
+    echo "[+] Found PatchPilot server via mDNS!"
+    DISCOVERED_SERVER="http://$LOCAL_IP:8080/api"
+    return 0  # Success
+  fi
+
+  # No mDNS server found, fallback to manual IP discovery
+  echo "[*] No mDNS server found, attempting to auto-discover the server IP in the subnet..."
   for ip in $(seq 1 254); do
     target="${NETWORK}.$ip"
     echo "Pinging $target..."
 
-    # Ping each IP address once with a timeout of 1 second
+    # Timeout after 1 second for each ping to avoid long waits
     if ping -c 1 -W 1 $target &>/dev/null; then
       # Server found, set the discovered server URL
       echo "Found server at $target"
       DISCOVERED_SERVER="http://$target:8080/api"
-      return 0  # Success, return the discovered server
+      return 0  # Success
     fi
   done
 
@@ -68,7 +82,7 @@ uninstall() {
 common_install_update() {
   echo "[*] Installing dependencies..."
   apt-get update -y
-  apt-get install -y curl git build-essential pkg-config libssl-dev nmap
+  apt-get install -y curl git build-essential pkg-config libssl-dev avahi-utils
 
   echo "[*] Installing Rust toolchain if missing..."
   if ! command -v rustc >/dev/null 2>&1; then
