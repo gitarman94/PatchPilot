@@ -1,3 +1,4 @@
+mod system_info;
 mod self_update;
 #[cfg(windows)]
 mod windows_service;
@@ -96,3 +97,4 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
