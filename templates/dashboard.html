@@ -165,63 +165,63 @@
 <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
 
 <script>
-/* Dark mode */
-if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('dark-mode');
-document.getElementById('darkModeToggle').addEventListener('click', () => {
-    document.body.classList.toggle('dark-mode');
-    localStorage.setItem('darkMode',
-        document.body.classList.contains('dark-mode') ? 'enabled' : 'disabled');
-});
-
-/* Toast helper */
-function showToast(message, type='success') {
-    const toast = $(`
-        <div class="toast align-items-center text-bg-${type} border-0 mb-2" role="alert">
-            <div class="d-flex">
-                <div class="toast-body">${message}</div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-            </div>
-        </div>`);
-    $('.toast-container').append(toast);
-    new bootstrap.Toast(toast[0]).show();
-}
-
-/* DataTable setup */
-$(document).ready(function () {
-    const table = $('#clientsTable').DataTable({
-        responsive: true,
-        select: { style: 'multi' },
-        columnDefs: [
-            { orderable: false, targets: 0 }, // Disable sorting on checkbox column
-        ],
-    });
-
-    // Handle actions for selected clients
-    $('#bulkForcePatch').click(() => bulkAction('force-patch'));
-    $('#bulkForceCheckin').click(() => bulkAction('force-checkin'));
-    $('#bulkForceReinstall').click(() => bulkAction('force-reinstall'));
-    $('#bulkApprove').click(() => bulkAction('approve-selected'));
-
-    function bulkAction(action) {
-        const selectedIds = table.rows({ selected: true }).data().map(row => row[0]);
-        if (selectedIds.length > 0) {
-            $.post(`/admin/${action}`, { clientIds: selectedIds }, function(response) {
-                showToast(`${action.replace('-', ' ')} successful.`, 'success');
-                table.ajax.reload(); // Refresh table data after action
+    $(document).ready(function () {
+        // Periodic refresh of client status every 30 seconds
+        setInterval(function() {
+            $.get('/api/clients/status', function(data) {
+                // Update client status in table rows
+                data.clients.forEach(client => {
+                    let row = $(`tr[data-client-id=${client.id}]`);
+                    row.find('.status-online').toggleClass('d-none', !client.online);
+                    row.find('.status-offline').toggleClass('d-none', client.online);
+                });
             });
-        }
-    }
+        }, 30000); // 30 seconds
+        
+        // Dark mode toggle
+        if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('dark-mode');
+        document.getElementById('darkModeToggle').addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            localStorage.setItem('darkMode',
+                document.body.classList.contains('dark-mode') ? 'enabled' : 'disabled');
+        });
 
-    /* Client detail modal */
-    $('.client-link').click(function (event) {
-        event.preventDefault();
-        const clientId = $(this).closest('tr').data('client-id');
-        $.get(`/api/clients/${clientId}`, function (data) {
-            $('#clientDetailBody').html(data.html);
-            new bootstrap.Modal($('#clientDetailModal')).show();
+        // DataTable setup
+        const table = $('#clientsTable').DataTable({
+            responsive: true,
+            select: { style: 'multi' },
+            columnDefs: [
+                { orderable: false, targets: 0 }, // Disable sorting on checkbox column
+            ],
+        });
+
+        // Bulk actions
+        $('#bulkForcePatch').click(() => bulkAction('force-patch'));
+        $('#bulkForceCheckin').click(() => bulkAction('force-checkin'));
+        $('#bulkForceReinstall').click(() => bulkAction('force-reinstall'));
+        $('#bulkApprove').click(() => bulkAction('approve-selected'));
+
+        function bulkAction(action) {
+            const selectedIds = table.rows({ selected: true }).data().map(row => row[0]);
+            if (selectedIds.length > 0) {
+                $.post(`/admin/${action}`, { clientIds: selectedIds }, function(response) {
+                    showToast(`${action.replace('-', ' ')} successful.`, 'success');
+                    table.ajax.reload(); // Refresh table data after action
+                });
+            }
+        }
+
+        // Client detail modal
+        $('.client-link').click(function (event) {
+            event.preventDefault();
+            const clientId = $(this).closest('tr').data('client-id');
+            $.get(`/api/clients/${clientId}`, function (data) {
+                $('#clientDetailBody').html(data.html);
+                new bootstrap.Modal($('#clientDetailModal')).show();
+            });
         });
     });
-});
 </script>
+
 </body>
 </html>
