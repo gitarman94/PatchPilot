@@ -80,7 +80,9 @@
             <th>CPU</th>
             <th>RAM</th>
             <th>Disk</th>
-            <th>Patch Status</th>
+            <th>Disk Health</th>
+            <th>Network Throughput</th>
+            <th>Ping Latency</th>
             <th>Uptime</th>
             <th>Status</th>
             <th>Updates</th>
@@ -97,13 +99,9 @@
             <td>{{ client.cpu or '—' }}</td>
             <td>{{ client.ram or '—' }}</td>
             <td>{{ client.disk_total or '—' }}/{{ client.disk_free or '—' }}</td>
-            <td>
-                {% if client.updates_available %}
-                    <span class="badge bg-warning text-dark">⚠️ Pending</span>
-                {% else %}
-                    <span class="badge bg-success">✅ Up‑to‑date</span>
-                {% endif %}
-            </td>
+            <td>{{ client.disk_health or '—' }}</td>
+            <td>{{ client.network_throughput or '—' }}</td>
+            <td>{{ client.ping_latency or '—' }}</td>
             <td>{{ client.uptime or '—' }}</td>
             <td>
                 {% if client.last_checkin and (now - client.last_checkin).total_seconds() < 600 %}
@@ -181,101 +179,49 @@ function showToast(message, type='success') {
         <div class="toast align-items-center text-bg-${type} border-0 mb-2" role="alert">
             <div class="d-flex">
                 <div class="toast-body">${message}</div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto"
-                        data-bs-dismiss="toast"></button>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
             </div>
         </div>`);
     $('.toast-container').append(toast);
-    new bootstrap.Toast(toast[0], {delay:3000}).show();
+    new bootstrap.Toast(toast[0]).show();
 }
 
-/* DataTables init */
-const table = $('#clientsTable').DataTable({
-    responsive:true,
-    pageLength:10,
-    dom:'Bfrtip',
-    buttons:[
-        {extend:'colvis', text:'Columns'},
-        {extend:'csv',   text:'CSV'},
-        {extend:'excel', text:'Excel'},
-        {extend:'pdf',   text:'PDF'},
-        {extend:'print', text:'Print'}
-    ],
-    columnDefs:[
-        {orderable:false, targets:[0,11]} // checkbox & actions
-    ],
-    select: {
-        style: 'multi',
-        selector: 'td.select-checkbox'
+/* DataTable setup */
+$(document).ready(function () {
+    const table = $('#clientsTable').DataTable({
+        responsive: true,
+        select: { style: 'multi' },
+        columnDefs: [
+            { orderable: false, targets: 0 }, // Disable sorting on checkbox column
+        ],
+    });
+
+    // Handle actions for selected clients
+    $('#bulkForcePatch').click(() => bulkAction('force-patch'));
+    $('#bulkForceCheckin').click(() => bulkAction('force-checkin'));
+    $('#bulkForceReinstall').click(() => bulkAction('force-reinstall'));
+    $('#bulkApprove').click(() => bulkAction('approve-selected'));
+
+    function bulkAction(action) {
+        const selectedIds = table.rows({ selected: true }).data().map(row => row[0]);
+        if (selectedIds.length > 0) {
+            $.post(`/admin/${action}`, { clientIds: selectedIds }, function(response) {
+                showToast(`${action.replace('-', ' ')} successful.`, 'success');
+                table.ajax.reload(); // Refresh table data after action
+            });
+        }
     }
-});
 
-/* generic POST helper */
-function postAction(url, data={}, successMsg="Action completed") {
-    data['admin_token'] = '{{ ADMIN_TOKEN or "" }}';
-    $.post(url, data)
-        .done(() => showToast(successMsg))
-        .fail(() => showToast('Action failed','danger'));
-}
-
-/* Row buttons */
-$('#clientsTable').on('click', '.approve-btn', function(){
-    const id = $(this).closest('tr').data('client-id');
-    postAction(`/approve/${id}`, {}, `Client ${id} approved`);
-});
-
-$('#clientsTable').on('click', '.force-btn', function(){
-    const id = $(this).closest('tr').data('client-id');
-    postAction(`/admin/force-update/${id}`, {}, `Force update sent to ${id}`);
-});
-
-$('#clientsTable').on('click', '.checkin-btn', function(){
-    const id = $(this).closest('tr').data('client-id');
-    postAction(`/admin/allow-checkin/${id}`, {}, `Check‑in allowed for ${id}`);
-});
-
-/* Bulk action buttons */
-function getSelectedIds() {
-    return table.rows({selected:true}).nodes().to$().map(function(){ return $(this).data('client-id'); }).get();
-}
-
-$('#bulkForcePatch').click(function(){
-    const ids = getSelectedIds();
-    if(!ids.length) return showToast('No clients selected','warning');
-    ids.forEach(id => postAction(`/admin/force-update/${id}`, {}, `Force patch sent to ${id}`));
-});
-
-$('#bulkForceCheckin').click(function(){
-    const ids = getSelectedIds();
-    if(!ids.length) return showToast('No clients selected','warning');
-    ids.forEach(id => postAction(`/admin/allow-checkin/${id}`, {}, `Check‑in allowed for ${id}`));
-});
-
-$('#bulkForceReinstall').click(function(){
-    const ids = getSelectedIds();
-    if(!ids.length) return showToast('No clients selected','warning');
-    if(!confirm(`Force reinstall on ${ids.length} clients?`)) return;
-    ids.forEach(id => postAction(`/admin/force-reinstall/${id}`, {}, `Reinstall triggered for ${id}`));
-});
-
-$('#bulkApprove').click(function(){
-    const ids = getSelectedIds();
-    if(!ids.length) return showToast('No clients selected','warning');
-    ids.forEach(id => postAction(`/approve/${id}`, {}, `Client ${id} approved`));
-});
-
-/* Client row click for details */
-$('#clientsTable').on('click', '.client-link', function(e){
-    e.preventDefault();
-    const id = $(this).closest('tr').data('client-id');
-    $('#clientDetailBody').html('<div class="text-center py-5"><div class="spinner-border"></div></div>');
-    $('#clientDetailModal').modal('show');
-    $.get(`/api/client/${id}`, function(data){
-        $('#clientDetailBody').html(data);
+    /* Client detail modal */
+    $('.client-link').click(function (event) {
+        event.preventDefault();
+        const clientId = $(this).closest('tr').data('client-id');
+        $.get(`/api/clients/${clientId}`, function (data) {
+            $('#clientDetailBody').html(data.html);
+            new bootstrap.Modal($('#clientDetailModal')).show();
+        });
     });
 });
 </script>
-
 </body>
 </html>
-
