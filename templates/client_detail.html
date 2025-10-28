@@ -27,6 +27,38 @@
         </ul>
     </div>
 
+    <!-- Hardware Info Section -->
+    <div class="col-12 mt-4">
+        <h4>Hardware Info</h4>
+        <ul class="list-group">
+            <li class="list-group-item"><strong>CPU Model:</strong> {{ client.cpu_model or '—' }}</li>
+            <li class="list-group-item"><strong>CPU Cores:</strong> {{ client.cpu_cores or '—' }}</li>
+            <li class="list-group-item"><strong>RAM Usage:</strong> {{ client.ram_usage or '—' }}</li>
+            <li class="list-group-item"><strong>Disk Health:</strong> {{ client.disk_health or '—' }}</li>
+        </ul>
+    </div>
+
+    <!-- Network Info Section -->
+    <div class="col-12 mt-4">
+        <h4>Network Info</h4>
+        <ul class="list-group">
+            <li class="list-group-item"><strong>IP Address:</strong> {{ client.ip_address or '—' }}</li>
+            <li class="list-group-item"><strong>Network Throughput:</strong> {{ client.network_throughput or '—' }}</li>
+            <li class="list-group-item"><strong>Ping Latency:</strong> {{ client.ping_latency or '—' }}</li>
+        </ul>
+    </div>
+
+    <!-- Performance Metrics Section -->
+    <div class="col-12 mt-4">
+        <h4>Performance Metrics</h4>
+        <ul class="list-group">
+            <li class="list-group-item"><strong>CPU Load (1min, 5min, 15min):</strong> {{ client.cpu_load or '—' }}</li>
+            <li class="list-group-item"><strong>Memory Usage:</strong> {{ client.memory_usage or '—' }}</li>
+            <li class="list-group-item"><strong>Swap Usage:</strong> {{ client.swap_usage or '—' }}</li>
+        </ul>
+    </div>
+
+    <!-- Available Updates Section -->
     <div class="col-12 mt-4">
         <h4>Available Updates ({{ updates|length }})</h4>
         {% if updates %}
@@ -56,6 +88,7 @@
         {% endif %}
     </div>
 
+    <!-- Client Actions Section -->
     <div class="col-12 mt-4">
         {% if client.approved is not true %}
         <form method="post" action="/approve/{{ client.id }}" class="d-inline">
