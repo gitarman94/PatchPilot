@@ -66,18 +66,6 @@ class Client(db.Model):
     def uptime(self):
         return self.uptime_val or "N/A"
 
-class ClientUpdate(db.Model):
-    __tablename__ = "client_update"
-
-    id = db.Column(db.Integer, primary_key=True)
-    client_id = db.Column(db.String(36), db.ForeignKey("client.id"), nullable=False, index=True)
-    kb_or_package = db.Column(db.String(200), nullable=False)
-    title = db.Column(db.String(200), nullable=True)
-    severity = db.Column(db.String(50), nullable=True)
-    status = db.Column(db.String(50), nullable=False, default="pending")
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-
-# --- Initialize DB at import time ---
 def init_db():
     os.makedirs(SERVER_DIR, exist_ok=True)
     if not os.path.exists(SQLITE_DB_PATH):
@@ -86,9 +74,8 @@ def init_db():
         db.create_all()
         app.logger.info("Database initialized successfully.")
 
-init_db()  # <-- Ensures DB is ready before any request
+init_db()
 
-# --- SSE for clients ---
 def sse_generator():
     while True:
         data = {
@@ -105,7 +92,6 @@ def sse_generator():
 def sse_clients():
     return Response(sse_generator(), mimetype="text/event-stream")
 
-# --- Admin endpoints ---
 @app.route("/admin/force-reinstall/<client_id>", methods=["POST"])
 def force_reinstall_client(client_id):
     client = Client.query.get(client_id)
@@ -129,71 +115,35 @@ def allow_checkin_client(client_id):
     db.session.commit()
     return "", 204
 
-# --- API endpoints ---
-@app.route("/api/clients")
-def api_clients():
-    draw = int(request.args.get("draw", "1"))
-    start = int(request.args.get("start", "0"))
-    length = int(request.args.get("length", "10"))
-    search = request.args.get("search[value]", "").lower()
-
-    query = Client.query
-    if search:
-        like = f"%{search}%"
-        query = query.filter(
-            db.or_(
-                Client.id.ilike(like),
-                Client.client_name.ilike(like),
-                Client.os_name.ilike(like),
-                Client.cpu.ilike(like),
-                Client.ram.ilike(like)
-            )
-        )
-
-    total = query.count()
-    rows = query.order_by(Client.id).offset(start).limit(length).all()
-
-    data = []
-    for c in rows:
-        data.append([
-            c.id,
-            c.client_name or "—",
-            c.os_name or "—",
-            c.cpu or "—",
-            c.ram or "—",
-            f"{c.disk_total or '—'}/{c.disk_free or '—'}",
-            "✅" if c.updates_available else "⚠️",
-            c.uptime(),
-            "🟢" if c.is_online() else "🔴",
-            "Yes" if c.updates_available else "No",
-            c.id
-        ])
-
-    return jsonify(draw=draw,
-                   recordsTotal=total,
-                   recordsFiltered=total,
-                   data=data)
-
-@app.route("/api/clients/force_all", methods=["POST"])
-def force_all_clients():
-    payload = request.get_json(silent=True) or request.form
-    if payload.get("token") != ADMIN_TOKEN:
-        return jsonify({"error": "Unauthorized"}), 401
-    for c in Client.query.all():
-        c.force_update = True
-    db.session.commit()
-    return jsonify({"status": "all clients forced to update"})
-
 @app.route("/api/clients/<client_id>", methods=["POST"])
 def client_update(client_id):
-    client = Client.query.get_or_404(client_id)
     payload = request.get_json(silent=True)
     if not payload:
         return jsonify({"error": "Invalid data"}), 400
 
-    token = payload.get("token") or request.headers.get("Authorization")
+    token = payload.get("token")
+    client = Client.query.get(client_id)
+
+    if client is None:
+        from uuid import uuid4
+        import secrets
+        client = Client(
+            id=client_id,
+            client_name=payload.get("client_name", f"Unapproved-{request.remote_addr}"),
+            ip_address=request.remote_addr,
+            token=secrets.token_hex(16),
+            approved=False,
+            last_checkin=datetime.utcnow()
+        )
+        db.session.add(client)
+        db.session.commit()
+        return jsonify({"status": "pending_approval"})
+
     if token != client.token:
         return jsonify({"error": "Unauthorized"}), 401
+
+    if not client.approved:
+        return jsonify({"status": "waiting_for_approval"})
 
     client.client_name = payload.get("client_name", client.client_name)
     client.ip_address = request.remote_addr
@@ -207,30 +157,32 @@ def client_update(client_id):
     client.uptime_val = payload.get("uptime", client.uptime_val)
 
     db.session.commit()
-    return jsonify({"status": "checked in successfully"})
+    return jsonify({"status": "checked_in"})
+
+@app.route("/api/clients/force_all", methods=["POST"])
+def force_all_clients():
+    payload = request.get_json(silent=True) or request.form
+    if payload.get("token") != ADMIN_TOKEN:
+        return jsonify({"error": "Unauthorized"}), 401
+    for c in Client.query.all():
+        c.force_update = True
+    db.session.commit()
+    return jsonify({"status": "all clients forced to update"})
 
 @app.route("/api/health", methods=["GET"])
 def health_check():
     return jsonify({"status": "ok"})
 
-# --- Web routes ---
 @app.route("/")
 def index():
     clients = Client.query.all()
-    return render_template("dashboard.html",
-                           clients=clients,
-                           now=datetime.utcnow(),
-                           ADMIN_TOKEN=ADMIN_TOKEN)
+    return render_template("dashboard.html", clients=clients, now=datetime.utcnow(), ADMIN_TOKEN=ADMIN_TOKEN)
 
 @app.route("/clients/<client_id>")
 def client_detail(client_id):
     client = Client.query.get_or_404(client_id)
     updates = ClientUpdate.query.filter_by(client_id=client_id).all()
-    return render_template("client_detail.html",
-                           client=client,
-                           updates=updates,
-                           ADMIN_TOKEN=ADMIN_TOKEN,
-                           now=datetime.utcnow())
+    return render_template("client_detail.html", client=client, updates=updates, ADMIN_TOKEN=ADMIN_TOKEN, now=datetime.utcnow())
 
 @app.route("/approve/<client_id>", methods=["POST"])
 def approve_client(client_id):
@@ -239,6 +191,5 @@ def approve_client(client_id):
     db.session.commit()
     return "", 204
 
-# --- Run server (only when executed directly) ---
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
