@@ -1,195 +1,121 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 import os
-import json
-import time
-from datetime import datetime, timedelta
-
-from flask import Flask, request, jsonify, render_template, Response
-from flask_sqlalchemy import SQLAlchemy
-from flask_cors import CORS
+import subprocess
+import psutil
+from flask import Flask, render_template, jsonify, request, redirect, url_for
+from datetime import datetime
 
 app = Flask(__name__)
-CORS(app)
 
-SERVER_DIR = "/opt/patchpilot_server"
-UPDATE_CACHE_DIR = os.path.join(SERVER_DIR, "updates")
-os.makedirs(UPDATE_CACHE_DIR, exist_ok=True)
+# Mock database of clients (replace with your actual database model)
+clients = []
 
-SQLITE_DB_PATH = os.path.join(SERVER_DIR, "patchpilot.db")
-app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{SQLITE_DB_PATH}"
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+# Function to get system information for a client
+def get_system_info():
+    """Fetch system information such as CPU, RAM, Disk Health, Network Throughput."""
+    cpu_info = psutil.cpu_percent(interval=1)
+    ram_info = psutil.virtual_memory()
+    disk_info = psutil.disk_usage('/')
+    disk_health = "Good" if disk_info.percent < 85 else "Warning"
+    network_info = psutil.net_io_counters()
+    ping_latency = get_ping_latency("8.8.8.8")  # Ping Google DNS for latency measurement
+    
+    return {
+        'cpu': cpu_info,
+        'ram_total': ram_info.total,
+        'ram_used': ram_info.used,
+        'ram_free': ram_info.free,
+        'disk_total': disk_info.total,
+        'disk_free': disk_info.free,
+        'disk_health': disk_health,
+        'network_throughput': network_info.bytes_sent + network_info.bytes_recv,
+        'ping_latency': ping_latency,
+    }
 
-db = SQLAlchemy(app)
+# Function to measure ping latency
+def get_ping_latency(host="8.8.8.8"):
+    """Get the ping latency in milliseconds."""
+    try:
+        response = subprocess.check_output(['ping', '-c', '1', host], stderr=subprocess.STDOUT, universal_newlines=True)
+        time_index = response.find('time=')
+        if time_index != -1:
+            latency = response[time_index + 5:response.find(' ms', time_index)]
+            return float(latency)
+    except subprocess.CalledProcessError:
+        return None
+    return None
 
-def load_admin_token() -> str:
-    token = os.getenv("ADMIN_TOKEN")
-    if token:
-        return token
-    token_file = os.path.join(SERVER_DIR, "admin_token.txt")
-    if os.path.exists(token_file):
-        with open(token_file) as f:
-            return f.read().strip()
-    return ""
+# Route to fetch client data
+@app.route('/api/clients')
+def get_clients():
+    """Return the list of all clients with updated info."""
+    # Example mock data for clients
+    # Replace this with actual logic for fetching clients from a database
+    client_data = [
+        {
+            'id': 1,
+            'client_name': 'Client A',
+            'os_name': 'Windows 10',
+            'last_checkin': datetime.now() - timedelta(minutes=5),
+            'updates_available': False,
+            'approved': True,
+        },
+        {
+            'id': 2,
+            'client_name': 'Client B',
+            'os_name': 'Linux',
+            'last_checkin': datetime.now() - timedelta(minutes=30),
+            'updates_available': True,
+            'approved': False,
+        },
+    ]
 
-ADMIN_TOKEN = load_admin_token()
+    # Fetch system info for each client
+    for client in client_data:
+        system_info = get_system_info()
+        client.update(system_info)  # Add system info to client data
 
-class Client(db.Model):
-    __tablename__ = "client"
+    return jsonify({'clients': client_data})
 
-    id = db.Column(db.String(36), primary_key=True)
-    client_name = db.Column(db.String(100))
-    ip_address = db.Column(db.String(45))
-    approved = db.Column(db.Boolean, default=False)
-    allow_checkin = db.Column(db.Boolean, default=True)
-    force_update = db.Column(db.Boolean, default=False)
-    last_checkin = db.Column(db.DateTime)
-    token = db.Column(db.String(50), unique=True, nullable=False)
-    file_hashes = db.Column(db.Text, nullable=True)
-    updates_available = db.Column(db.Boolean, default=False)
+# Route to get details of a single client
+@app.route('/api/clients/<int:client_id>')
+def get_client_detail(client_id):
+    """Get detailed information of a client."""
+    # Fetch client data (replace with actual database fetch)
+    client = next((client for client in clients if client['id'] == client_id), None)
+    if client:
+        system_info = get_system_info()
+        client.update(system_info)  # Add system info to client data
+        return jsonify(client)
+    else:
+        return jsonify({"error": "Client not found"}), 404
 
-    os_name = db.Column(db.String(50))
-    os_version = db.Column(db.String(50))
-    cpu = db.Column(db.String(100))
-    ram = db.Column(db.String(50))
-    disk_total = db.Column(db.String(50))
-    disk_free = db.Column(db.String(50))
-    uptime_val = db.Column("uptime", db.String(50))
-    serial_number = db.Column(db.String(50), unique=True, nullable=True)
+# Route to display the dashboard
+@app.route('/')
+def dashboard():
+    return render_template('dashboard.html')
 
-    def is_online(self) -> bool:
-        if not self.last_checkin:
-            return False
-        return datetime.utcnow() - self.last_checkin <= timedelta(minutes=3)
+# Route for bulk actions (e.g., force patch, approve, etc.)
+@app.route('/admin/force-patch', methods=['POST'])
+def bulk_force_patch():
+    client_ids = request.form.getlist('clientIds')
+    # Logic to trigger patch installation for selected clients
+    # Example: Patch action on selected clients
+    # Replace with your actual patch installation logic
+    return jsonify({"status": "success", "message": "Patch installation triggered for clients."})
 
-    def uptime(self):
-        return self.uptime_val or "N/A"
+@app.route('/admin/force-checkin', methods=['POST'])
+def bulk_force_checkin():
+    client_ids = request.form.getlist('clientIds')
+    # Logic to trigger force check-in for selected clients
+    return jsonify({"status": "success", "message": "Check-in triggered for clients."})
 
-def init_db():
-    os.makedirs(SERVER_DIR, exist_ok=True)
-    if not os.path.exists(SQLITE_DB_PATH):
-        open(SQLITE_DB_PATH, "a").close()
-    with app.app_context():
-        db.create_all()
-        app.logger.info("Database initialized successfully.")
+@app.route('/admin/approve-selected', methods=['POST'])
+def bulk_approve():
+    client_ids = request.form.getlist('clientIds')
+    # Logic to approve selected clients
+    return jsonify({"status": "success", "message": "Selected clients approved."})
 
-init_db()
+# More routes for other bulk actions...
 
-def sse_generator():
-    while True:
-        data = {
-            "ts": int(time.time()),
-            "clients": [
-                {"id": c.id, "online": c.is_online(), "updates": c.updates_available}
-                for c in Client.query.all()
-            ]
-        }
-        yield f"data: {json.dumps(data)}\n\n"
-        time.sleep(5)
-
-@app.route("/sse/clients")
-def sse_clients():
-    return Response(sse_generator(), mimetype="text/event-stream")
-
-@app.route("/admin/force-reinstall/<client_id>", methods=["POST"])
-def force_reinstall_client(client_id):
-    client = Client.query.get(client_id)
-    if not client:
-        return "Client not found", 404
-    client.force_update = True
-    db.session.commit()
-    return "", 204
-
-@app.route("/admin/force-update/<client_id>", methods=["POST"])
-def force_update_client(client_id):
-    client = Client.query.get_or_404(client_id)
-    client.force_update = True
-    db.session.commit()
-    return "", 204
-
-@app.route("/admin/allow-checkin/<client_id>", methods=["POST"])
-def allow_checkin_client(client_id):
-    client = Client.query.get_or_404(client_id)
-    client.allow_checkin = True
-    db.session.commit()
-    return "", 204
-
-@app.route("/api/clients/<client_id>", methods=["POST"])
-def client_update(client_id):
-    payload = request.get_json(silent=True)
-    if not payload:
-        return jsonify({"error": "Invalid data"}), 400
-
-    token = payload.get("token")
-    client = Client.query.get(client_id)
-
-    if client is None:
-        from uuid import uuid4
-        import secrets
-        client = Client(
-            id=client_id,
-            client_name=payload.get("client_name", f"Unapproved-{request.remote_addr}"),
-            ip_address=request.remote_addr,
-            token=secrets.token_hex(16),
-            approved=False,
-            last_checkin=datetime.utcnow()
-        )
-        db.session.add(client)
-        db.session.commit()
-        return jsonify({"status": "pending_approval"})
-
-    if token != client.token:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    if not client.approved:
-        return jsonify({"status": "waiting_for_approval"})
-
-    client.client_name = payload.get("client_name", client.client_name)
-    client.ip_address = request.remote_addr
-    client.last_checkin = datetime.utcnow()
-    client.os_name = payload.get("os_name", client.os_name)
-    client.os_version = payload.get("os_version", client.os_version)
-    client.cpu = payload.get("cpu", client.cpu)
-    client.ram = payload.get("ram", client.ram)
-    client.disk_total = payload.get("disk_total", client.disk_total)
-    client.disk_free = payload.get("disk_free", client.disk_free)
-    client.uptime_val = payload.get("uptime", client.uptime_val)
-
-    db.session.commit()
-    return jsonify({"status": "checked_in"})
-
-@app.route("/api/clients/force_all", methods=["POST"])
-def force_all_clients():
-    payload = request.get_json(silent=True) or request.form
-    if payload.get("token") != ADMIN_TOKEN:
-        return jsonify({"error": "Unauthorized"}), 401
-    for c in Client.query.all():
-        c.force_update = True
-    db.session.commit()
-    return jsonify({"status": "all clients forced to update"})
-
-@app.route("/api/health", methods=["GET"])
-def health_check():
-    return jsonify({"status": "ok"})
-
-@app.route("/")
-def index():
-    clients = Client.query.all()
-    return render_template("dashboard.html", clients=clients, now=datetime.utcnow(), ADMIN_TOKEN=ADMIN_TOKEN)
-
-@app.route("/clients/<client_id>")
-def client_detail(client_id):
-    client = Client.query.get_or_404(client_id)
-    updates = ClientUpdate.query.filter_by(client_id=client_id).all()
-    return render_template("client_detail.html", client=client, updates=updates, ADMIN_TOKEN=ADMIN_TOKEN, now=datetime.utcnow())
-
-@app.route("/approve/<client_id>", methods=["POST"])
-def approve_client(client_id):
-    client = Client.query.get_or_404(client_id)
-    client.approved = True
-    db.session.commit()
-    return "", 204
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
+if __name__ == '__main__':
+    app.run(debug=True)
