@@ -1,12 +1,28 @@
 use anyhow::{Result, anyhow};
 use std::process::Command;
+use serde_json::json;
 
 #[cfg(windows)]
 mod windows {
     use super::*;
 
-    pub fn get_system_info() -> Result<String> {
-        // Get the serial number on Windows using WMIC command
+    pub fn get_system_info() -> Result<serde_json::Value> {
+        let serial_number = get_serial_number()?;
+        let os_info = get_os_info()?;
+        let cpu_info = get_cpu_info()?;
+        let memory_info = get_memory_info()?;
+
+        let system_info = json!({
+            "serial_number": serial_number,
+            "os_info": os_info,
+            "cpu": cpu_info,
+            "memory": memory_info,
+        });
+
+        Ok(system_info)
+    }
+
+    fn get_serial_number() -> Result<String> {
         let serial_number = Command::new("wmic")
             .arg("bios")
             .arg("get")
@@ -26,51 +42,82 @@ mod windows {
             .trim()
             .to_string();
 
-        // Getting other system information like OS, CPU, RAM, etc.
+        Ok(serial_number)
+    }
+
+    fn get_os_info() -> Result<String> {
         let os_version = Command::new("systeminfo")
             .arg("/fo")
             .arg("CSV")
             .output()
             .map_err(|e| anyhow!("Failed to execute systeminfo: {}", e))?;
-        
+
         if !os_version.status.success() {
             return Err(anyhow!("Failed to retrieve OS version"));
         }
 
-        let os_version_str = String::from_utf8_lossy(&os_version.stdout);
-
-        Ok(format!(
-            "Windows Serial Number: {}\nOS Information: {}",
-            serial_number, os_version_str
-        ))
+        let os_version_str = String::from_utf8_lossy(&os_version.stdout).to_string();
+        Ok(os_version_str)
     }
 
-    pub fn get_missing_windows_updates() -> Result<Vec<String>> {
-        let ps_script = r#"
-            $Session = New-Object -ComObject Microsoft.Update.Session
-            $Searcher = $Session.CreateUpdateSearcher()
-            $SearchResult = $Searcher.Search("IsInstalled=0 and Type='Software'")
-            $updates = $SearchResult.Updates | ForEach-Object { $_.Title }
-            $updates -join "`n"
-        "#;
-
-        let output = Command::new("powershell")
-            .args(&["-NoProfile", "-Command", ps_script])
+    fn get_cpu_info() -> Result<f32> {
+        let cpu_load = Command::new("wmic")
+            .arg("cpu")
+            .arg("get")
+            .arg("loadpercentage")
             .output()
-            .map_err(|e| anyhow!("Failed to execute PowerShell: {}", e))?;
+            .map_err(|e| anyhow!("Failed to execute WMIC for CPU info: {}", e))?;
 
-        if !output.status.success() {
-            return Err(anyhow!("PowerShell script failed: {}", String::from_utf8_lossy(&output.stderr)));
+        if !cpu_load.status.success() {
+            return Err(anyhow!("Failed to retrieve CPU load"));
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let updates: Vec<String> = stdout
+        let cpu_load_str = String::from_utf8_lossy(&cpu_load.stdout)
             .lines()
-            .map(str::to_string)
             .filter(|line| !line.trim().is_empty())
-            .collect();
+            .last()
+            .unwrap_or("0")
+            .trim()
+            .to_string();
 
-        Ok(updates)
+        let cpu_load: f32 = cpu_load_str.parse().unwrap_or(0.0);
+        Ok(cpu_load)
+    }
+
+    fn get_memory_info() -> Result<serde_json::Value> {
+        let memory_stats = Command::new("systeminfo")
+            .arg("/fo")
+            .arg("CSV")
+            .output()
+            .map_err(|e| anyhow!("Failed to execute systeminfo for memory: {}", e))?;
+
+        if !memory_stats.status.success() {
+            return Err(anyhow!("Failed to retrieve memory info"));
+        }
+
+        let output = String::from_utf8_lossy(&memory_stats.stdout);
+        let total_memory = output.lines()
+            .filter(|line| line.contains("Total Physical Memory"))
+            .map(|line| line.split(":").nth(1).unwrap_or("").trim())
+            .next()
+            .unwrap_or("0")
+            .parse::<u64>()
+            .unwrap_or(0);
+
+        let free_memory = output.lines()
+            .filter(|line| line.contains("Available Physical Memory"))
+            .map(|line| line.split(":").nth(1).unwrap_or("").trim())
+            .next()
+            .unwrap_or("0")
+            .parse::<u64>()
+            .unwrap_or(0);
+
+        let memory_info = json!({
+            "total_memory": total_memory,
+            "free_memory": free_memory
+        });
+
+        Ok(memory_info)
     }
 }
 
@@ -79,8 +126,23 @@ mod unix {
     use super::*;
     use std::process::Command;
 
-    pub fn get_system_info() -> Result<String> {
-        // Getting serial number on Unix-based systems
+    pub fn get_system_info() -> Result<serde_json::Value> {
+        let serial_number = get_serial_number()?;
+        let os_info = get_os_info()?;
+        let cpu_info = get_cpu_info()?;
+        let memory_info = get_memory_info()?;
+
+        let system_info = json!({
+            "serial_number": serial_number,
+            "os_info": os_info,
+            "cpu": cpu_info,
+            "memory": memory_info,
+        });
+
+        Ok(system_info)
+    }
+
+    fn get_serial_number() -> Result<String> {
         let serial_number = Command::new("dmidecode")
             .arg("-s")
             .arg("system-serial-number")
@@ -99,50 +161,81 @@ mod unix {
             .trim()
             .to_string();
 
-        // Gather other system information (OS, CPU, RAM, etc.)
+        Ok(serial_number)
+    }
+
+    fn get_os_info() -> Result<String> {
         let uname_output = Command::new("uname")
             .arg("-a")
             .output()
             .map_err(|e| anyhow!("Failed to execute uname: {}", e))?;
-        
+
         if !uname_output.status.success() {
             return Err(anyhow!("Failed to retrieve system information"));
         }
 
         let system_info = String::from_utf8_lossy(&uname_output.stdout).to_string();
-
-        Ok(format!(
-            "Unix Serial Number: {}\nSystem Info: {}",
-            serial_number, system_info
-        ))
+        Ok(system_info)
     }
 
-    pub fn get_missing_windows_updates() -> Result<Vec<String>> {
-        // Not applicable on Unix systems
-        Ok(vec![])
+    fn get_cpu_info() -> Result<f32> {
+        let cpu_load = Command::new("top")
+            .arg("-b")
+            .arg("-n1")
+            .arg("|")
+            .arg("grep")
+            .arg("Cpu(s)")
+            .arg("|")
+            .arg("sed")
+            .arg("'s/.*, *\([0-9.]*\)%* id.*/\\1/')")
+            .arg("|")
+            .arg("awk")
+            .arg("'BEGIN {print 100 - $1}'")
+            .output()
+            .map_err(|e| anyhow!("Failed to execute top command for CPU load: {}", e))?;
+
+        if !cpu_load.status.success() {
+            return Err(anyhow!("Failed to retrieve CPU load"));
+        }
+
+        let cpu_load_str = String::from_utf8_lossy(&cpu_load.stdout)
+            .trim()
+            .to_string();
+
+        let cpu_load: f32 = cpu_load_str.parse().unwrap_or(0.0);
+        Ok(cpu_load)
+    }
+
+    fn get_memory_info() -> Result<serde_json::Value> {
+        let free_memory = Command::new("free")
+            .arg("-b")
+            .output()
+            .map_err(|e| anyhow!("Failed to execute free command: {}", e))?;
+
+        if !free_memory.status.success() {
+            return Err(anyhow!("Failed to retrieve memory info"));
+        }
+
+        let free_memory_str = String::from_utf8_lossy(&free_memory.stdout);
+        let memory_data: Vec<&str> = free_memory_str.split_whitespace().collect();
+        let total_memory = memory_data.get(1).unwrap_or(&"0").parse::<u64>().unwrap_or(0);
+        let free_memory = memory_data.get(3).unwrap_or(&"0").parse::<u64>().unwrap_or(0);
+
+        let memory_info = json!({
+            "total_memory": total_memory,
+            "free_memory": free_memory
+        });
+
+        Ok(memory_info)
     }
 }
 
-// Public interface
-
-pub fn get_system_info() -> Result<String> {
-    #[cfg(windows)]
-    {
-        windows::get_system_info()
-    }
-    #[cfg(unix)]
-    {
-        unix::get_system_info()
-    }
+#[cfg(not(windows))]
+pub fn get_system_info() -> Result<serde_json::Value> {
+    unix::get_system_info()
 }
 
-pub fn get_missing_windows_updates() -> Result<Vec<String>> {
-    #[cfg(windows)]
-    {
-        windows::get_missing_windows_updates()
-    }
-    #[cfg(unix)]
-    {
-        unix::get_missing_windows_updates()
-    }
+#[cfg(windows)]
+pub fn get_system_info() -> Result<serde_json::Value> {
+    windows::get_system_info()
 }
