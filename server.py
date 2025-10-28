@@ -193,4 +193,10 @@ def dashboard():
     return render_template('dashboard.html')
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
+    try:
+        print("Flask app initializing...")
+        socketio.run(app, debug=True)  # Try with socketio.run(app)
+    except Exception as e:
+        print(f"Error initializing app: {e}")
+
+
