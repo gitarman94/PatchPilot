@@ -201,7 +201,7 @@ update() {
   # Install the client binary
   echo "[*] Installing client to $CLIENT_PATH..."
   mkdir -p "$INSTALL_DIR"
-  cp target/release/patchpilot_client "$CLIENT_PATH"
+  cp target/release/rust_patch_client "$CLIENT_PATH"
 
   # Try auto-detecting the server
   echo "[*] Attempting to auto-discover the PatchPilot server on the local network..."
