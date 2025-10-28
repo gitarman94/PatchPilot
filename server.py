@@ -21,6 +21,10 @@ app.secret_key = os.getenv('SECRET_KEY', 'defaultsecretkey')
 db = SQLAlchemy(app)
 socketio = SocketIO(app)
 
+# Celery setup for background tasks
+from celery import Celery
+celery = Celery(app.name, broker='redis://localhost:6379/0')
+
 # --- Logging Configuration ---
 LOG_FILE = 'server.log'
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[
@@ -108,7 +112,7 @@ def get_ping_latency(host="8.8.8.8"):
     """Get the ping latency in milliseconds."""
     try:
         response = subprocess.check_output(['ping', '-c', '1', host], stderr=subprocess.STDOUT, universal_newlines=True)
-        time_index = response.find('time=')
+        time_index = response.find('time=') 
         if time_index != -1:
             latency = response[time_index + 5:response.find(' ms', time_index)]
             return float(latency)
@@ -164,7 +168,7 @@ def create_tables():
     """Creates the database tables if they don't exist yet."""
     db.create_all()
 
-# Remove authentication routes and login requirement
+# Root route - No authentication
 @app.route('/')
 def dashboard():
     return render_template('dashboard.html')
