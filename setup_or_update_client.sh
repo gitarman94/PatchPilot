@@ -22,33 +22,21 @@ detect_server() {
 
   echo "Detected local network: $SUBNET"
 
-  # Use mDNS to discover the PatchPilot server
-  echo "[*] Searching for PatchPilot server via mDNS..."
-  if avahi-browse -t _patchpilot._tcp --resolve | grep "PatchPilot" >/dev/null; then
-    # If the server is found via mDNS, set the discovered server URL
-    echo "[+] Found PatchPilot server via mDNS!"
-    DISCOVERED_SERVER="http://$LOCAL_IP:8080/api"
+  # Use nmap to scan the subnet for a server on port 8080 (PatchPilot's assumed port)
+  echo "[*] Searching for PatchPilot server using nmap..."
+
+  # Quick nmap scan of the subnet to check for servers on port 8080
+  SERVER_IP=$(nmap -p 8080 --open --min-rate=1000 -T4 "$SUBNET" | grep "Nmap scan report for" | awk '{print $5}')
+
+  if [ -n "$SERVER_IP" ]; then
+    # If nmap finds a server on port 8080, set the discovered server URL
+    echo "[+] Found PatchPilot server at $SERVER_IP"
+    DISCOVERED_SERVER="http://$SERVER_IP:8080/api"
     return 0  # Success
+  else
+    echo "[*] No server found with nmap on port 8080"
+    return 1  # Failure
   fi
-
-  # No mDNS server found, fallback to manual IP discovery
-  echo "[*] No mDNS server found, attempting to auto-discover the server IP in the subnet..."
-  for ip in $(seq 1 254); do
-    target="${NETWORK}.$ip"
-    echo "Pinging $target..."
-
-    # Timeout after 1 second for each ping to avoid long waits
-    if ping -c 1 -W 1 $target &>/dev/null; then
-      # Server found, set the discovered server URL
-      echo "Found server at $target"
-      DISCOVERED_SERVER="http://$target:8080/api"
-      return 0  # Success
-    fi
-  done
-
-  # No server found
-  echo "No server found on the local network"
-  return 1  # Failure
 }
 
 # --- Load Rust environment ---
@@ -82,7 +70,7 @@ uninstall() {
 common_install_update() {
   echo "[*] Installing dependencies..."
   apt-get update -y
-  apt-get install -y curl git build-essential pkg-config libssl-dev avahi-utils
+  apt-get install -y curl git build-essential pkg-config libssl-dev nmap
 
   echo "[*] Installing Rust toolchain if missing..."
   if ! command -v rustc >/dev/null 2>&1; then
@@ -126,6 +114,8 @@ install() {
     final_url="$DISCOVERED_SERVER"
     echo "[+] Auto-discovered server: $final_url"
   else
+    # If server discovery failed, prompt the user to input the server IP
+    echo "[*] No PatchPilot server found. Please enter the server IP manually."
     read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
     input_ip="${input_ip#http://}"
     input_ip="${input_ip#https://}"
@@ -184,6 +174,7 @@ update() {
     final_url="$DISCOVERED_SERVER"
     echo "[+] Auto-discovered server: $final_url"
   else
+    echo "[*] No PatchPilot server found. Please enter the server IP manually."
     read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
     input_ip="${input_ip#http://}"
     input_ip="${input_ip#https://}"
