@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Retrieve the GitHub token from the environment variable or command line arguments
+if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+    echo "❌ GitHub token is required. Please set the GITHUB_TOKEN environment variable."
+    exit 1
+fi
+
 GITHUB_USER="gitarman94"
 GITHUB_REPO="PatchPilot"
 BRANCH="main"
@@ -82,12 +88,19 @@ pip install Flask Flask-SQLAlchemy Flask-Cors gunicorn \
 echo "Installing Celery's Redis broker (optional but recommended)..."
 pip install redis
 
-# Download latest release
+# Download latest release using GitHub token passed in from the command line
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
 
-curl -L "$ZIP_URL" -o latest.zip
+curl -L -H "Authorization: token ${GITHUB_TOKEN}" "$ZIP_URL" -o latest.zip
+
+# Check if the ZIP file was downloaded successfully
+if [[ ! -f latest.zip ]]; then
+    echo "❌ Download failed! Please check your GitHub token and URL."
+    exit 1
+fi
+
 unzip -o latest.zip
 
 EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
