@@ -5,6 +5,8 @@ from flask import Flask, render_template, jsonify, request, redirect, url_for
 from datetime import datetime, timedelta
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 
 # Initialize the Flask app
 app = Flask(__name__)
@@ -13,12 +15,16 @@ CORS(app)
 # Set the DATABASE_URI environment variable if not already set
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI', 'sqlite:///patchpilot.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.secret_key = os.getenv('SECRET_KEY', 'defaultsecretkey')
 
-# Debug: print the database URI being used (for troubleshooting)
-print(f"Using database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
-
-# Initialize the database
+# Initialize the database and other Flask extensions
 db = SQLAlchemy(app)
+socketio = SocketIO(app)
+login_manager = LoginManager(app)
+
+# Celery setup for background tasks
+from celery import Celery
+celery = Celery(app.name, broker='redis://localhost:6379/0')
 
 # Define the Client model
 class Client(db.Model):
@@ -40,6 +46,8 @@ class Client(db.Model):
     network_throughput = db.Column(db.BigInteger, nullable=True)
     ping_latency = db.Column(db.Float, nullable=True)
 
+    action_logs = db.relationship('ActionLog', back_populates='client')
+
     def update_system_info(self):
         """Fetch and update system information for the client."""
         system_info = get_system_info()
@@ -53,7 +61,30 @@ class Client(db.Model):
         self.network_throughput = system_info['network_throughput']
         self.ping_latency = system_info['ping_latency']
 
-# Function to get system information for a client
+# ActionLog Model for audit trail
+class ActionLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey('client.id'), nullable=False)
+    action = db.Column(db.String(100), nullable=False)
+    status = db.Column(db.String(20), nullable=False)  # Success or Failure
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    admin_user = db.Column(db.String(100), nullable=False)
+    client = db.relationship('Client', back_populates='action_logs')
+
+# User model for RBAC
+class User(db.Model, UserMixin):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), unique=True, nullable=False)
+    password_hash = db.Column(db.String(200), nullable=False)
+    role = db.Column(db.String(50), nullable=False)  # Admin, Viewer, etc.
+
+# Helper to log admin actions
+def log_action(client_id, action, status, admin_user):
+    log = ActionLog(client_id=client_id, action=action, status=status, admin_user=admin_user)
+    db.session.add(log)
+    db.session.commit()
+
+# Function to get system information
 def get_system_info():
     """Fetch system information such as CPU, RAM, Disk Health, Network Throughput."""
     cpu_info = psutil.cpu_percent(interval=1)
@@ -88,18 +119,24 @@ def get_ping_latency(host="8.8.8.8"):
         return None
     return None
 
-# Route to fetch client data
+# Celery Task Example for patch installation
+@celery.task
+def install_patch(client_id):
+    # Trigger patch installation for the client (simulated)
+    client = Client.query.get(client_id)
+    if client:
+        # Example patch installation logic
+        pass
+    return 'Patch Installed'
+
+# Real-time updates via WebSocket
 @app.route('/api/clients')
 def get_clients():
     """Return the list of all clients with updated info."""
-    # Fetch clients from database
     client_data = Client.query.all()
-    
-    # Update system info for each client
     for client in client_data:
-        client.update_system_info()  # Add system info to client data
+        client.update_system_info()
 
-    # Convert to a list of dictionaries for JSON response
     clients_dict = [
         {
             'id': client.id,
@@ -123,60 +160,29 @@ def get_clients():
 
     return jsonify({'clients': clients_dict})
 
-# Route to get details of a single client
-@app.route('/api/clients/<int:client_id>')
-def get_client_detail(client_id):
-    """Get detailed information of a client."""
-    # Fetch client data (replace with actual database fetch)
-    client = Client.query.get(client_id)
-    if client:
-        client.update_system_info()  # Add system info to client data
-        return jsonify({
-            'id': client.id,
-            'client_name': client.client_name,
-            'os_name': client.os_name,
-            'last_checkin': client.last_checkin,
-            'updates_available': client.updates_available,
-            'approved': client.approved,
-            'cpu': client.cpu,
-            'ram_total': client.ram_total,
-            'ram_used': client.ram_used,
-            'ram_free': client.ram_free,
-            'disk_total': client.disk_total,
-            'disk_free': client.disk_free,
-            'disk_health': client.disk_health,
-            'network_throughput': client.network_throughput,
-            'ping_latency': client.ping_latency,
-        })
-    else:
-        return jsonify({"error": "Client not found"}), 404
+# SocketIO for real-time updates
+@socketio.on('connect')
+def handle_connect():
+    emit('alert', {'message': 'Client connected!'})
 
-# Route to display the dashboard
-@app.route('/')
-def dashboard():
-    return render_template('dashboard.html')
-
-# Route for bulk actions (e.g., force patch, approve, etc.)
+# Bulk actions (e.g., force patch, approve, etc.)
 @app.route('/admin/force-patch', methods=['POST'])
 def bulk_force_patch():
     client_ids = request.form.getlist('clientIds')
-    # Logic to trigger patch installation for selected clients
-    # Example: Patch action on selected clients
+    # Trigger patch installation for clients
+    for client_id in client_ids:
+        install_patch.apply_async(args=[client_id])
     return jsonify({"status": "success", "message": "Patch installation triggered for clients."})
-
-@app.route('/admin/force-checkin', methods=['POST'])
-def bulk_force_checkin():
-    client_ids = request.form.getlist('clientIds')
-    # Logic to trigger force check-in for selected clients
-    return jsonify({"status": "success", "message": "Check-in triggered for clients."})
 
 @app.route('/admin/approve-selected', methods=['POST'])
 def bulk_approve():
     client_ids = request.form.getlist('clientIds')
-    # Logic to approve selected clients
+    # Approve selected clients
+    for client_id in client_ids:
+        client = Client.query.get(client_id)
+        client.approved = True
+        db.session.commit()
     return jsonify({"status": "success", "message": "Selected clients approved."})
-
-# More routes for other bulk actions...
 
 # Initialize the database if necessary
 @app.before_first_request
@@ -184,6 +190,32 @@ def create_tables():
     """Creates the database tables if they don't exist yet."""
     db.create_all()
 
+# User authentication routes
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        user = User.query.filter_by(username=username).first()
+        if user and user.password_hash == password:  # Add password verification
+            login_user(user)
+            return redirect(url_for('dashboard'))
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
+
+@app.route('/')
+@login_required
+def dashboard():
+    return render_template('dashboard.html')
+
 if __name__ == '__main__':
-    # Ensure the database tables are created before running
-    app.run(debug=True)
+    socketio.run(app, debug=True)
