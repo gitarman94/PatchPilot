@@ -1,14 +1,16 @@
 import os
 import subprocess
 import psutil
-import logging
 from flask import Flask, render_template, jsonify, request, redirect, url_for
-from datetime import datetime, timedelta
+from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
 from flask_socketio import SocketIO, emit
+from celery import Celery
 
 # Initialize the Flask app
 app = Flask(__name__)
+CORS(app)
 
 # Set the DATABASE_URI environment variable if not already set
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI', 'sqlite:///patchpilot.db')
@@ -20,23 +22,13 @@ db = SQLAlchemy(app)
 socketio = SocketIO(app)
 
 # Celery setup for background tasks
-from celery import Celery
 celery = Celery(app.name, broker='redis://localhost:6379/0')
-
-# --- Logging Configuration ---
-LOG_FILE = 'server.log'
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[
-    logging.FileHandler(LOG_FILE),
-    logging.StreamHandler()
-])
 
 # Define the Client model
 class Client(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     client_name = db.Column(db.String(100), nullable=False)
-    hostname = db.Column(db.String(100), nullable=False, unique=True)  # Use hostname as unique identifier
     os_name = db.Column(db.String(50), nullable=False)
-    architecture = db.Column(db.String(50), nullable=False)  # Track the architecture (e.g., x86_64)
     last_checkin = db.Column(db.DateTime, nullable=False)
     updates_available = db.Column(db.Boolean, nullable=False, default=False)
     approved = db.Column(db.Boolean, nullable=False, default=False)
@@ -52,8 +44,6 @@ class Client(db.Model):
     network_throughput = db.Column(db.BigInteger, nullable=True)
     ping_latency = db.Column(db.Float, nullable=True)
 
-    action_logs = db.relationship('ActionLog', back_populates='client')
-
     def update_system_info(self):
         """Fetch and update system information for the client."""
         system_info = get_system_info()
@@ -67,23 +57,7 @@ class Client(db.Model):
         self.network_throughput = system_info['network_throughput']
         self.ping_latency = system_info['ping_latency']
 
-# ActionLog Model for audit trail
-class ActionLog(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    client_id = db.Column(db.Integer, db.ForeignKey('client.id'), nullable=False)
-    action = db.Column(db.String(100), nullable=False)
-    status = db.Column(db.String(20), nullable=False)  # Success or Failure
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    admin_user = db.Column(db.String(100), nullable=False)
-    client = db.relationship('Client', back_populates='action_logs')
-
-# Helper to log admin actions
-def log_action(client_id, action, status, admin_user):
-    log = ActionLog(client_id=client_id, action=action, status=status, admin_user=admin_user)
-    db.session.add(log)
-    db.session.commit()
-
-# Function to get system information
+# Helper function for system info
 def get_system_info():
     """Fetch system information such as CPU, RAM, Disk Health, Network Throughput."""
     cpu_info = psutil.cpu_percent(interval=1)
@@ -118,47 +92,77 @@ def get_ping_latency(host="8.8.8.8"):
         return None
     return None
 
-# Heartbeat logic to check adoption
-@app.route('/api/devices/heartbeat', methods=['POST'])
-def heartbeat():
-    """Handle device heartbeat (client check-in)"""
-    data = request.get_json()
-    client_id = data.get('client_id')  # We are using the hostname as client_id
-    system_info = data.get('system_info')  # Get the system info
-
-    # Log received data for debugging
-    app.logger.info(f"Received heartbeat from client: {client_id}, System Info: {system_info}")
-
-    client = Client.query.filter_by(hostname=client_id).first()
-
+# Celery Task Example for patch installation
+@celery.task
+def install_patch(client_id):
+    # Trigger patch installation for the client (simulated)
+    client = Client.query.get(client_id)
     if client:
-        # If the client exists, check if the OS and architecture match
-        if client.os_name == system_info['os_name'] and client.architecture == system_info['architecture']:
-            # Merge old client info with new info
-            client.update_system_info()
-            client.last_checkin = datetime.utcnow()
-            db.session.commit()
-            app.logger.info(f"Client {client_id} approved and updated.")
-            return jsonify({'adopted': True, 'message': 'Client approved and updated.'})
-        else:
-            # If OS/architecture mismatch, put it into adoption mode
-            app.logger.warning(f"Client {client_id} OS/architecture mismatch.")
-            return jsonify({'adopted': False, 'message': 'Client OS/architecture mismatch. Awaiting approval.'})
-    
-    # If the client doesn't exist, enter adoption mode
-    new_client = Client(
-        client_name=client_id,
-        hostname=client_id,
-        os_name=system_info['os_name'],
-        architecture=system_info['architecture'],
-        last_checkin=datetime.utcnow(),
-        approved=False
-    )
-    db.session.add(new_client)
-    db.session.commit()
+        # Example patch installation logic
+        pass
+    return 'Patch Installed'
 
-    app.logger.info(f"New client {client_id} added. Awaiting approval.")
-    return jsonify({'adopted': False, 'message': 'New client. Awaiting approval.'})
+# Real-time updates via WebSocket
+@app.route('/api/clients')
+def get_clients():
+    """Return the list of all clients with updated info."""
+    client_data = Client.query.all()
+    for client in client_data:
+        client.update_system_info()
+
+    clients_dict = [
+        {
+            'id': client.id,
+            'client_name': client.client_name,
+            'os_name': client.os_name,
+            'last_checkin': client.last_checkin,
+            'updates_available': client.updates_available,
+            'approved': client.approved,
+            'cpu': client.cpu,
+            'ram_total': client.ram_total,
+            'ram_used': client.ram_used,
+            'ram_free': client.ram_free,
+            'disk_total': client.disk_total,
+            'disk_free': client.disk_free,
+            'disk_health': client.disk_health,
+            'network_throughput': client.network_throughput,
+            'ping_latency': client.ping_latency,
+        }
+        for client in client_data
+    ]
+
+    return jsonify({'clients': clients_dict})
+
+# SocketIO for real-time updates
+@socketio.on('connect')
+def handle_connect():
+    emit('alert', {'message': 'Client connected!'})
+
+#Check for nmap to make sure we're connected to correct server
+@app.route('/api')
+def api():
+    response = jsonify({'message': 'Welcome to PatchPilot API'})
+    response.headers['X-PatchPilot'] = 'true'
+    return response
+
+# Bulk actions (e.g., force patch, approve, etc.)
+@app.route('/admin/force-patch', methods=['POST'])
+def bulk_force_patch():
+    client_ids = request.form.getlist('clientIds')
+    # Trigger patch installation for clients
+    for client_id in client_ids:
+        install_patch.apply_async(args=[client_id])
+    return jsonify({"status": "success", "message": "Patch installation triggered for clients."})
+
+@app.route('/admin/approve-selected', methods=['POST'])
+def bulk_approve():
+    client_ids = request.form.getlist('clientIds')
+    # Approve selected clients
+    for client_id in client_ids:
+        client = Client.query.get(client_id)
+        client.approved = True
+        db.session.commit()
+    return jsonify({"status": "success", "message": "Selected clients approved."})
 
 # Initialize the database if necessary
 @app.before_first_request
@@ -166,11 +170,12 @@ def create_tables():
     """Creates the database tables if they don't exist yet."""
     db.create_all()
 
-# Root route - No authentication
+# No login or authentication required, so we can directly show the dashboard
 @app.route('/')
 def dashboard():
-    return render_template('dashboard.html')
+    """Render the dashboard template without authentication."""
+    clients = Client.query.all()
+    return render_template('dashboard.html', clients=clients, now=datetime.utcnow())
 
 if __name__ == '__main__':
-    app.logger.info("Starting the PatchPilot server...")
     socketio.run(app, debug=True)
