@@ -20,8 +20,12 @@ fn run_linux_client_loop() -> Result<()> {
 
     loop {
         // Send heartbeat to check adoption status
+        let system_info = get_system_info()?; // Fetch system info from system_info.rs
         let response = client.post(format!("{}/api/devices/heartbeat", server_url))
-            .json(&json!({ "client_id": "unique-client-id" })) // Use unique client ID here
+            .json(&json!({
+                "client_id": "unique-client-id", // Use unique client ID here
+                "system_info": system_info // Add the actual system info
+            }))
             .send();
 
         match response {
@@ -45,12 +49,12 @@ fn run_linux_client_loop() -> Result<()> {
     loop {
         info!("Sending system update...");
 
-        // Report system status
+        let system_info = get_system_info()?; // Gather detailed system info again
         let response = client.post(format!("{}/api/devices/update_status", server_url))
             .json(&json!({
                 "client_id": "unique-client-id",
-                "status": "active", // Can customize status if needed
-                "system_info": "System info goes here"
+                "status": "active", // Customize status if needed
+                "system_info": system_info // Send system info here
             }))
             .send();
 
