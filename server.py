@@ -178,5 +178,5 @@ def dashboard():
 
 if __name__ == '__main__':
     # Run the database initialization function once at startup
-    init_db()
+    init_db()  # Ensure that tables are created once when the app starts
     socketio.run(app, debug=True)
