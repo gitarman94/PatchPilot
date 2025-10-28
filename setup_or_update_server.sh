@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Use the command-line argument for GITHUB_TOKEN if provided, otherwise fall back to the environment variable
-GITHUB_TOKEN="${1:-${GITHUB_TOKEN}}"
-
-# Check if GITHUB_TOKEN is set
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-    echo "❌ GitHub token is required. Please set the GITHUB_TOKEN environment variable or pass it as an argument."
-    exit 1
-fi
-
 GITHUB_USER="gitarman94"
 GITHUB_REPO="PatchPilot"
 BRANCH="main"
@@ -30,6 +21,7 @@ for arg in "$@"; do
     esac
 done
 
+# Check if the OS is supported (Debian-based systems)
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
@@ -87,22 +79,20 @@ echo "Installing Flask and extensions..."
 pip install Flask Flask-SQLAlchemy Flask-Cors gunicorn \
             Flask-SocketIO Flask-Celery Flask-Login
 
-# Install Celery's Redis broker (or your preferred broker)
+# Install Celery's Redis broker (optional but recommended)
 echo "Installing Celery's Redis broker (optional but recommended)..."
 pip install redis
 
-# Download latest release using GitHub token passed in from the command line
+# Download latest release from GitHub (no token required for public repo)
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
 
-curl -L -H "Authorization: token ${GITHUB_TOKEN}" "$ZIP_URL" -o latest.zip
-echo "download complete?"
-read -n 1 -s -r
+curl -L "$ZIP_URL" -o latest.zip
 
 # Check if the ZIP file was downloaded successfully
 if [[ ! -f latest.zip ]]; then
-    echo "❌ Download failed! Please check your GitHub token and URL."
+    echo "❌ Download failed! Please check the URL."
     exit 1
 fi
 
