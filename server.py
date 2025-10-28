@@ -9,7 +9,7 @@ from flask_sqlalchemy import SQLAlchemy
 # Initialize the Flask app
 app = Flask(__name__)
 
-# Set up the database URI and configuration
+# Set the DATABASE_URI environment variable if not already set
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI', 'sqlite:///patchpilot.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.secret_key = os.getenv('SECRET_KEY', 'defaultsecretkey')
@@ -17,14 +17,14 @@ app.secret_key = os.getenv('SECRET_KEY', 'defaultsecretkey')
 # Initialize the database
 db = SQLAlchemy(app)
 
-# Logging configuration
+# --- Logging Configuration ---
 LOG_FILE = 'server.log'
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[
     logging.FileHandler(LOG_FILE),
     logging.StreamHandler()
 ])
 
-# Client model for the database
+# Define the Client model
 class Client(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     client_name = db.Column(db.String(100), nullable=False)
@@ -34,6 +34,7 @@ class Client(db.Model):
     last_checkin = db.Column(db.DateTime, nullable=False)
     updates_available = db.Column(db.Boolean, nullable=False, default=False)
     approved = db.Column(db.Boolean, nullable=False, default=False)
+    # System info fields
     cpu = db.Column(db.Float, nullable=True)
     ram_total = db.Column(db.BigInteger, nullable=True)
     ram_used = db.Column(db.BigInteger, nullable=True)
@@ -45,7 +46,7 @@ class Client(db.Model):
     ping_latency = db.Column(db.Float, nullable=True)
 
     def update_system_info(self):
-        # Update client system info from the system
+        """Fetch and update system information for the client."""
         system_info = get_system_info()
         self.cpu = system_info['cpu']
         self.ram_total = system_info['ram_total']
@@ -57,14 +58,15 @@ class Client(db.Model):
         self.network_throughput = system_info['network_throughput']
         self.ping_latency = system_info['ping_latency']
 
-# Fetch system information
+# Helper function for system info
 def get_system_info():
+    """Fetch system information such as CPU, RAM, Disk Health, Network Throughput."""
     cpu_info = psutil.cpu_percent(interval=1)
     ram_info = psutil.virtual_memory()
     disk_info = psutil.disk_usage('/')
     disk_health = "Good" if disk_info.percent < 85 else "Warning"
     network_info = psutil.net_io_counters()
-    ping_latency = get_ping_latency("8.8.8.8")
+    ping_latency = get_ping_latency("8.8.8.8")  # Ping Google DNS for latency measurement
     
     return {
         'cpu': cpu_info,
@@ -78,8 +80,9 @@ def get_system_info():
         'ping_latency': ping_latency,
     }
 
-# Measure ping latency
+# Function to measure ping latency
 def get_ping_latency(host="8.8.8.8"):
+    """Get the ping latency in milliseconds."""
     try:
         response = subprocess.check_output(['ping', '-c', '1', host], stderr=subprocess.STDOUT, universal_newlines=True)
         time_index = response.find('time=') 
@@ -90,7 +93,7 @@ def get_ping_latency(host="8.8.8.8"):
         return None
     return None
 
-# Heartbeat route to handle client check-in
+# Heartbeat logic to check adoption
 @app.route('/api/devices/heartbeat', methods=['POST'])
 def heartbeat():
     data = request.get_json()
@@ -107,7 +110,6 @@ def heartbeat():
         else:
             return jsonify({'adopted': False, 'message': 'Client OS/architecture mismatch. Awaiting approval.'})
     
-    # Add new client if not found
     new_client = Client(
         client_name=client_id,
         hostname=client_id,
@@ -121,18 +123,47 @@ def heartbeat():
 
     return jsonify({'adopted': False, 'message': 'New client. Awaiting approval.'})
 
-# Initialize database tables on first request
+# Initialize the database if necessary
 @app.before_first_request
 def create_tables():
+    """Creates the database tables if they don't exist yet."""
     db.create_all()
 
-# Root route - Dashboard to show all clients
+# Route to get all client data for AJAX update
+@app.route('/api/clients', methods=['GET'])
+def get_clients():
+    """Return client data in JSON format for AJAX updates."""
+    clients = Client.query.all()
+    clients_data = []
+    
+    for client in clients:
+        client_info = {
+            'client_name': client.client_name,
+            'hostname': client.hostname,
+            'os_name': client.os_name,
+            'architecture': client.architecture,
+            'last_checkin': client.last_checkin.strftime('%Y-%m-%d %H:%M:%S'),
+            'cpu': client.cpu,
+            'ram_total': client.ram_total,
+            'ram_used': client.ram_used,
+            'ram_free': client.ram_free,
+            'disk_total': client.disk_total,
+            'disk_free': client.disk_free,
+            'disk_health': client.disk_health,
+            'network_throughput': client.network_throughput,
+            'ping_latency': client.ping_latency
+        }
+        clients_data.append(client_info)
+    
+    return jsonify(clients_data)
+
+# Root route - Dashboard
 @app.route('/')
 def dashboard():
+    """Render the dashboard template without authentication."""
     clients = Client.query.all()
     return render_template('dashboard.html', clients=clients, now=datetime.utcnow())
 
-# Start the server
 if __name__ == '__main__':
     app.logger.info("Starting the PatchPilot server...")
     app.run(debug=True)
