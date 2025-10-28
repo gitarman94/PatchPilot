@@ -1,27 +1,16 @@
 #[cfg(windows)]
 mod windows_service {
     use anyhow::Result;
-    use windows_service::{
-        define_windows_service,
-        service::{ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
-            ServiceStatusHandle, ServiceType,},
-        service_control_handler::{self, ServiceControlHandlerResult},
-        service_dispatcher,
-    };
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Mutex as StdMutex;
-
-    use crate::system_info::{get_system_info, get_missing_windows_updates};
     use reqwest::blocking::Client;
     use serde_json::json;
+    use std::sync::{Arc, Mutex};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::{thread, time::Duration};
 
     define_windows_service!(ffi_service_main, my_service_main);
 
     lazy_static::lazy_static! {
-        static ref SERVICE_RUNNING: StdMutex<AtomicBool> = StdMutex::new(AtomicBool::new(true));
+        static ref SERVICE_RUNNING: Arc<Mutex<AtomicBool>> = Arc::new(Mutex::new(AtomicBool::new(true)));
     }
 
     pub fn run_service() -> Result<()> {
@@ -58,37 +47,52 @@ mod windows_service {
 
         status_handle.set_service_status(status)?;
 
-        let client = Client::builder()
-            .timeout(Duration::from_secs(15))
-            .build()
-            .expect("Failed to create HTTP client");
-
-        // Update these paths as needed
-        let server_url = std::fs::read_to_string(r"C:\ProgramData\RustPatchClient\server_url.txt")
-            .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string())
-            .trim()
-            .to_string();
-
-        let client_id = std::fs::read_to_string(r"C:\ProgramData\RustPatchClient\client_id.txt")
-            .unwrap_or_else(|_| "unknown_client".to_string())
-            .trim()
-            .to_string();
+        let client = Client::new();
+        let server_url = "http://127.0.0.1:8080"; // Replace with actual server URL
+        let client_id = "unique-client-id"; // Replace with actual client ID
 
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
-            let sys_info = get_system_info().unwrap_or_else(|_| "Failed to get system info".to_string());
-            let missing_updates = get_missing_windows_updates().unwrap_or_else(|_| vec![]);
+            // Check for adoption status
+            let response = client.post(format!("{}/api/devices/heartbeat", server_url))
+                .json(&json!({ "client_id": client_id }))
+                .send();
 
-            let report_url = format!("{}/api/devices/{}/update_status", server_url, client_id);
-            let payload = json!({
-                "system_info": sys_info,
-                "missing_updates": missing_updates,
-            });
-
-            if let Err(e) = client.post(&report_url).json(&payload).send() {
-                log::error!("Failed to send update status: {:?}", e);
+            match response {
+                Ok(resp) if resp.status().is_success() => {
+                    let status: serde_json::Value = resp.json()?;
+                    if status["adopted"].as_bool() == Some(true) {
+                        log::info!("Client approved. Starting regular updates...");
+                        break; // Transition to normal update mode
+                    } else {
+                        log::info!("Waiting for approval...");
+                    }
+                },
+                _ => log::error!("Failed to check adoption status."),
             }
 
-            thread::sleep(Duration::from_secs(600));
+            // Sleep before the next heartbeat check
+            thread::sleep(Duration::from_secs(30)); // Heartbeat interval
+        }
+
+        // Send system updates once adopted
+        while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
+            log::info!("Sending system update...");
+
+            let sys_info = "System info goes here"; // Gather and format system info here
+            let response = client.post(format!("{}/api/devices/update_status", server_url))
+                .json(&json!({
+                    "client_id": client_id,
+                    "status": "active", // Update status
+                    "system_info": sys_info,
+                }))
+                .send();
+
+            if let Err(e) = response {
+                log::error!("Failed to send system update: {:?}", e);
+            }
+
+            // Sleep before the next system status update
+            thread::sleep(Duration::from_secs(600)); // Regular update interval
         }
 
         status.current_state = ServiceState::Stopped;
@@ -101,51 +105,58 @@ mod windows_service {
 #[cfg(unix)]
 mod unix_service {
     use anyhow::Result;
-    use std::{fs, thread, time::Duration};
     use reqwest::blocking::Client;
     use serde_json::json;
-    use crate::system_info::get_system_info;
+    use std::{thread, time::Duration};
 
     pub fn run_unix_service() -> Result<()> {
-        // Paths for Linux, adjust as needed
-        let config_dir = "/etc/patchpilot_client";
-        let server_url_path = format!("{}/server_url.txt", config_dir);
-        let client_id_path = format!("{}/client_id.txt", config_dir);
+        let client = Client::new();
+        let server_url = "http://127.0.0.1:8080"; // Replace with actual server URL
+        let client_id = "unique-client-id"; // Replace with actual client ID
 
-        let server_url = fs::read_to_string(&server_url_path)
-            .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string())
-            .trim()
-            .to_string();
-
-        let client_id = fs::read_to_string(&client_id_path)
-            .unwrap_or_else(|_| "unknown_client".to_string())
-            .trim()
-            .to_string();
-
-        let client = Client::builder()
-            .timeout(Duration::from_secs(15))
-            .build()
-            .expect("Failed to create HTTP client");
-
-        // Simple run loop (can be replaced with systemd timers)
         loop {
-            let sys_info = get_system_info().unwrap_or_else(|_| "Failed to get system info".to_string());
+            // Check adoption status
+            let response = client.post(format!("{}/api/devices/heartbeat", server_url))
+                .json(&json!({ "client_id": client_id }))
+                .send();
 
-            // Linux: no Windows updates, so empty vector
-            let missing_updates: Vec<String> = Vec::new();
-
-            let report_url = format!("{}/api/devices/{}/update_status", server_url, client_id);
-            let payload = json!({
-                "system_info": sys_info,
-                "missing_updates": missing_updates,
-            });
-
-            if let Err(e) = client.post(&report_url).json(&payload).send() {
-                log::error!("Failed to send update status: {:?}", e);
+            match response {
+                Ok(resp) if resp.status().is_success() => {
+                    let status: serde_json::Value = resp.json()?;
+                    if status["adopted"].as_bool() == Some(true) {
+                        log::info!("Client approved. Starting system updates...");
+                        break; // Transition to normal update mode
+                    } else {
+                        log::info!("Waiting for approval...");
+                    }
+                },
+                _ => log::error!("Failed to check adoption status."),
             }
 
-            thread::sleep(Duration::from_secs(600));
+            thread::sleep(Duration::from_secs(30)); // Heartbeat interval
         }
+
+        // Send system updates once adopted
+        loop {
+            log::info!("Sending system update...");
+
+            let sys_info = "System info goes here"; // Gather and format system info here
+            let response = client.post(format!("{}/api/devices/update_status", server_url))
+                .json(&json!({
+                    "client_id": client_id,
+                    "status": "active", // Update status
+                    "system_info": sys_info,
+                }))
+                .send();
+
+            if let Err(e) = response {
+                log::error!("Failed to send system update: {:?}", e);
+            }
+
+            thread::sleep(Duration::from_secs(600)); // Regular update interval
+        }
+
+        Ok(())
     }
 }
 
