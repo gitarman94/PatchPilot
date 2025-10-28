@@ -19,11 +19,14 @@ fn run_linux_client_loop() -> Result<()> {
     let client = Client::new();
     let server_url = "http://127.0.0.1:8080";  // Replace with actual server URL
 
+    // Retry mechanism for heartbeat and system update
+    let mut retries = 3;
+
     loop {
         // Send heartbeat to check adoption status
         let system_info = system_info::get_system_info()?; // Fetch system info from system_info.rs
         let response = client.post(format!("{}/api/devices/heartbeat", server_url))
-            .json(&json!({
+            .json(&json!( {
                 "client_id": "unique-client-id", // Use unique client ID here
                 "system_info": system_info // Add the actual system info
             }))
@@ -39,7 +42,14 @@ fn run_linux_client_loop() -> Result<()> {
                     info!("Waiting for approval...");
                 }
             },
-            _ => error!("Failed to check adoption status."),
+            Err(_) => {
+                retries -= 1;
+                if retries == 0 {
+                    error!("Failed to check adoption status after multiple attempts.");
+                    return Err(anyhow::anyhow!("Adoption check failed")).into();
+                }
+                thread::sleep(Duration::from_secs(5)); // retry after a delay
+            }
         }
 
         // Wait for the next heartbeat
@@ -52,7 +62,7 @@ fn run_linux_client_loop() -> Result<()> {
 
         let system_info = system_info::get_system_info()?; // Fetch system info from system_info.rs
         let response = client.post(format!("{}/api/devices/update_status", server_url))
-            .json(&json!({
+            .json(&json!( {
                 "client_id": "unique-client-id",
                 "status": "active", // Customize status if needed
                 "system_info": system_info // Send system info here
@@ -87,15 +97,17 @@ fn main() -> Result<()> {
     // Run platform-specific main loop
     #[cfg(windows)]
     {
-        windows_service::run_service()?; // Windows service management
+        if let Err(e) = windows_service::run_service() {
+            error!("Failed to run Windows service: {:?}", e);
+        }
     }
 
     #[cfg(not(windows))]
     {
-        run_linux_client_loop()?; // Linux client loop
+        if let Err(e) = run_linux_client_loop() {
+            error!("Linux client loop failed: {:?}", e);
+        }
     }
 
     Ok(())
 }
-
-
