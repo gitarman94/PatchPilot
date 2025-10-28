@@ -1,227 +1,141 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>PatchPilot Dashboard</title>
+import os
+import subprocess
+import psutil
+import logging
+from flask import Flask, render_template, jsonify, request
+from datetime import datetime
+from flask_sqlalchemy import SQLAlchemy
 
-    <!-- Bootstrap 5 -->
-    <link rel="stylesheet"
-          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-          crossorigin="anonymous">
+# Initialize the Flask app
+app = Flask(__name__)
 
-    <!-- DataTables -->
-    <link rel="stylesheet"
-          href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css"/>
-    <link rel="stylesheet"
-          href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css"/>
-    <link rel="stylesheet"
-          href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css"/>
+# Set the DATABASE_URI environment variable if not already set
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI', 'sqlite:///patchpilot.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.secret_key = os.getenv('SECRET_KEY', 'defaultsecretkey')
 
-    <!-- Font Awesome -->
-    <link rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
-          crossorigin="anonymous"/>
+# Initialize the database
+db = SQLAlchemy(app)
 
-    <style>
-        :root {
-            --bg-light: #f9f9f9;
-            --bg-dark:  #121212;
-            --text-light: #212529;
-            --text-dark: #e5e5e5;
-            --primary: #0d6efd;
-            --primary-dark: #1e90ff;
-        }
-        body { background: var(--bg-light); color: var(--text-light); transition: background .3s, color .3s; }
-        body.dark-mode { background: var(--bg-dark); color: var(--text-dark); }
-        .status-online { color:#28a745; font-weight:bold; }
-        .status-offline { color:#dc3545; font-weight:bold; }
-        .status-updates { color:#ffc107; font-weight:bold; }
-        .toast-container { position:fixed; top:1rem; right:1rem; z-index:1055; }
-        .modal-body { min-height:200px; }
-        table.dataTable tbody td.select-checkbox { cursor: pointer; }
-        table.dataTable tbody td.select-checkbox:before { content: "\f096"; font-family: FontAwesome; margin-right: 5px; }
-        table.dataTable tbody tr.selected td.select-checkbox:before { content: "\f046"; }
-    </style>
-</head>
-<body>
-<div class="container py-4">
+# --- Logging Configuration ---
+LOG_FILE = 'server.log'
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[
+    logging.FileHandler(LOG_FILE),
+    logging.StreamHandler()
+])
 
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h1 class="h3"><i class="fa-solid fa-toolbox me-2"></i>PatchPilot Dashboard</h1>
-        <button id="darkModeToggle" class="btn btn-outline-secondary">
-            <i class="fa-solid fa-moon"></i>
-        </button>
-    </div>
+# Define the Client model
+class Client(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    client_name = db.Column(db.String(100), nullable=False)
+    hostname = db.Column(db.String(100), nullable=False, unique=True)
+    os_name = db.Column(db.String(50), nullable=False)
+    architecture = db.Column(db.String(50), nullable=False)
+    last_checkin = db.Column(db.DateTime, nullable=False)
+    updates_available = db.Column(db.Boolean, nullable=False, default=False)
+    approved = db.Column(db.Boolean, nullable=False, default=False)
+    # System info fields
+    cpu = db.Column(db.Float, nullable=True)
+    ram_total = db.Column(db.BigInteger, nullable=True)
+    ram_used = db.Column(db.BigInteger, nullable=True)
+    ram_free = db.Column(db.BigInteger, nullable=True)
+    disk_total = db.Column(db.BigInteger, nullable=True)
+    disk_free = db.Column(db.BigInteger, nullable=True)
+    disk_health = db.Column(db.String(50), nullable=True)
+    network_throughput = db.Column(db.BigInteger, nullable=True)
+    ping_latency = db.Column(db.Float, nullable=True)
 
-    <!-- Bulk action buttons -->
-    <div class="mb-3">
-        <button id="bulkForcePatch" class="btn btn-outline-primary me-2">
-            <i class="fa-solid fa-rotate me-1"></i>Force Patch Install
-        </button>
-        <button id="bulkForceCheckin" class="btn btn-outline-info me-2">
-            <i class="fa-solid fa-check-double me-1"></i>Force Check-in
-        </button>
-        <button id="bulkForceReinstall" class="btn btn-outline-danger me-2">
-            <i class="fa-solid fa-arrow-rotate-left me-1"></i>Force Reinstall
-        </button>
-        <button id="bulkApprove" class="btn btn-outline-success">
-            <i class="fa-solid fa-check me-1"></i>Approve Selected
-        </button>
-    </div>
+    def update_system_info(self):
+        """Fetch and update system information for the client."""
+        system_info = get_system_info()
+        self.cpu = system_info['cpu']
+        self.ram_total = system_info['ram_total']
+        self.ram_used = system_info['ram_used']
+        self.ram_free = system_info['ram_free']
+        self.disk_total = system_info['disk_total']
+        self.disk_free = system_info['disk_free']
+        self.disk_health = system_info['disk_health']
+        self.network_throughput = system_info['network_throughput']
+        self.ping_latency = system_info['ping_latency']
 
-    <!-- DataTable -->
-    <table id="clientsTable" class="display nowrap table table-striped table-hover" style="width:100%">
-        <thead>
-        <tr>
-            <th></th> <!-- Checkbox column -->
-            <th>Client ID</th>
-            <th>Hostname</th>
-            <th>OS</th>
-            <th>CPU</th>
-            <th>RAM</th>
-            <th>Disk</th>
-            <th>Disk Health</th>
-            <th>Network Throughput</th>
-            <th>Ping Latency</th>
-            <th>Uptime</th>
-            <th>Status</th>
-            <th>Updates</th>
-            <th>Actions</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for client in clients %}
-        <tr data-client-id="{{ client.id }}">
-            <td class="select-checkbox"></td>
-            <td><a href="#" class="client-link text-primary">{{ client.id }}</a></td>
-            <td>{{ client.client_name or '—' }}</td>
-            <td>{{ client.os_name or '—' }}</td>
-            <td>{{ client.cpu or '—' }}</td>
-            <td>{{ client.ram or '—' }}</td>
-            <td>{{ client.disk_total or '—' }}/{{ client.disk_free or '—' }}</td>
-            <td>{{ client.disk_health or '—' }}</td>
-            <td>{{ client.network_throughput or '—' }}</td>
-            <td>{{ client.ping_latency or '—' }}</td>
-            <td>{{ client.uptime or '—' }}</td>
-            <td>
-                {% if client.last_checkin and (now - client.last_checkin).total_seconds() < 600 %}
-                    <span class="status-online">🟢 Online</span>
-                {% else %}
-                    <span class="status-offline">🔴 Offline</span>
-                {% endif %}
-            </td>
-            <td>
-                {% if client.updates_available %}
-                    <span class="status-updates">⚠️ Yes</span>
-                {% else %}
-                    <span class="status-updates">✅ No</span>
-                {% endif %}
-            </td>
-            <td class="text-nowrap">
-                {% if not client.approved %}
-                    <button class="btn btn-sm btn-outline-success approve-btn" title="Approve">
-                        <i class="fa-solid fa-check"></i>
-                    </button>
-                {% endif %}
-                <button class="btn btn-sm btn-outline-warning force-btn" title="Force update">
-                    <i class="fa-solid fa-rotate"></i>
-                </button>
-                <button class="btn btn-sm btn-outline-info checkin-btn" title="Allow check‑in">
-                    <i class="fa-solid fa-check-double"></i>
-                </button>
-            </td>
-        </tr>
-        {% endfor %}
-        </tbody>
-    </table>
+# Helper function for system info
+def get_system_info():
+    """Fetch system information such as CPU, RAM, Disk Health, Network Throughput."""
+    cpu_info = psutil.cpu_percent(interval=1)
+    ram_info = psutil.virtual_memory()
+    disk_info = psutil.disk_usage('/')
+    disk_health = "Good" if disk_info.percent < 85 else "Warning"
+    network_info = psutil.net_io_counters()
+    ping_latency = get_ping_latency("8.8.8.8")  # Ping Google DNS for latency measurement
+    
+    return {
+        'cpu': cpu_info,
+        'ram_total': ram_info.total,
+        'ram_used': ram_info.used,
+        'ram_free': ram_info.free,
+        'disk_total': disk_info.total,
+        'disk_free': disk_info.free,
+        'disk_health': disk_health,
+        'network_throughput': network_info.bytes_sent + network_info.bytes_recv,
+        'ping_latency': ping_latency,
+    }
 
-    <!-- Toast container -->
-    <div class="toast-container"></div>
+# Function to measure ping latency
+def get_ping_latency(host="8.8.8.8"):
+    """Get the ping latency in milliseconds."""
+    try:
+        response = subprocess.check_output(['ping', '-c', '1', host], stderr=subprocess.STDOUT, universal_newlines=True)
+        time_index = response.find('time=') 
+        if time_index != -1:
+            latency = response[time_index + 5:response.find(' ms', time_index)]
+            return float(latency)
+    except subprocess.CalledProcessError:
+        return None
+    return None
 
-    <!-- Detail modal -->
-    <div class="modal fade" id="clientDetailModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Client Details</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body" id="clientDetailBody">
-                    <div class="text-center py-5"><div class="spinner-border" role="status"></div></div>
-                </div>
-            </div>
-        </div>
-    </div>
+# Heartbeat logic to check adoption
+@app.route('/api/devices/heartbeat', methods=['POST'])
+def heartbeat():
+    data = request.get_json()
+    client_id = data.get('client_id')
+    system_info = data.get('system_info')
+    client = Client.query.filter_by(hostname=client_id).first()
 
-</div>
+    if client:
+        if client.os_name == system_info['os_name'] and client.architecture == system_info['architecture']:
+            client.update_system_info()
+            client.last_checkin = datetime.utcnow()
+            db.session.commit()
+            return jsonify({'adopted': True, 'message': 'Client approved and updated.'})
+        else:
+            return jsonify({'adopted': False, 'message': 'Client OS/architecture mismatch. Awaiting approval.'})
+    
+    new_client = Client(
+        client_name=client_id,
+        hostname=client_id,
+        os_name=system_info['os_name'],
+        architecture=system_info['architecture'],
+        last_checkin=datetime.utcnow(),
+        approved=False
+    )
+    db.session.add(new_client)
+    db.session.commit()
 
-<script src="https://code.jquery.com/jquery-3.7.0.min.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
-        crossorigin="anonymous"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-<script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
-<script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
-<script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.print.min.js"></script>
-<script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+    return jsonify({'adopted': False, 'message': 'New client. Awaiting approval.'})
 
-<script>
-    $(document).ready(function () {
-        // Periodic refresh of client status every 30 seconds
-        setInterval(function() {
-            $.get('/api/clients/status', function(data) {
-                // Update client status in table rows
-                data.clients.forEach(client => {
-                    let row = $(`tr[data-client-id=${client.id}]`);
-                    row.find('.status-online').toggleClass('d-none', !client.online);
-                    row.find('.status-offline').toggleClass('d-none', client.online);
-                });
-            });
-        }, 30000); // 30 seconds
-        
-        // Dark mode toggle
-        if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('dark-mode');
-        document.getElementById('darkModeToggle').addEventListener('click', () => {
-            document.body.classList.toggle('dark-mode');
-            localStorage.setItem('darkMode',
-                document.body.classList.contains('dark-mode') ? 'enabled' : 'disabled');
-        });
+# Initialize the database if necessary
+@app.before_first_request
+def create_tables():
+    """Creates the database tables if they don't exist yet."""
+    db.create_all()
 
-        // DataTable setup
-        const table = $('#clientsTable').DataTable({
-            responsive: true,
-            select: { style: 'multi' },
-            columnDefs: [
-                { orderable: false, targets: 0 }, // Disable sorting on checkbox column
-            ],
-        });
+# Root route - Dashboard
+@app.route('/')
+def dashboard():
+    """Render the dashboard template without authentication."""
+    clients = Client.query.all()
+    return render_template('dashboard.html', clients=clients, now=datetime.utcnow())
 
-        // Bulk actions
-        $('#bulkForcePatch').click(() => bulkAction('force-patch'));
-        $('#bulkForceCheckin').click(() => bulkAction('force-checkin'));
-        $('#bulkForceReinstall').click(() => bulkAction('force-reinstall'));
-        $('#bulkApprove').click(() => bulkAction('approve-selected'));
-
-        function bulkAction(action) {
-            const selectedIds = table.rows({ selected: true }).data().map(row => row[0]);
-            if (selectedIds.length > 0) {
-                $.post(`/admin/${action}`, { clientIds: selectedIds }, function(response) {
-                    showToast(`${action.replace('-', ' ')} successful.`, 'success');
-                    table.ajax.reload(); // Refresh table data after action
-                });
-            }
-        }
-
-        // Client detail modal
-        $('.client-link').click(function (event) {
-            event.preventDefault();
-            const clientId = $(this).closest('tr').data('client-id');
-            $.get(`/api/clients/${clientId}`, function (data) {
-                $('#clientDetailBody').html(data.html);
-                new bootstrap.Modal($('#clientDetailModal')).show();
-            });
-        });
-    });
-</script>
-
-</body>
-</html>
+if __name__ == '__main__':
+    app.logger.info("Starting the PatchPilot server...")
+    app.run(debug=True)
