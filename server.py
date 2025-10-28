@@ -1,6 +1,7 @@
 import os
 import subprocess
 import psutil
+import logging
 from flask import Flask, render_template, jsonify, request, redirect, url_for
 from datetime import datetime, timedelta
 from flask_sqlalchemy import SQLAlchemy
@@ -25,6 +26,13 @@ login_manager = LoginManager(app)
 # Celery setup for background tasks
 from celery import Celery
 celery = Celery(app.name, broker='redis://localhost:6379/0')
+
+# --- Logging Configuration ---
+LOG_FILE = 'server.log'
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[
+    logging.FileHandler(LOG_FILE),
+    logging.StreamHandler()
+])
 
 # Define the Client model
 class Client(db.Model):
@@ -129,7 +137,8 @@ def heartbeat():
     client_id = data.get('client_id')  # We are using the hostname as client_id
     system_info = data.get('system_info')  # Get the system info
 
-    print(f"Received heartbeat from client: {client_id}, System Info: {system_info}")  # Debug log to confirm request
+    # Log received data for debugging
+    app.logger.info(f"Received heartbeat from client: {client_id}, System Info: {system_info}")
 
     client = Client.query.filter_by(hostname=client_id).first()
 
@@ -140,9 +149,11 @@ def heartbeat():
             client.update_system_info()
             client.last_checkin = datetime.utcnow()
             db.session.commit()
+            app.logger.info(f"Client {client_id} approved and updated.")
             return jsonify({'adopted': True, 'message': 'Client approved and updated.'})
         else:
             # If OS/architecture mismatch, put it into adoption mode
+            app.logger.warning(f"Client {client_id} OS/architecture mismatch.")
             return jsonify({'adopted': False, 'message': 'Client OS/architecture mismatch. Awaiting approval.'})
     
     # If the client doesn't exist, enter adoption mode
@@ -156,7 +167,8 @@ def heartbeat():
     )
     db.session.add(new_client)
     db.session.commit()
-    
+
+    app.logger.info(f"New client {client_id} added. Awaiting approval.")
     return jsonify({'adopted': False, 'message': 'New client. Awaiting approval.'})
 
 # Initialize the database if necessary
@@ -178,6 +190,7 @@ def login():
         user = User.query.filter_by(username=username).first()
         if user and user.password_hash == password:  # Add password verification
             login_user(user)
+            app.logger.info(f"User {username} logged in successfully.")
             return redirect(url_for('dashboard'))
     return render_template('login.html')
 
@@ -185,6 +198,7 @@ def login():
 @login_required
 def logout():
     logout_user()
+    app.logger.info(f"User {current_user.username} logged out.")
     return redirect(url_for('login'))
 
 @app.route('/')
@@ -193,10 +207,5 @@ def dashboard():
     return render_template('dashboard.html')
 
 if __name__ == '__main__':
-    try:
-        print("Flask app initializing...")
-        socketio.run(app, debug=True)  # Try with socketio.run(app)
-    except Exception as e:
-        print(f"Error initializing app: {e}")
-
-
+    app.logger.info("Starting the PatchPilot server...")
+    socketio.run(app, debug=True)
