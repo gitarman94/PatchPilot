@@ -124,9 +124,7 @@ def heartbeat():
     return jsonify({'adopted': False, 'message': 'New client. Awaiting approval.'})
 
 # Initialize the database if necessary
-@app.before_first_request
-def create_tables():
-    """Creates the database tables if they don't exist yet."""
+with app.app_context():
     db.create_all()
 
 # Route to get all client data for AJAX update
