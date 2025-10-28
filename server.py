@@ -165,6 +165,13 @@ def get_clients():
 def handle_connect():
     emit('alert', {'message': 'Client connected!'})
 
+#Check for nmap to make sure we're connected to correct server
+@app.route('/api')
+def api():
+    response = jsonify({'message': 'Welcome to PatchPilot API'})
+    response.headers['X-PatchPilot'] = 'true'
+    return response
+
 # Bulk actions (e.g., force patch, approve, etc.)
 @app.route('/admin/force-patch', methods=['POST'])
 def bulk_force_patch():
@@ -219,3 +226,4 @@ def dashboard():
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)
+
