@@ -72,7 +72,15 @@ echo "🐍 Creating Python virtual environment..."
 python3 -m venv "${VENV_DIR}"
 "${VENV_DIR}/bin/pip" install --upgrade pip setuptools wheel
 source "${VENV_DIR}/bin/activate"
-pip install --upgrade Flask Flask-SQLAlchemy flask_cors gunicorn
+
+# Install required Python packages for Flask and additional extensions
+echo "Installing Flask and extensions..."
+pip install Flask Flask-SQLAlchemy Flask-Cors gunicorn \
+            Flask-SocketIO Flask-Celery Flask-Login
+
+# Install Celery's Redis broker (or your preferred broker)
+echo "Installing Celery's Redis broker (optional but recommended)..."
+pip install redis
 
 # Download latest release
 TMPDIR=$(mktemp -d)
