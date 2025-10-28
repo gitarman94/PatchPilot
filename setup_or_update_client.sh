@@ -5,7 +5,7 @@ set -e
 INSTALL_DIR="/opt/patchpilot_client"
 SRC_DIR="/tmp/patchpilot_client_src"
 RUST_REPO="https://github.com/gitarman94/PatchPilot.git"
-CLIENT_PATH="$INSTALL_DIR/rust_patch_client"  # Corrected binary name
+CLIENT_PATH="$INSTALL_DIR/rust_patch_client"
 UPDATER_PATH="$INSTALL_DIR/patchpilot_updater"
 CONFIG_PATH="$INSTALL_DIR/config.json"
 SERVER_URL_FILE="$INSTALL_DIR/server_url.txt"
@@ -13,8 +13,40 @@ SERVICE_FILE="/etc/systemd/system/patchpilot_client.service"
 
 # --- Auto-detect the server ---
 detect_server() {
-  # Your existing server detection logic
-  ...
+  echo "Attempting to discover server on the local network..."
+
+  # Define your local network range (adjust to match your network)
+  NETWORK="192.168.1"  # Replace with your network address (e.g., 192.168.1)
+
+  # Loop through the possible IP addresses in the subnet (1-254)
+  for ip in $(seq 1 254); do
+    target="${NETWORK}.$ip"
+    echo "Pinging $target..."
+
+    # Ping each IP address once with a timeout of 1 second
+    if ping -c 1 -W 1 $target &>/dev/null; then
+      # Server found, set the discovered server URL
+      echo "Found server at $target"
+      DISCOVERED_SERVER="http://$target:8080/api"
+      return 0  # Success, return the discovered server
+    fi
+  done
+
+  # No server found
+  echo "No server found on the local network"
+  return 1  # Failure
+}
+
+# --- Load Rust environment ---
+load_rust_env() {
+  # Check if the Rust environment file exists for the current user
+  if [ -f "$HOME/.cargo/env" ]; then
+    source "$HOME/.cargo/env"
+  elif [ -f "/root/.cargo/env" ]; then
+    source "/root/.cargo/env"
+  else
+    echo "Warning: Rust environment file not found"
+  fi
 }
 
 show_usage() {
@@ -36,19 +68,15 @@ uninstall() {
 common_install_update() {
   echo "[*] Installing dependencies..."
   apt-get update -y
-  apt-get install -y curl git build-essential pkg-config libssl-dev
+  apt-get install -y curl git build-essential pkg-config libssl-dev nmap
 
   echo "[*] Installing Rust toolchain if missing..."
   if ! command -v rustc >/dev/null 2>&1; then
     curl https://sh.rustup.rs -sSf | sh -s -- -y
   fi
 
-  # Load Rust environment for root
-  if [ -f "/root/.cargo/env" ]; then
-    source "/root/.cargo/env"
-  else
-    echo "Warning: Rust environment file not found at /root/.cargo/env"
-  fi
+  # Load Rust environment for the current user
+  load_rust_env
 
   echo "[*] Cloning client source..."
   if [ -d "$SRC_DIR" ]; then
@@ -76,7 +104,7 @@ install() {
   # Install the client binary
   echo "[*] Installing client to $CLIENT_PATH..."
   mkdir -p "$INSTALL_DIR"
-  cp target/release/rust_patch_client "$CLIENT_PATH"  # Correct binary name
+  cp target/release/rust_patch_client "$CLIENT_PATH"
 
   # Try auto-detecting the server
   echo "[*] Attempting to auto-discover the PatchPilot server on the local network..."
