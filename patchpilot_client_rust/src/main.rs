@@ -42,8 +42,18 @@ fn run_linux_client_loop() -> Result<()> {
                     info!("Waiting for approval...");
                 }
             },
-            Err(_) => {
+            Ok(resp) => {
+                error!("Received non-successful status: {}", resp.status());
                 retries -= 1;
+                if retries == 0 {
+                    error!("Failed to check adoption status after multiple attempts.");
+                    return Err(anyhow::anyhow!("Adoption check failed")).into();
+                }
+                thread::sleep(Duration::from_secs(5)); // retry after a delay
+            },
+            Err(e) => {
+                retries -= 1;
+                error!("Failed to send heartbeat: {}", e);
                 if retries == 0 {
                     error!("Failed to check adoption status after multiple attempts.");
                     return Err(anyhow::anyhow!("Adoption check failed")).into();
