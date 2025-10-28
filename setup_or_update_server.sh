@@ -93,16 +93,11 @@ if ! id -u patchpilot >/dev/null 2>&1; then
 fi
 chown -R patchpilot:patchpilot "${APP_DIR}"
 
-# Setup SQLite database
+# Setup SQLite database (no need for init_db here, it's handled by server.py)
 SQLITE_DB="${APP_DIR}/patchpilot.db"
 touch "$SQLITE_DB"
 chown patchpilot:patchpilot "$SQLITE_DB"
 chmod 600 "$SQLITE_DB"
-
-# Initialize the database here to ensure it's ready before the service starts
-echo "📦 Initializing database..."
-source "${VENV_DIR}/bin/activate"
-python3 -c "from server import init_db; init_db()"
 
 # Setup admin token
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
@@ -136,7 +131,7 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-# Start the service *after* database initialization
+# Start the service *after* database initialization (which is handled by server.py)
 systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
 
