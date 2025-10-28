@@ -11,44 +11,17 @@ CONFIG_PATH="$INSTALL_DIR/config.json"
 SERVER_URL_FILE="$INSTALL_DIR/server_url.txt"
 SERVICE_FILE="/etc/systemd/system/patchpilot_client.service"
 
-# --- Auto-detect the server ---
+# --- Remove nmap and auto-detection ---
 detect_server() {
-  echo "Attempting to discover PatchPilot server on the local network..."
+  echo "[*] No PatchPilot server found automatically. Please enter the server IP manually."
+  read -rp "Enter the PatchPilot server IP (e.g., 192.168.1.100): " input_ip
+  input_ip="${input_ip#http://}"
+  input_ip="${input_ip#https://}"
+  input_ip="${input_ip%%/*}"
+  final_url="http://${input_ip}:8080/api"
 
-  # Get the local IP and calculate the subnet dynamically using ip route
-  LOCAL_IP=$(hostname -I | awk '{print $1}')
-  NETWORK=$(ip route | grep "^default" | awk '{print $3}' | cut -d. -f1-3)
-  SUBNET="${NETWORK}.0/24"  # Subnet based on local IP address
-
-  echo "Detected local network: $SUBNET"
-
-  # Use nmap to scan the subnet for a server on port 8080 (PatchPilot's assumed port)
-  echo "[*] Searching for PatchPilot server using nmap..."
-
-  # Quick nmap scan of the subnet to check for servers on port 8080
-  nmap -p 8080 --open --min-rate=1000 -T4 "$SUBNET" | grep -i "Nmap scan report for" | awk '{print $5}' | while read -r SERVER_IP; do
-    # Filter out any "localdomain" or invalid IPs
-    if [[ "$SERVER_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-      echo "[*] Found server at $SERVER_IP. Verifying PatchPilot..."
-
-      # Send a basic HTTP GET request to check for a unique identifier or header
-      RESPONSE=$(curl -s -I "http://$SERVER_IP:8080/api" | grep -i "X-PatchPilot")
-
-      if [ -n "$RESPONSE" ]; then
-        # If the header exists, we found the PatchPilot server
-        echo "[+] Found PatchPilot server at http://$SERVER_IP:8080"
-        DISCOVERED_SERVER="http://$SERVER_IP:8080/api"
-        return 0  # Success
-      else
-        echo "[*] Server at $SERVER_IP is not identified as a PatchPilot server. Skipping."
-      fi
-    else
-      echo "[*] Skipping invalid IP: $SERVER_IP"
-    fi
-  done
-
-  echo "[*] No PatchPilot server found."
-  return 1  # Failure
+  echo "[+] Using server at $final_url"
+  echo "$final_url" > "$SERVER_URL_FILE"
 }
 
 # --- Load Rust environment ---
@@ -82,7 +55,7 @@ uninstall() {
 common_install_update() {
   echo "[*] Installing dependencies..."
   apt-get update -y
-  apt-get install -y curl git build-essential pkg-config libssl-dev nmap
+  apt-get install -y curl git build-essential pkg-config libssl-dev
 
   echo "[*] Installing Rust toolchain if missing..."
   if ! command -v rustc >/dev/null 2>&1; then
@@ -120,23 +93,8 @@ install() {
   mkdir -p "$INSTALL_DIR"
   cp target/release/rust_patch_client "$CLIENT_PATH"
 
-  # Try auto-detecting the server
-  echo "[*] Attempting to auto-discover the PatchPilot server on the local network..."
-  if detect_server; then
-    final_url="$DISCOVERED_SERVER"
-    echo "[+] Auto-discovered server: $final_url"
-  else
-    # If server discovery failed, prompt the user to input the server IP
-    echo "[*] No PatchPilot server found. Please enter the server IP manually."
-    read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
-    input_ip="${input_ip#http://}"
-    input_ip="${input_ip#https://}"
-    input_ip="${input_ip%%/*}"
-    final_url="http://${input_ip}:8080/api"
-  fi
-
-  echo "Saving server URL: $final_url"
-  echo "$final_url" > "$SERVER_URL_FILE"
+  # Prompt for the server IP manually (after nmap is removed)
+  detect_server
 
   # Setup systemd service
   echo "[*] Setting up systemd service..."
@@ -180,22 +138,8 @@ update() {
   echo "[*] Installing client to $CLIENT_PATH..."
   cp target/release/rust_patch_client "$CLIENT_PATH"
 
-  # Try auto-detecting the server (same logic as in install)
-  echo "[*] Attempting to auto-discover the PatchPilot server on the local network..."
-  if detect_server; then
-    final_url="$DISCOVERED_SERVER"
-    echo "[+] Auto-discovered server: $final_url"
-  else
-    echo "[*] No PatchPilot server found. Please enter the server IP manually."
-    read -rp "Enter the patch server IP (e.g., 192.168.1.100): " input_ip
-    input_ip="${input_ip#http://}"
-    input_ip="${input_ip#https://}"
-    input_ip="${input_ip%%/*}"
-    final_url="http://${input_ip}:8080/api"
-  fi
-
-  echo "Saving server URL: $final_url"
-  echo "$final_url" > "$SERVER_URL_FILE"
+  # Prompt for the server IP manually (after nmap is removed)
+  detect_server
 
   # Setup systemd service (same as install)
   echo "[*] Setting up systemd service..."
