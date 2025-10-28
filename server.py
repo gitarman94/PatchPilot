@@ -5,12 +5,10 @@ import logging
 from flask import Flask, render_template, jsonify, request, redirect, url_for
 from datetime import datetime, timedelta
 from flask_sqlalchemy import SQLAlchemy
-from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 
 # Initialize the Flask app
 app = Flask(__name__)
-CORS(app)
 
 # Set the DATABASE_URI environment variable if not already set
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI', 'sqlite:///patchpilot.db')
