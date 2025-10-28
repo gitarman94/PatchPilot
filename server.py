@@ -30,11 +30,13 @@ celery = Celery(app.name, broker='redis://localhost:6379/0')
 class Client(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     client_name = db.Column(db.String(100), nullable=False)
+    hostname = db.Column(db.String(100), nullable=False, unique=True)  # Use hostname as unique identifier
     os_name = db.Column(db.String(50), nullable=False)
+    architecture = db.Column(db.String(50), nullable=False)  # Track the architecture (e.g., x86_64)
     last_checkin = db.Column(db.DateTime, nullable=False)
     updates_available = db.Column(db.Boolean, nullable=False, default=False)
     approved = db.Column(db.Boolean, nullable=False, default=False)
-    
+
     # System info fields
     cpu = db.Column(db.Float, nullable=True)
     ram_total = db.Column(db.BigInteger, nullable=True)
@@ -119,77 +121,41 @@ def get_ping_latency(host="8.8.8.8"):
         return None
     return None
 
-# Celery Task Example for patch installation
-@celery.task
-def install_patch(client_id):
-    # Trigger patch installation for the client (simulated)
-    client = Client.query.get(client_id)
+# Heartbeat logic to check adoption
+@app.route('/api/devices/heartbeat', methods=['POST'])
+def heartbeat():
+    """Handle device heartbeat (client check-in)"""
+    data = request.get_json()
+    client_id = data.get('client_id')  # We are using the hostname as client_id
+    system_info = data.get('system_info')  # Get the system info
+    
+    client = Client.query.filter_by(hostname=client_id).first()
+
     if client:
-        # Example patch installation logic
-        pass
-    return 'Patch Installed'
-
-# Real-time updates via WebSocket
-@app.route('/api/clients')
-def get_clients():
-    """Return the list of all clients with updated info."""
-    client_data = Client.query.all()
-    for client in client_data:
-        client.update_system_info()
-
-    clients_dict = [
-        {
-            'id': client.id,
-            'client_name': client.client_name,
-            'os_name': client.os_name,
-            'last_checkin': client.last_checkin,
-            'updates_available': client.updates_available,
-            'approved': client.approved,
-            'cpu': client.cpu,
-            'ram_total': client.ram_total,
-            'ram_used': client.ram_used,
-            'ram_free': client.ram_free,
-            'disk_total': client.disk_total,
-            'disk_free': client.disk_free,
-            'disk_health': client.disk_health,
-            'network_throughput': client.network_throughput,
-            'ping_latency': client.ping_latency,
-        }
-        for client in client_data
-    ]
-
-    return jsonify({'clients': clients_dict})
-
-# SocketIO for real-time updates
-@socketio.on('connect')
-def handle_connect():
-    emit('alert', {'message': 'Client connected!'})
-
-#Check for nmap to make sure we're connected to correct server
-@app.route('/api')
-def api():
-    response = jsonify({'message': 'Welcome to PatchPilot API'})
-    response.headers['X-PatchPilot'] = 'true'
-    return response
-
-# Bulk actions (e.g., force patch, approve, etc.)
-@app.route('/admin/force-patch', methods=['POST'])
-def bulk_force_patch():
-    client_ids = request.form.getlist('clientIds')
-    # Trigger patch installation for clients
-    for client_id in client_ids:
-        install_patch.apply_async(args=[client_id])
-    return jsonify({"status": "success", "message": "Patch installation triggered for clients."})
-
-@app.route('/admin/approve-selected', methods=['POST'])
-def bulk_approve():
-    client_ids = request.form.getlist('clientIds')
-    # Approve selected clients
-    for client_id in client_ids:
-        client = Client.query.get(client_id)
-        client.approved = True
-        db.session.commit()
-    return jsonify({"status": "success", "message": "Selected clients approved."})
+        # If the client exists, check if the OS and architecture match
+        if client.os_name == system_info['os_name'] and client.architecture == system_info['architecture']:
+            # Merge old client info with new info
+            client.update_system_info()
+            client.last_checkin = datetime.utcnow()
+            db.session.commit()
+            return jsonify({'adopted': True, 'message': 'Client approved and updated.'})
+        else:
+            # If OS/architecture mismatch, put it into adoption mode
+            return jsonify({'adopted': False, 'message': 'Client OS/architecture mismatch. Awaiting approval.'})
+    
+    # If the client doesn't exist, enter adoption mode
+    new_client = Client(
+        client_name=client_id,
+        hostname=client_id,
+        os_name=system_info['os_name'],
+        architecture=system_info['architecture'],
+        last_checkin=datetime.utcnow(),
+        approved=False
+    )
+    db.session.add(new_client)
+    db.session.commit()
+    
+    return jsonify({'adopted': False, 'message': 'New client. Awaiting approval.'})
 
 # Initialize the database if necessary
 @app.before_first_request
@@ -226,4 +192,3 @@ def dashboard():
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)
-
