@@ -128,7 +128,9 @@ def heartbeat():
     data = request.get_json()
     client_id = data.get('client_id')  # We are using the hostname as client_id
     system_info = data.get('system_info')  # Get the system info
-    
+
+    print(f"Received heartbeat from client: {client_id}, System Info: {system_info}")  # Debug log to confirm request
+
     client = Client.query.filter_by(hostname=client_id).first()
 
     if client:
