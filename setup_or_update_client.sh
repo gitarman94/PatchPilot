@@ -13,7 +13,7 @@ SERVICE_FILE="/etc/systemd/system/patchpilot_client.service"
 
 # --- Auto-detect the server ---
 detect_server() {
-  echo "Attempting to discover server on the local network..."
+  echo "Attempting to discover PatchPilot server on the local network..."
 
   # Get the local IP and calculate the subnet dynamically using ip route
   LOCAL_IP=$(hostname -I | awk '{print $1}')
@@ -29,10 +29,21 @@ detect_server() {
   SERVER_IP=$(nmap -p 8080 --open --min-rate=1000 -T4 "$SUBNET" | grep "Nmap scan report for" | awk '{print $5}')
 
   if [ -n "$SERVER_IP" ]; then
-    # If nmap finds a server on port 8080, set the discovered server URL
-    echo "[+] Found PatchPilot server at $SERVER_IP"
-    DISCOVERED_SERVER="http://$SERVER_IP:8080/api"
-    return 0  # Success
+    # If nmap finds a server on port 8080, perform an HTTP GET request to check if it's PatchPilot
+    echo "[*] Found server at $SERVER_IP on port 8080. Verifying..."
+
+    # Send a basic HTTP GET request to check for a unique identifier or header
+    RESPONSE=$(curl -s -I "http://$SERVER_IP:8080/api" | grep -i "X-PatchPilot")
+
+    if [ -n "$RESPONSE" ]; then
+      # If the header exists, we found the PatchPilot server
+      echo "[+] Found PatchPilot server at $SERVER_IP"
+      DISCOVERED_SERVER="http://$SERVER_IP:8080/api"
+      return 0  # Success
+    else
+      echo "[*] Server at $SERVER_IP is not identified as a PatchPilot server. Skipping."
+      return 1  # Failure
+    fi
   else
     echo "[*] No server found with nmap on port 8080"
     return 1  # Failure
