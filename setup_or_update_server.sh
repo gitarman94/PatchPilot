@@ -97,6 +97,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
 
 curl -L -H "Authorization: token ${GITHUB_TOKEN}" "$ZIP_URL" -o latest.zip
+echo "download complete?"
 read -n 1 -s -r
 
 # Check if the ZIP file was downloaded successfully
