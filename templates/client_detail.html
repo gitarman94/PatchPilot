@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Client Details - PatchPilot</title>
-    
+
     <!-- Bootstrap 5 -->
     <link rel="stylesheet"
           href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
@@ -17,68 +17,132 @@
     <style>
         .status-online { color:#28a745; font-weight:bold; }
         .status-offline { color:#dc3545; font-weight:bold; }
+        .card-header { background-color: #f8f9fa; }
+        .metric-value { font-size: 1.25rem; font-weight: bold; }
+        .metric-label { font-size: 0.875rem; color: #6c757d; }
+        .action-buttons .btn { margin-right: 10px; }
+        .spinner-container { text-align: center; margin-top: 20px; }
+        .badge-status { padding: 5px 10px; font-size: 0.875rem; }
     </style>
 </head>
 <body>
 <div class="container py-4">
 
-    <h2>Client Details</h2>
+    <h2 class="mb-4">Client Details</h2>
 
-    <div class="card">
-        <div class="card-header">
-            <strong>{{ client.client_name or '—' }}</strong>
-            <span id="status" class="float-end">
-                {% if client.online %}
-                    <span class="status-online">🟢 Online</span>
-                {% else %}
-                    <span class="status-offline">🔴 Offline</span>
-                {% endif %}
-            </span>
+    <!-- Status & Basic Info -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><strong>{{ client.client_name or '—' }}</strong></span>
+                    <span id="status">
+                        {% if client.online %}
+                            <span class="status-online">🟢 Online</span>
+                        {% else %}
+                            <span class="status-offline">🔴 Offline</span>
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="card-body">
+                    <p><strong>Hostname:</strong> {{ client.client_name }}</p>
+                    <p><strong>OS:</strong> {{ client.os_name }}</p>
+                    <p><strong>CPU:</strong> {{ client.cpu }}</p>
+                    <p><strong>RAM:</strong> {{ client.ram }} GB</p>
+                </div>
+            </div>
         </div>
-        <div class="card-body">
-            <h5 class="card-title">Hostname: {{ client.client_name }}</h5>
-            <p class="card-text">OS: {{ client.os_name }}</p>
-            <p class="card-text">CPU: {{ client.cpu }}</p>
-            <p class="card-text">RAM: {{ client.ram }} GB</p>
-            <p class="card-text">Disk: {{ client.disk_total }} GB / {{ client.disk_free }} GB</p>
-            <p class="card-text">Disk Health: {{ client.disk_health }}</p>
-            <p class="card-text">Network Throughput: {{ client.network_throughput }} Mbps</p>
-            <p class="card-text">Ping Latency: {{ client.ping_latency }} ms</p>
-            <p class="card-text">Uptime: {{ client.uptime }}</p>
+
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">Actions</div>
+                <div class="card-body action-buttons">
+                    <button id="approve-client" class="btn btn-success">
+                        <i class="fa-solid fa-check"></i> Approve Client
+                    </button>
+                    <button class="btn btn-outline-primary">
+                        <i class="fa-solid fa-rotate"></i> Force Patch
+                    </button>
+                    <button class="btn btn-outline-danger">
+                        <i class="fa-solid fa-arrow-rotate-left"></i> Force Reinstall
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- Actions -->
-    <button id="approve-client" class="btn btn-success mt-3">Approve Client</button>
+    <!-- Metrics & Performance -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">System Performance</div>
+                <div class="card-body">
+                    <p><strong>Disk Usage:</strong> <span class="metric-value">{{ client.disk_total }} GB / {{ client.disk_free }} GB</span></p>
+                    <p class="metric-label">Disk Health: 
+                        <span class="badge {{ 'badge-success' if client.disk_health == 'Healthy' else 'badge-danger' }}">
+                            {{ client.disk_health }}
+                        </span>
+                    </p>
+                    <p><strong>Uptime:</strong> <span class="metric-value">{{ client.uptime }}</span></p>
+                    <div class="d-flex justify-content-between">
+                        <p><strong>Network Throughput:</strong> <span class="metric-value">{{ client.network_throughput }} Mbps</span></p>
+                        <p><strong>Ping Latency:</strong> <span class="metric-value">{{ client.ping_latency }} ms</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Updates & Notifications</div>
+                <div class="card-body">
+                    <p><strong>Updates Available:</strong>
+                        {% if client.updates_available %}
+                            <span class="badge badge-warning">⚠️ Yes</span>
+                        {% else %}
+                            <span class="badge badge-success">✅ No</span>
+                        {% endif %}
+                    </p>
+                    <p><strong>Last Check-in:</strong> {{ client.last_checkin }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading state -->
+    <div class="spinner-container" id="loadingState">
+        <div class="spinner-border" role="status"></div>
+        <p>Loading data...</p>
+    </div>
 
 </div>
 
 <script src="https://code.jquery.com/jquery-3.7.0.min.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
-        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 
 <script>
     $(document).ready(function () {
         // Periodic refresh of client status every 30 seconds
         setInterval(function() {
             $.get(`/api/clients/{{ client.id }}/status`, function(data) {
-                // Update client status in detail page
+                // Update client status
                 if (data.client.online) {
                     $('#status').html('<span class="status-online">🟢 Online</span>');
                 } else {
                     $('#status').html('<span class="status-offline">🔴 Offline</span>');
                 }
             });
-        }, 30000); // 30 seconds
-        
-        // Client action forms (approve, force update, allow check-in)
-        {% if client.approved is not true %}
+        }, 30000); // Refresh every 30 seconds
+
+        // Approve client
         $('#approve-client').click(function() {
             $.post('/approve/{{ client.id }}', function(response) {
-                // Handle approval response, maybe show a success message or update the button
+                alert("Client approved successfully!");
             });
         });
-        {% endif %}
+
+        // Hide loading spinner when data is loaded
+        $('#loadingState').hide();
     });
 </script>
 
