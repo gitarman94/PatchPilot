@@ -76,8 +76,7 @@ source "${VENV_DIR}/bin/activate"
 
 # Install required Python packages for Flask and additional extensions
 echo "Installing Flask and extensions..."
-pip install Flask Flask-SQLAlchemy Flask-Cors gunicorn \
-            Flask-SocketIO Flask-Celery Flask-Login
+pip install Flask Flask-SQLAlchemy Flask-Cors gunicorn Flask-SocketIO Flask-Celery Flask-Login psutil
 
 # Install Celery's Redis broker (optional but recommended)
 echo "Installing Celery's Redis broker (optional but recommended)..."
