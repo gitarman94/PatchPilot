@@ -200,5 +200,11 @@ with app.app_context():
     db.create_all()
 
 if __name__ == '__main__':
-    app.logger.info("Starting the PatchPilot server...")
+    with app.app_context():
+        print("Listing all routes:")
+        for rule in app.url_map.iter_rules():
+            print(f"{rule.endpoint}: {url_for(rule.endpoint)}")
+
     app.run(debug=True)
+
+
