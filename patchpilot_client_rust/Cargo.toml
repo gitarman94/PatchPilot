@@ -1,18 +1,17 @@
 [package]
 name = "rust_patch_client"
 version = "0.1.0"
-edition = "2021"
 
 [dependencies]
-windows-service = { version = "0.4", optional = true }
-reqwest = { version = "0.11", features = ["blocking", "json"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-log = "0.4"
-simplelog = "0.11"
-anyhow = "1.0"
-sysinfo = { version = "0.28", optional = true }
-lazy_static = "1.4"
+windows-service = { version = "*", optional = true }
+reqwest = { version = "*", features = ["blocking", "json"] }
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
+log = "*"
+simplelog = "*"
+anyhow = "*"
+sysinfo = { version = "*", optional = true }
+lazy_static = "*"
 
 [features]
 default = []
