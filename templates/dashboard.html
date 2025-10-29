@@ -1,163 +1,166 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>PatchPilot Dashboard</title>
+    <meta charset="UTF-8">
+    <title>PatchPilot Dashboard</title>
 
-<!-- Bootstrap 5 -->
-<link rel="stylesheet"
-href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-crossorigin="anonymous">
+    <!-- Bootstrap 5 -->
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+          crossorigin="anonymous">
 
-<!-- DataTables -->
-<link rel="stylesheet"
-href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css"/>
-<link rel="stylesheet"
-href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css"/>
-<link rel="stylesheet"
-href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css"/>
+    <!-- DataTables -->
+    <link rel="stylesheet"
+          href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css"/>
+    <link rel="stylesheet"
+          href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css"/>
+    <link rel="stylesheet"
+          href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css"/>
 
-<!-- Font Awesome -->
-<link rel="stylesheet"
-href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
-crossorigin="anonymous"/>
+    <!-- Font Awesome -->
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+          crossorigin="anonymous"/>
 
-<style>
-:root {
-    --bg-light: #f9f9f9;
-    --bg-dark:  #121212;
-    --text-light: #212529;
-    --text-dark: #e5e5e5;
-    --primary: #0d6efd;
-    --primary-dark: #1e90ff;
-}
-body { background: var(--bg-light); color: var(--text-light); transition: background .3s, color .3s; }
-body.dark-mode { background: var(--bg-dark); color: var(--text-dark); }
-.status-online { color:#28a745; font-weight:bold; }
-.status-offline { color:#dc3545; font-weight:bold; }
-.status-updates { color:#ffc107; font-weight:bold; }
-.toast-container { position:fixed; top:1rem; right:1rem; z-index:1055; }
-.modal-body { min-height:200px; }
-table.dataTable tbody td.select-checkbox { cursor: pointer; }
-table.dataTable tbody td.select-checkbox:before { content: "\f096"; font-family: FontAwesome; margin-right: 5px; }
-table.dataTable tbody tr.selected td.select-checkbox:before { content: "\f046"; }
-</style>
+    <style>
+        :root {
+            --bg-light: #f9f9f9;
+            --bg-dark:  #121212;
+            --text-light: #212529;
+            --text-dark: #e5e5e5;
+            --primary: #0d6efd;
+            --primary-dark: #1e90ff;
+        }
+
+        body { background: var(--bg-light); color: var(--text-light); transition: background .3s, color .3s; }
+        body.dark-mode { background: var(--bg-dark); color: var(--text-dark); }
+
+        .status-online { color:#28a745; font-weight:bold; }
+        .status-offline { color:#dc3545; font-weight:bold; }
+        .status-updates { color:#ffc107; font-weight:bold; }
+
+        .toast-container { position:fixed; top:1rem; right:1rem; z-index:1055; }
+        .modal-body { min-height:200px; }
+
+        table.dataTable tbody td.select-checkbox { cursor: pointer; }
+        table.dataTable tbody td.select-checkbox:before { content: "\f096"; font-family: FontAwesome; margin-right: 5px; }
+        table.dataTable tbody tr.selected td.select-checkbox:before { content: "\f046"; }
+    </style>
 </head>
 <body>
 <div class="container py-4">
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="h3"><i class="fa-solid fa-toolbox me-2"></i>PatchPilot Dashboard</h1>
-    <button id="darkModeToggle" class="btn btn-outline-secondary">
-        <i class="fa-solid fa-moon"></i>
-    </button>
-</div>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="h3"><i class="fa-solid fa-toolbox me-2"></i>PatchPilot Dashboard</h1>
+        <button id="darkModeToggle" class="btn btn-outline-secondary">
+            <i class="fa-solid fa-moon"></i>
+        </button>
+    </div>
 
-<!-- Bulk action buttons -->
-<div class="mb-3">
-    <button id="bulkForcePatch" class="btn btn-outline-primary me-2">
-        <i class="fa-solid fa-rotate me-1"></i>Force Patch Install
-    </button>
-    <button id="bulkForceCheckin" class="btn btn-outline-info me-2">
-        <i class="fa-solid fa-check-double me-1"></i>Force Check-in
-    </button>
-    <button id="bulkForceReinstall" class="btn btn-outline-danger me-2">
-        <i class="fa-solid fa-arrow-rotate-left me-1"></i>Force Reinstall
-    </button>
-    <button id="bulkApprove" class="btn btn-outline-success">
-        <i class="fa-solid fa-check me-1"></i>Approve Selected
-    </button>
-</div>
+    <!-- Bulk action buttons -->
+    <div class="mb-3">
+        <button id="bulkForcePatch" class="btn btn-outline-primary me-2">
+            <i class="fa-solid fa-rotate me-1"></i>Force Patch Install
+        </button>
+        <button id="bulkForceCheckin" class="btn btn-outline-info me-2">
+            <i class="fa-solid fa-check-double me-1"></i>Force Check-in
+        </button>
+        <button id="bulkForceReinstall" class="btn btn-outline-danger me-2">
+            <i class="fa-solid fa-arrow-rotate-left me-1"></i>Force Reinstall
+        </button>
+        <button id="bulkApprove" class="btn btn-outline-success">
+            <i class="fa-solid fa-check me-1"></i>Approve Selected
+        </button>
+    </div>
 
-<!-- DataTable -->
-<table id="clientsTable" class="display nowrap table table-striped table-hover" style="width:100%">
-    <thead>
-        <tr>
-            <th></th> <!-- Checkbox column -->
-            <th>Client ID</th>
-            <th>Hostname</th>
-            <th>OS</th>
-            <th>CPU</th>
-            <th>RAM</th>
-            <th>Disk</th>
-            <th>Disk Health</th>
-            <th>Network Throughput</th>
-            <th>Ping Latency</th>
-            <th>Uptime</th>
-            <th>Status</th>
-            <th>Updates</th>
-            <th>Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for client in clients %}
-        <tr data-client-id="{{ client.id }}">
-            <td class="select-checkbox"></td>
-            <td><a href="#" class="client-link text-primary">{{ client.id }}</a></td>
-            <td>{{ client.client_name or '—' }}</td>
-            <td>{{ client.os_name or '—' }}</td>
-            <td>{{ client.cpu or '—' }}</td>
-            <td>{{ client.ram or '—' }}</td>
-            <td>{{ client.disk_total or '—' }}/{{ client.disk_free or '—' }}</td>
-            <td>{{ client.disk_health or '—' }}</td>
-            <td>{{ client.network_throughput or '—' }}</td>
-            <td>{{ client.ping_latency or '—' }}</td>
-            <td>{{ client.uptime or '—' }}</td>
-            <td>
-                {% if client.last_checkin and (now - client.last_checkin).total_seconds() < 600 %}
-                    <span class="status-online">🟢 Online</span>
-                {% else %}
-                    <span class="status-offline">🔴 Offline</span>
-                {% endif %}
-            </td>
-            <td>
-                {% if client.updates_available %}
-                    <span class="status-updates">⚠️ Yes</span>
-                {% else %}
-                    <span class="status-updates">✅ No</span>
-                {% endif %}
-            </td>
-            <td class="text-nowrap">
-                {% if not client.approved %}
-                    <button class="btn btn-sm btn-outline-success approve-btn" title="Approve">
-                        <i class="fa-solid fa-check"></i>
+    <!-- DataTable -->
+    <table id="devicesTable" class="display nowrap table table-striped table-hover" style="width:100%">
+        <thead>
+            <tr>
+                <th></th> <!-- Checkbox column -->
+                <th>Device ID</th>
+                <th>Hostname</th>
+                <th>OS</th>
+                <th>CPU</th>
+                <th>RAM</th>
+                <th>Disk</th>
+                <th>Disk Health</th>
+                <th>Network Throughput</th>
+                <th>Ping Latency</th>
+                <th>Uptime</th>
+                <th>Status</th>
+                <th>Updates</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for device in devices %}
+            <tr data-device-id="{{ device.id }}">
+                <td class="select-checkbox"></td>
+                <td><a href="#" class="device-link text-primary">{{ device.id }}</a></td>
+                <td>{{ device.device_name or '—' }}</td>
+                <td>{{ device.os_name or '—' }}</td>
+                <td>{{ device.cpu or '—' }}</td>
+                <td>{{ device.ram or '—' }}</td>
+                <td>{{ device.disk_total or '—' }}/{{ device.disk_free or '—' }}</td>
+                <td>{{ device.disk_health or '—' }}</td>
+                <td>{{ device.network_throughput or '—' }}</td>
+                <td>{{ device.ping_latency or '—' }}</td>
+                <td>{{ device.uptime or '—' }}</td>
+                <td>
+                    {% if device.last_checkin and (now - device.last_checkin).total_seconds() < 600 %}
+                        <span class="status-online">🟢 Online</span>
+                    {% else %}
+                        <span class="status-offline">🔴 Offline</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if device.updates_available %}
+                        <span class="status-updates">⚠️ Yes</span>
+                    {% else %}
+                        <span class="status-updates">✅ No</span>
+                    {% endif %}
+                </td>
+                <td class="text-nowrap">
+                    {% if not device.approved %}
+                        <button class="btn btn-sm btn-outline-success approve-btn" title="Approve">
+                            <i class="fa-solid fa-check"></i>
+                        </button>
+                    {% endif %}
+                    <button class="btn btn-sm btn-outline-warning force-btn" title="Force update">
+                        <i class="fa-solid fa-rotate"></i>
                     </button>
-                {% endif %}
-                <button class="btn btn-sm btn-outline-warning force-btn" title="Force update">
-                    <i class="fa-solid fa-rotate"></i>
-                </button>
-                <button class="btn btn-sm btn-outline-info checkin-btn" title="Allow check‑in">
-                    <i class="fa-solid fa-check-double"></i>
-                </button>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+                    <button class="btn btn-sm btn-outline-info checkin-btn" title="Allow check‑in">
+                        <i class="fa-solid fa-check-double"></i>
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 
-<!-- Toast container -->
-<div class="toast-container"></div>
+    <!-- Toast container -->
+    <div class="toast-container"></div>
 
-<!-- Detail modal -->
-<div class="modal fade" id="clientDetailModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Client Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="clientDetailBody">
-                <div class="text-center py-5"><div class="spinner-border" role="status"></div></div>
+    <!-- Detail modal -->
+    <div class="modal fade" id="deviceDetailModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Device Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="deviceDetailBody">
+                    <div class="text-center py-5"><div class="spinner-border" role="status"></div></div>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
 </div>
 
 <script src="https://code.jquery.com/jquery-3.7.0.min.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
-crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
@@ -165,76 +168,47 @@ crossorigin="anonymous"></script>
 <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
 
 <script>
-/* Dark mode */
-if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('dark-mode');
-document.getElementById('darkModeToggle').addEventListener('click', () => {
-    document.body.classList.toggle('dark-mode');
-    localStorage.setItem('darkMode',
-        document.body.classList.contains('dark-mode') ? 'enabled' : 'disabled');
-});
-
-/* Toast helper */
-function showToast(message, type='success') {
-    const toast = $(`
-        <div class="toast align-items-center text-bg-${type} border-0 mb-2" role="alert">
-            <div class="d-flex">
-                <div class="toast-body">${message}</div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-            </div>
-        </div>`);
-    $('.toast-container').append(toast);
-    new bootstrap.Toast(toast[0]).show();
-}
-
-/* DataTable setup */
-$(document).ready(function () {
-    const table = $('#clientsTable').DataTable({
-        responsive: true,
-        select: { style: 'multi' },
-        columnDefs: [
-            { orderable: false, targets: 0 }, // Disable sorting on checkbox column
-        ],
+    /* Dark mode */
+    if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('dark-mode');
+    document.getElementById('darkModeToggle').addEventListener('click', () => {
+        document.body.classList.toggle('dark-mode');
+        localStorage.setItem('darkMode',
+            document.body.classList.contains('dark-mode') ? 'enabled' : 'disabled');
     });
 
-    // Handle actions for selected clients
-    $('#bulkForcePatch').click(() => bulkAction('force-patch'));
-    $('#bulkForceCheckin').click(() => bulkAction('force-checkin'));
-    $('#bulkForceReinstall').click(() => bulkAction('force-reinstall'));
-    $('#bulkApprove').click(() => bulkAction('approve-selected'));
-
-    function bulkAction(action) {
-        const selectedIds = table.rows({ selected: true }).data().map(row => row[0]);
-        if (selectedIds.length > 0) {
-            $.post(`/admin/${action}`, { clientIds: selectedIds }, function(response) {
-                showToast(`${action.replace('-', ' ')} successful.`, 'success');
-                table.ajax.reload(); // Refresh table data after action
-            });
-        }
+    /* Toast helper */
+    function showToast(message, type='success') {
+        const toast = $(` 
+            <div class="toast align-items-center text-bg-${type} border-0 mb-2" role="alert">
+                <div class="d-flex">
+                    <div class="toast-body">${message}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+            </div>`);
+        $('.toast-container').append(toast);
+        new bootstrap.Toast(toast[0]).show();
     }
 
-    // Periodic refresh of client status every 30 seconds
-    setInterval(function() {
-        $.get('/api/clients/status', function(data) {
-            // Update client status in table rows
-            data.clients.forEach(client => {
-                let row = $(`tr[data-client-id=${client.id}]`);
-                row.find('.status-online').toggleClass('d-none', !client.online);
-                row.find('.status-offline').toggleClass('d-none', client.online);
-            });
+    /* DataTable setup */
+    $(document).ready(function () {
+        const table = $('#devicesTable').DataTable({
+            responsive: true,
+            select: { style: 'multi' },
+            buttons: ['copy', 'csv', 'excel', 'pdf', 'print'],
         });
-    }, 30000); // 30 seconds
 
-    // Client detail modal
-    $('.client-link').click(function (event) {
-        event.preventDefault();
-        const clientId = $(this).closest('tr').data('client-id');
-        $.get(`/api/clients/${clientId}`, function (data) {
-            $('#clientDetailBody').html(data.html);
-            new bootstrap.Modal($('#clientDetailModal')).show();
+        /* Modal opening behavior */
+        $('body').on('click', '.device-link', function () {
+            const deviceId = $(this).closest('tr').data('device-id');
+            $('#deviceDetailModal').modal('show');
+            $('#deviceDetailBody').html('<div class="text-center py-5"><div class="spinner-border" role="status"></div></div>');
+
+            // Simulate loading device details (replace this with an actual API call)
+            setTimeout(function() {
+                $('#deviceDetailBody').html(`<p>Details for device ${deviceId} will be shown here.</p>`);
+            }, 1000);
         });
     });
-});
 </script>
-
 </body>
 </html>
