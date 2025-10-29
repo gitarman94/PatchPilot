@@ -24,6 +24,7 @@ fn run_linux_client_loop() -> Result<()> {
 
     loop {
         // Send heartbeat to check adoption status
+        info!("Sending heartbeat to check adoption status...");
         let system_info = system_info::get_system_info()?; // Fetch system info from system_info.rs
         let response = client.post(format!("{}/api/devices/heartbeat", server_url))
             .json(&json!( {
@@ -88,7 +89,7 @@ fn run_linux_client_loop() -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    // Init logger
+    // Initialize logger
     SimpleLogger::init(LevelFilter::Info, Config::default()).unwrap();
 
     info!("Rust Patch Client starting...");
@@ -99,7 +100,7 @@ fn main() -> Result<()> {
             if let Err(e) = self_update::check_and_update() {
                 error!("Self-update failed: {:?}", e);
             }
-            thread::sleep(Duration::from_secs(3600)); // hourly
+            thread::sleep(Duration::from_secs(3600)); // hourly self-update check
         }
     });
 
