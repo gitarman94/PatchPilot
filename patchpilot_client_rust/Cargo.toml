@@ -10,13 +10,13 @@ serde_json = "^1.0"
 log = "^0.4"
 simplelog = "^0.11"
 anyhow = "^1.0"
-sysinfo = "^0.19"
+sysinfo = { version = "^0.19", optional = true }  # Make sysinfo optional
 lazy_static = "^1.4"
 
 [features]
 default = []
 windows = ["windows-service"]
-unix = ["sysinfo"]
+unix = ["sysinfo"]  # Include sysinfo in the unix feature
 
 [[bin]]
 name = "rust_patch_client"
@@ -25,4 +25,3 @@ path = "src/main.rs"
 [[bin]]
 name = "patchpilot_updater"
 path = "src/patchpilot_updater.rs"
-
