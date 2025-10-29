@@ -198,6 +198,7 @@ def handle_exception(e):
 
 # Initialize the database if necessary
 with app.app_context():
+    app.logger.info("Initializing database and creating tables...")
     db.create_all()
 
 if __name__ == '__main__':
@@ -206,5 +207,6 @@ if __name__ == '__main__':
         for rule in app.url_map.iter_rules():
             print(f"{rule.endpoint}: {rule}")
     app.run(debug=True)
+
 
 
