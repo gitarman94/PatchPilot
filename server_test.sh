@@ -5,9 +5,11 @@ echo " PatchPilot Server Test Script"
 echo "==============================="
 
 # Activate virtualenv
+echo "🔧  Activating virtual environment..."
 source /opt/patchpilot_server/venv/bin/activate
 
 # Install jq if not already installed
+echo "🔧  Ensuring jq is installed..."
 apt install jq -y
 
 # 1. Checking systemd service status
@@ -107,9 +109,9 @@ device_check=$(curl -s http://localhost:8080/api/devices)
 # Check if new device exists in the list (you can customize the device name or ID here)
 new_device_id="example-device-id"  # Replace with actual device ID you're expecting
 if echo "$device_check" | jq -e ".[] | select(.device_id == \"$new_device_id\")" > /dev/null; then
-    echo "✔️  device is registered and visible in the web UI."
+    echo "✔️  Device is registered and visible in the web UI."
 else
-    echo "❌  device is NOT registered or not visible in the web UI."
+    echo "❌  Device is NOT registered or not visible in the web UI."
     echo "Response: $device_check"
     exit 1
 fi
@@ -169,10 +171,10 @@ fi
 echo "🔍  Checking for missing or incorrect database entries for the new device..."
 device_check_db=$(sqlite3 /opt/patchpilot_server/patchpilot.db "SELECT * FROM devices WHERE device_id='$new_device_id';")
 if [ -n "$device_check_db" ]; then
-    echo "✔️  device entry found in the database:"
+    echo "✔️  Device entry found in the database:"
     echo "$device_check_db"
 else
-    echo "❌  device entry not found in the database."
+    echo "❌  Device entry not found in the database."
     exit 1
 fi
 
