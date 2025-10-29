@@ -12,10 +12,10 @@ use reqwest::blocking::Client;
 use serde_json::json;
 
 #[cfg(not(windows))]
-fn run_linux_client_loop() -> Result<()> {
-    info!("Linux Patch Client starting...");
+fn run_linux_device_loop() -> Result<()> {
+    info!("Linux Patch Device starting...");
 
-    // Linux client main loop
+    // Linux device main loop
     let client = Client::new();
     let server_url = "http://127.0.0.1:8080";  // Replace with actual server URL
 
@@ -28,7 +28,7 @@ fn run_linux_client_loop() -> Result<()> {
         let system_info = system_info::get_system_info()?; // Fetch system info from system_info.rs
         let response = client.post(format!("{}/api/devices/heartbeat", server_url))
             .json(&json!( {
-                "client_id": "unique-client-id", // Use unique client ID here
+                "device_id": "unique-device-id", // Use unique device ID here
                 "system_info": system_info // Add the actual system info
             }))
             .send();
@@ -37,7 +37,7 @@ fn run_linux_client_loop() -> Result<()> {
             Ok(resp) if resp.status().is_success() => {
                 let status: serde_json::Value = resp.json()?;
                 if status["adopted"].as_bool() == Some(true) {
-                    info!("Client approved. Starting system report loop...");
+                    info!("Device approved. Starting system report loop...");
                     break; // Proceed to normal reporting after adoption
                 } else {
                     info!("Waiting for approval...");
@@ -73,7 +73,7 @@ fn run_linux_client_loop() -> Result<()> {
         let system_info = system_info::get_system_info()?; // Fetch system info from system_info.rs
         let response = client.post(format!("{}/api/devices/update_status", server_url))
             .json(&json!( {
-                "client_id": "unique-client-id", // Replace with actual unique client ID
+                "device_id": "unique-device-id", // Replace with actual unique device ID
                 "status": "active", // Customize status if needed
                 "system_info": system_info // Send system info here
             }))
@@ -92,7 +92,7 @@ fn main() -> Result<()> {
     // Initialize logger
     SimpleLogger::init(LevelFilter::Info, Config::default()).unwrap();
 
-    info!("Rust Patch Client starting...");
+    info!("Rust Patch Device starting...");
 
     // Spawn self-update thread
     thread::spawn(|| {
@@ -114,8 +114,8 @@ fn main() -> Result<()> {
 
     #[cfg(not(windows))] // Linux or other non-Windows systems
     {
-        if let Err(e) = run_linux_client_loop() {
-            error!("Linux client loop failed: {:?}", e);
+        if let Err(e) = run_linux_device_loop() {
+            error!("Linux device loop failed: {:?}", e);
         }
     }
 
