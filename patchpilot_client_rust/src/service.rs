@@ -15,7 +15,7 @@ mod windows_service {
 
     pub fn run_service() -> Result<()> {
         log::info!("Starting Windows service...");
-        service_dispatcher::start("RustPatchClientService", ffi_service_main)?;
+        service_dispatcher::start("RustPatchDeviceService", ffi_service_main)?; // Renamed service name to "Device"
         Ok(())
     }
 
@@ -26,7 +26,7 @@ mod windows_service {
     }
 
     fn run() -> Result<()> {
-        let status_handle = service_control_handler::register("RustPatchClientService", move |control_event| {
+        let status_handle = service_control_handler::register("RustPatchDeviceService", move |control_event| { // Renamed service name to "Device"
             match control_event {
                 ServiceControl::Stop | ServiceControl::Shutdown => {
                     log::info!("Service stopping...");
@@ -51,21 +51,21 @@ mod windows_service {
 
         let client = Client::new();
         let server_url = "http://127.0.0.1:8080"; // Replace with actual server URL
-        let client_id = "unique-client-id"; // Replace with actual client ID
+        let device_id = "unique-device-id"; // Replaced "client_id" with "device_id"
 
         // Heartbeat and adoption check loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
-            log::info!("Checking adoption status...");
+            log::info!("Checking adoption status for device...");
 
             let response = client.post(format!("{}/api/devices/heartbeat", server_url))
-                .json(&json!({ "client_id": client_id }))
+                .json(&json!({ "device_id": device_id })) // Replaced "client_id" with "device_id"
                 .send();
 
             match response {
                 Ok(resp) if resp.status().is_success() => {
                     let status: serde_json::Value = resp.json()?;
                     if status["adopted"].as_bool() == Some(true) {
-                        log::info!("Client approved. Starting regular updates...");
+                        log::info!("Device approved. Starting regular updates...");
                         break; // Proceed to regular update mode
                     } else {
                         log::info!("Waiting for approval...");
@@ -81,12 +81,12 @@ mod windows_service {
 
         // Regular system update loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
-            log::info!("Sending system update...");
+            log::info!("Sending system update for device...");
 
             let sys_info = "System info goes here"; // Gather and format system info here
             let response = client.post(format!("{}/api/devices/update_status", server_url))
                 .json(&json!( {
-                    "client_id": client_id,
+                    "device_id": device_id, // Replaced "client_id" with "device_id"
                     "status": "active", // Update status
                     "system_info": sys_info,
                 }))
@@ -121,21 +121,21 @@ mod unix_service {
 
         let client = Client::new();
         let server_url = "http://127.0.0.1:8080"; // Replace with actual server URL
-        let client_id = "unique-client-id"; // Replace with actual client ID
+        let device_id = "unique-device-id"; // Replaced "client_id" with "device_id"
 
         // Heartbeat and adoption check loop
         loop {
-            log::info!("Checking adoption status...");
+            log::info!("Checking adoption status for device...");
 
             let response = client.post(format!("{}/api/devices/heartbeat", server_url))
-                .json(&json!({ "client_id": client_id }))
+                .json(&json!({ "device_id": device_id })) // Replaced "client_id" with "device_id"
                 .send();
 
             match response {
                 Ok(resp) if resp.status().is_success() => {
                     let status: serde_json::Value = resp.json()?;
                     if status["adopted"].as_bool() == Some(true) {
-                        log::info!("Client approved. Starting system updates...");
+                        log::info!("Device approved. Starting system updates...");
                         break; // Proceed to regular update mode
                     } else {
                         log::info!("Waiting for approval...");
@@ -150,12 +150,12 @@ mod unix_service {
 
         // Regular system update loop
         loop {
-            log::info!("Sending system update...");
+            log::info!("Sending system update for device...");
 
             let sys_info = "System info goes here"; // Gather and format system info here
             let response = client.post(format!("{}/api/devices/update_status", server_url))
                 .json(&json!( {
-                    "client_id": client_id,
+                    "device_id": device_id, // Replaced "client_id" with "device_id"
                     "status": "active", // Update status
                     "system_info": sys_info,
                 }))
