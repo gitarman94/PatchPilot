@@ -39,10 +39,10 @@ console_handler.setLevel(logging.ERROR)  # Only log errors to the console
 console_handler.setFormatter(formatter)
 app.logger.addHandler(console_handler)
 
-# Define the Client model
-class Client(db.Model):
+# Define the Device model
+class Device(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    client_name = db.Column(db.String(100), nullable=False)
+    device_name = db.Column(db.String(100), nullable=False)
     hostname = db.Column(db.String(100), nullable=False, unique=True)
     os_name = db.Column(db.String(50), nullable=False)
     architecture = db.Column(db.String(50), nullable=False)
@@ -61,7 +61,7 @@ class Client(db.Model):
     ping_latency = db.Column(db.Float, nullable=True)
 
     def update_system_info(self):
-        """Fetch and update system information for the client."""
+        """Fetch and update system information for the device."""
         system_info = get_system_info()
         self.cpu = system_info['cpu']
         self.ram_total = system_info['ram_total']
@@ -112,68 +112,68 @@ def get_ping_latency(host="8.8.8.8"):
 @app.route('/api/devices/heartbeat', methods=['POST'])
 def heartbeat():
     data = request.get_json()
-    client_id = data.get('client_id')
+    device_id = data.get('device_id')
     system_info = data.get('system_info')
     
     # Log the incoming heartbeat
-    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Heartbeat received from client: {client_id}")
+    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Heartbeat received from device: {device_id}")
 
-    client = Client.query.filter_by(hostname=client_id).first()
+    device = Device.query.filter_by(hostname=device_id).first()
 
-    if client:
-        if client.os_name == system_info['os_name'] and client.architecture == system_info['architecture']:
-            client.update_system_info()
-            client.last_checkin = datetime.utcnow()
+    if device:
+        if device.os_name == system_info['os_name'] and device.architecture == system_info['architecture']:
+            device.update_system_info()
+            device.last_checkin = datetime.utcnow()
             db.session.commit()
-            app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Client {client_id} approved and updated.")
-            return jsonify({'adopted': True, 'message': 'Client approved and updated.'})
+            app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Device {device_id} approved and updated.")
+            return jsonify({'adopted': True, 'message': 'Device approved and updated.'})
         else:
-            app.logger.warning(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Client {client_id} OS/architecture mismatch. Awaiting approval.")
-            return jsonify({'adopted': False, 'message': 'Client OS/architecture mismatch. Awaiting approval.'})
+            app.logger.warning(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Device {device_id} OS/architecture mismatch. Awaiting approval.")
+            return jsonify({'adopted': False, 'message': 'Device OS/architecture mismatch. Awaiting approval.'})
     
-    new_client = Client(
-        client_name=client_id,
-        hostname=client_id,
+    new_device = Device(
+        device_name=device_id,
+        hostname=device_id,
         os_name=system_info['os_name'],
         architecture=system_info['architecture'],
         last_checkin=datetime.utcnow(),
         approved=False
     )
-    db.session.add(new_client)
+    db.session.add(new_device)
     db.session.commit()
-    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - New client {client_id} added. Awaiting approval.")
-    return jsonify({'adopted': False, 'message': 'New client. Awaiting approval.'})
+    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - New device {device_id} added. Awaiting approval.")
+    return jsonify({'adopted': False, 'message': 'New device. Awaiting approval.'})
 
-# Route to get all client data for AJAX update
-@app.route('/api/devicess', methods=['GET'])
-def get_clients():
-    """Return client data in JSON format for AJAX updates."""
-    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices - Client data requested.")
+# Route to get all device data for AJAX update
+@app.route('/api/devices', methods=['GET'])
+def get_devices():
+    """Return device data in JSON format for AJAX updates."""
+    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices - Device data requested.")
 
-    clients = Client.query.all()
-    clients_data = []
+    devices = Device.query.all()
+    devices_data = []
     
-    for client in clients:
-        client_info = {
-            'client_name': client.client_name,
-            'hostname': client.hostname,
-            'os_name': client.os_name,
-            'architecture': client.architecture,
-            'last_checkin': client.last_checkin.strftime('%Y-%m-%d %H:%M:%S'),
-            'cpu': client.cpu,
-            'ram_total': client.ram_total,
-            'ram_used': client.ram_used,
-            'ram_free': client.ram_free,
-            'disk_total': client.disk_total,
-            'disk_free': client.disk_free,
-            'disk_health': client.disk_health,
-            'network_throughput': client.network_throughput,
-            'ping_latency': client.ping_latency
+    for device in devices:
+        device_info = {
+            'device_name': device.device_name,
+            'hostname': device.hostname,
+            'os_name': device.os_name,
+            'architecture': device.architecture,
+            'last_checkin': device.last_checkin.strftime('%Y-%m-%d %H:%M:%S'),
+            'cpu': device.cpu,
+            'ram_total': device.ram_total,
+            'ram_used': device.ram_used,
+            'ram_free': device.ram_free,
+            'disk_total': device.disk_total,
+            'disk_free': device.disk_free,
+            'disk_health': device.disk_health,
+            'network_throughput': device.network_throughput,
+            'ping_latency': device.ping_latency
         }
-        clients_data.append(client_info)
+        devices_data.append(device_info)
     
-    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devicess - Returned {len(clients_data)} clients.")
-    return jsonify(clients_data)
+    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices - Returned {len(devices_data)} devices.")
+    return jsonify(devices_data)
 
 # Get health status of server
 @app.route('/api/health', methods=['GET'])
@@ -186,8 +186,8 @@ def health():
 @app.route('/')
 def dashboard():
     """Render the dashboard template without authentication."""
-    clients = Client.query.all()
-    return render_template('dashboard.html', clients=clients, now=datetime.utcnow())
+    devices = Device.query.all()
+    return render_template('dashboard.html', devices=devices, now=datetime.utcnow())
 
 # General error handler
 @app.errorhandler(Exception)
@@ -205,11 +205,5 @@ if __name__ == '__main__':
     with app.app_context():
         print("Listing all routes:")
         for rule in app.url_map.iter_rules():
-            print(f"{rule.endpoint}: {rule}")
-    app.run(debug=True)
-
-
-
-
-
-
+            print(f"  {rule} -> {rule.endpoint}")
+    app.run(debug=True, host='0.0.0.0', port=5000)
