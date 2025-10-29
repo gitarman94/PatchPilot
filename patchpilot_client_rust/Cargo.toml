@@ -3,15 +3,15 @@ name = "rust_patch_client"
 version = "0.1.0"
 
 [dependencies]
-windows-service = { version = "*", optional = true }
-reqwest = { version = "*", features = ["blocking", "json"] }
-serde = { version = "*", features = ["derive"] }
-serde_json = "*"
-log = "*"
-simplelog = "*"
-anyhow = "*"
-sysinfo = { version = "*", optional = true }
-lazy_static = "*"
+windows-service = "^0.4"
+reqwest = { version = "^0.11", features = ["blocking", "json"] }
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = "^1.0"
+log = "^0.4"
+simplelog = "^0.11"
+anyhow = "^1.0"
+sysinfo = "^0.19"
+lazy_static = "^1.4"
 
 [features]
 default = []
@@ -25,3 +25,4 @@ path = "src/main.rs"
 [[bin]]
 name = "patchpilot_updater"
 path = "src/patchpilot_updater.rs"
+
