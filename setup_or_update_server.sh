@@ -138,7 +138,7 @@ User=patchpilot
 Group=patchpilot
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_FILE}
-ExecStart=${VENV_DIR}/bin/gunicorn -w 4 -b 0.0.0.0:8080 server:app
+ExecStart=/opt/patchpilot_server/venv/bin/gunicorn -w 4 -b 0.0.0.0:8080 --chdir /opt/patchpilot_server server:app
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
 
