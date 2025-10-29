@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+cd /
 set -euo pipefail
 
 GITHUB_USER="gitarman94"
