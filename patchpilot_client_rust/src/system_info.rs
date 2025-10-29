@@ -7,7 +7,7 @@ mod windows {
     use super::*;
 
     pub fn get_serial_number() -> Result<String> {
-        log::info!("Retrieving serial number for Windows...");
+        log::info!("Retrieving serial number for Windows device...");
         let serial_number = Command::new("wmic")
             .arg("bios")
             .arg("get")
@@ -32,7 +32,7 @@ mod windows {
     }
 
     pub fn get_os_info() -> Result<String> {
-        log::info!("Retrieving OS information for Windows...");
+        log::info!("Retrieving OS information for Windows device...");
         let os_version = Command::new("systeminfo")
             .arg("/fo")
             .arg("CSV")
@@ -49,7 +49,7 @@ mod windows {
     }
 
     pub fn get_cpu_info() -> Result<f32> {
-        log::info!("Retrieving CPU load for Windows...");
+        log::info!("Retrieving CPU load for Windows device...");
         let cpu_load = Command::new("wmic")
             .arg("cpu")
             .arg("get")
@@ -75,7 +75,7 @@ mod windows {
     }
 
     pub fn get_memory_info() -> Result<serde_json::Value> {
-        log::info!("Retrieving memory info for Windows...");
+        log::info!("Retrieving memory info for Windows device...");
         let memory_stats = Command::new("systeminfo")
             .arg("/fo")
             .arg("CSV")
@@ -118,7 +118,7 @@ mod unix {
     use super::*;
 
     pub fn get_serial_number() -> Result<String> {
-        log::info!("Retrieving serial number for Unix...");
+        log::info!("Retrieving serial number for Unix device...");
         let serial_number = Command::new("dmidecode")
             .arg("-s")
             .arg("system-serial-number")
@@ -142,7 +142,7 @@ mod unix {
     }
 
     pub fn get_os_info() -> Result<String> {
-        log::info!("Retrieving OS information for Unix...");
+        log::info!("Retrieving OS information for Unix device...");
         let uname_output = Command::new("uname")
             .arg("-a")
             .output()
@@ -158,7 +158,7 @@ mod unix {
     }
 
     pub fn get_cpu_info() -> Result<f32> {
-        log::info!("Retrieving CPU load for Unix...");
+        log::info!("Retrieving CPU load for Unix device...");
         let cpu_load = Command::new("top")
             .arg("-b")
             .arg("-n1")
@@ -188,7 +188,7 @@ mod unix {
     }
 
     pub fn get_memory_info() -> Result<serde_json::Value> {
-        log::info!("Retrieving memory info for Unix...");
+        log::info!("Retrieving memory info for Unix device...");
         let free_memory = Command::new("free")
             .arg("-b")
             .output()
@@ -217,7 +217,7 @@ mod unix {
 pub fn get_system_info() -> Result<serde_json::Value> {
     #[cfg(windows)]
     {
-        log::info!("Getting system info for Windows...");
+        log::info!("Getting system info for Windows device...");
         let serial_number = windows::get_serial_number()?;
         let os_info = windows::get_os_info()?;
         let cpu_info = windows::get_cpu_info()?;
@@ -236,7 +236,7 @@ pub fn get_system_info() -> Result<serde_json::Value> {
 
     #[cfg(unix)]
     {
-        log::info!("Getting system info for Unix...");
+        log::info!("Getting system info for Unix device...");
         let serial_number = unix::get_serial_number()?;
         let os_info = unix::get_os_info()?;
         let cpu_info = unix::get_cpu_info()?;
