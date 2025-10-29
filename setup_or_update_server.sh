@@ -102,6 +102,10 @@ cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 chmod +x "${APP_DIR}/server.py"
 chmod +x "${APP_DIR}/server_test.sh"
 
+touch /opt/patchpilot_server/server.log
+chown patchpilot:patchpilot /opt/patchpilot_server/server.log
+chmod 644 /opt/patchpilot_server/server.log
+
 # Ensure patchpilot user exists
 if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -s /usr/sbin/nologin patchpilot
