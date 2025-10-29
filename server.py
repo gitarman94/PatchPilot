@@ -201,10 +201,10 @@ with app.app_context():
     db.create_all()
 
 if __name__ == '__main__':
-    # Initialize the database if necessary
     with app.app_context():
-        app.logger.info("Listing all routes:")
+        print("Listing all routes:")
         for rule in app.url_map.iter_rules():
-            app.logger.info(f"{rule.endpoint}: {rule}")
-    
-    app.run(debug=False)  # Make sure to run with debug=False to avoid terminal prints
+            print(f"{rule.endpoint}: {rule}")
+    app.run(debug=True)
+
+
