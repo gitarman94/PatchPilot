@@ -141,6 +141,7 @@ EnvironmentFile=${ENV_FILE}
 ExecStart=/opt/patchpilot_server/venv/bin/gunicorn -w 4 -b 0.0.0.0:8080 --chdir /opt/patchpilot_server server:app
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
+RestartSec=10
 
 # Redirect both stdout and stderr to the server log file
 StandardOutput=append:${APP_DIR}/server.log
