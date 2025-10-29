@@ -78,7 +78,7 @@ else
     exit 1
 fi
 
-# 7. Verifying communication for /api/devices/heartbeat endpoint (to test client-server communication)
+# 7. Verifying communication for /api/devices/heartbeat endpoint (to test device-server communication)
 echo "🔍  Verifying /api/devices/heartbeat route..."
 heartbeat_response=$(curl -s -w "%{http_code}" -o heartbeat_response.json http://localhost:8080/api/devices/heartbeat)
 
@@ -99,18 +99,18 @@ else
     exit 1
 fi
 
-# 8. Checking client registration status (this tests if the client is visible in the web UI)
-echo "🔍  Verifying client registration status in the web UI..."
-# Fetch client list from API (assuming there's an endpoint like /api/devices)
-client_check=$(curl -s http://localhost:8080/api/devices)
+# 8. Checking device registration status (this tests if the device is visible in the web UI)
+echo "🔍  Verifying device registration status in the web UI..."
+# Fetch device list from API (assuming there's an endpoint like /api/devices)
+device_check=$(curl -s http://localhost:8080/api/devices)
 
-# Check if new client exists in the list (you can customize the client name or ID here)
-new_client_id="example-client-id"  # Replace with actual client ID you're expecting
-if echo "$client_check" | jq -e ".[] | select(.client_id == \"$new_client_id\")" > /dev/null; then
-    echo "✔️  Client is registered and visible in the web UI."
+# Check if new device exists in the list (you can customize the device name or ID here)
+new_device_id="example-device-id"  # Replace with actual device ID you're expecting
+if echo "$device_check" | jq -e ".[] | select(.device_id == \"$new_device_id\")" > /dev/null; then
+    echo "✔️  device is registered and visible in the web UI."
 else
-    echo "❌  Client is NOT registered or not visible in the web UI."
-    echo "Response: $client_check"
+    echo "❌  device is NOT registered or not visible in the web UI."
+    echo "Response: $device_check"
     exit 1
 fi
 
@@ -146,11 +146,11 @@ fi
 # 12. Checking Database Communication
 echo "🔍  Checking database communication (SQLite)..."
 # Check if the database is accessible and the required table exists
-sqlite3 /opt/patchpilot_server/patchpilot.db ".tables" | grep -q "client"
+sqlite3 /opt/patchpilot_server/patchpilot.db ".tables" | grep -q "device"
 if [ $? -eq 0 ]; then
-    echo "✔️  Database table 'client' exists."
+    echo "✔️  Database table 'device' exists."
 else
-    echo "❌  Database table 'client' not found."
+    echo "❌  Database table 'device' not found."
     exit 1
 fi
 
@@ -166,13 +166,13 @@ else
 fi
 
 # 14. Checking for missing or incorrect database entries
-echo "🔍  Checking for missing or incorrect database entries for the new client..."
-client_check_db=$(sqlite3 /opt/patchpilot_server/patchpilot.db "SELECT * FROM devices WHERE client_id='$new_client_id';")
-if [ -n "$client_check_db" ]; then
-    echo "✔️  Client entry found in the database:"
-    echo "$client_check_db"
+echo "🔍  Checking for missing or incorrect database entries for the new device..."
+device_check_db=$(sqlite3 /opt/patchpilot_server/patchpilot.db "SELECT * FROM devices WHERE device_id='$new_device_id';")
+if [ -n "$device_check_db" ]; then
+    echo "✔️  device entry found in the database:"
+    echo "$device_check_db"
 else
-    echo "❌  Client entry not found in the database."
+    echo "❌  device entry not found in the database."
     exit 1
 fi
 
