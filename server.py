@@ -19,7 +19,7 @@ app.secret_key = os.getenv('SECRET_KEY', 'defaultsecretkey')
 db = SQLAlchemy(app)
 
 # --- Logging Configuration ---
-LOG_FILE = 'server.log'
+LOG_FILE = '/opt/patchpilot_server/server.log'
 
 # Set up rotating log handler (5MB max file size, keep 5 backup files)
 handler = RotatingFileHandler(LOG_FILE, maxBytes=5*1024*1024, backupCount=5)
@@ -206,5 +206,6 @@ if __name__ == '__main__':
             print(f"{rule.endpoint}: {url_for(rule.endpoint)}")
 
     app.run(debug=True)
+
 
 
