@@ -26,10 +26,10 @@ const GITHUB_USER: &str = "gitarman94";
 const GITHUB_REPO: &str = "PatchPilot";
 
 #[cfg(windows)]
-const EXE_NAME: &str = "rust_patch_client.exe";
+const EXE_NAME: &str = "rust_patch_device.exe"; // Renamed executable to "device"
 
 #[cfg(not(windows))]
-const EXE_NAME: &str = "rust_patch_client";
+const EXE_NAME: &str = "rust_patch_device"; // Renamed executable to "device"
 
 #[cfg(windows)]
 const UPDATER_NAME: &str = "rust_patch_updater.exe";
@@ -51,7 +51,7 @@ pub fn check_and_update() -> Result<()> {
     );
 
     let resp = client.get(&url)
-        .header("User-Agent", "RustPatchClientUpdater")
+        .header("User-Agent", "RustPatchDeviceUpdater") // Renamed updater to "device"
         .send()?
         .error_for_status()?
         .json::<ReleaseInfo>()?;
@@ -98,7 +98,7 @@ fn download_file(client: &Client, url: &str, dest: &PathBuf) -> Result<()> {
     log::info!("Downloading file from: {}", url);
     
     let mut resp = client.get(url)
-        .header("User-Agent", "RustPatchClientUpdater")
+        .header("User-Agent", "RustPatchDeviceUpdater") // Renamed updater to "device"
         .send()?
         .error_for_status()?;
 
