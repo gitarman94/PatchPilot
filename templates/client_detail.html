@@ -76,7 +76,7 @@
                     document.getElementById('last-checkin').textContent = new Date(device.last_checkin).toLocaleString();
 
                     // Populate system stats
-                    document.getElementById('system-info').innerHTML = `
+                    document.getElementById('system-info').innerHTML = ` 
                         <p><strong>CPU Usage:</strong> ${device.cpu}%</p>
                         <p><strong>Total RAM:</strong> ${(device.ram_total / 1024 / 1024 / 1024).toFixed(2)} GB</p>
                         <p><strong>Used RAM:</strong> ${(device.ram_used / 1024 / 1024 / 1024).toFixed(2)} GB</p>
