@@ -146,11 +146,11 @@ fi
 # 12. Checking Database Communication
 echo "🔍  Checking database communication (SQLite)..."
 # Check if the database is accessible and the required table exists
-sqlite3 /opt/patchpilot_server/patchpilot.db ".tables" | grep -q "devices"
+sqlite3 /opt/patchpilot_server/patchpilot.db ".tables" | grep -q "client"
 if [ $? -eq 0 ]; then
-    echo "✔️  Database table 'devices' exists."
+    echo "✔️  Database table 'client' exists."
 else
-    echo "❌  Database table 'devices' not found."
+    echo "❌  Database table 'client' not found."
     exit 1
 fi
 
