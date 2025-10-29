@@ -14,6 +14,7 @@ mod windows_service {
     }
 
     pub fn run_service() -> Result<()> {
+        log::info!("Starting Windows service...");
         service_dispatcher::start("RustPatchClientService", ffi_service_main)?;
         Ok(())
     }
@@ -28,6 +29,7 @@ mod windows_service {
         let status_handle = service_control_handler::register("RustPatchClientService", move |control_event| {
             match control_event {
                 ServiceControl::Stop | ServiceControl::Shutdown => {
+                    log::info!("Service stopping...");
                     SERVICE_RUNNING.lock().unwrap().store(false, Ordering::SeqCst);
                     ServiceControlHandlerResult::NoError
                 }
@@ -51,8 +53,10 @@ mod windows_service {
         let server_url = "http://127.0.0.1:8080"; // Replace with actual server URL
         let client_id = "unique-client-id"; // Replace with actual client ID
 
+        // Heartbeat and adoption check loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
-            // Check for adoption status
+            log::info!("Checking adoption status...");
+
             let response = client.post(format!("{}/api/devices/heartbeat", server_url))
                 .json(&json!({ "client_id": client_id }))
                 .send();
@@ -62,25 +66,26 @@ mod windows_service {
                     let status: serde_json::Value = resp.json()?;
                     if status["adopted"].as_bool() == Some(true) {
                         log::info!("Client approved. Starting regular updates...");
-                        break; // Transition to normal update mode
+                        break; // Proceed to regular update mode
                     } else {
                         log::info!("Waiting for approval...");
                     }
                 },
-                _ => log::error!("Failed to check adoption status."),
+                Ok(_) => log::error!("Unexpected response received while checking adoption status."),
+                Err(e) => log::error!("Error checking adoption status: {:?}", e),
             }
 
             // Sleep before the next heartbeat check
             thread::sleep(Duration::from_secs(30)); // Heartbeat interval
         }
 
-        // Send system updates once adopted
+        // Regular system update loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
             log::info!("Sending system update...");
 
             let sys_info = "System info goes here"; // Gather and format system info here
             let response = client.post(format!("{}/api/devices/update_status", server_url))
-                .json(&json!({
+                .json(&json!( {
                     "client_id": client_id,
                     "status": "active", // Update status
                     "system_info": sys_info,
@@ -95,6 +100,8 @@ mod windows_service {
             thread::sleep(Duration::from_secs(600)); // Regular update interval
         }
 
+        // Stop the service
+        log::info!("Service stopping...");
         status.current_state = ServiceState::Stopped;
         status_handle.set_service_status(status)?;
 
@@ -110,12 +117,16 @@ mod unix_service {
     use std::{thread, time::Duration};
 
     pub fn run_unix_service() -> Result<()> {
+        log::info!("Starting Unix service...");
+
         let client = Client::new();
         let server_url = "http://127.0.0.1:8080"; // Replace with actual server URL
         let client_id = "unique-client-id"; // Replace with actual client ID
 
+        // Heartbeat and adoption check loop
         loop {
-            // Check adoption status
+            log::info!("Checking adoption status...");
+
             let response = client.post(format!("{}/api/devices/heartbeat", server_url))
                 .json(&json!({ "client_id": client_id }))
                 .send();
@@ -125,24 +136,25 @@ mod unix_service {
                     let status: serde_json::Value = resp.json()?;
                     if status["adopted"].as_bool() == Some(true) {
                         log::info!("Client approved. Starting system updates...");
-                        break; // Transition to normal update mode
+                        break; // Proceed to regular update mode
                     } else {
                         log::info!("Waiting for approval...");
                     }
                 },
-                _ => log::error!("Failed to check adoption status."),
+                Ok(_) => log::error!("Unexpected response received while checking adoption status."),
+                Err(e) => log::error!("Error checking adoption status: {:?}", e),
             }
 
             thread::sleep(Duration::from_secs(30)); // Heartbeat interval
         }
 
-        // Send system updates once adopted
+        // Regular system update loop
         loop {
             log::info!("Sending system update...");
 
             let sys_info = "System info goes here"; // Gather and format system info here
             let response = client.post(format!("{}/api/devices/update_status", server_url))
-                .json(&json!({
+                .json(&json!( {
                     "client_id": client_id,
                     "status": "active", // Update status
                     "system_info": sys_info,
