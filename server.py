@@ -2,6 +2,7 @@ import os
 import subprocess
 import psutil
 import logging
+from logging.handlers import RotatingFileHandler
 from flask import Flask, render_template, jsonify, request
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
@@ -19,10 +20,24 @@ db = SQLAlchemy(app)
 
 # --- Logging Configuration ---
 LOG_FILE = 'server.log'
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[
-    logging.FileHandler(LOG_FILE),
-    logging.StreamHandler()
-])
+
+# Set up rotating log handler (5MB max file size, keep 5 backup files)
+handler = RotatingFileHandler(LOG_FILE, maxBytes=5*1024*1024, backupCount=5)
+handler.setLevel(logging.INFO)
+
+# Define log format
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+
+# Add the handler to the app's logger
+app.logger.addHandler(handler)
+app.logger.setLevel(logging.INFO)
+
+# Optionally, log to the console as well (stdout)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(formatter)
+app.logger.addHandler(console_handler)
 
 # Define the Client model
 class Client(db.Model):
@@ -99,6 +114,10 @@ def heartbeat():
     data = request.get_json()
     client_id = data.get('client_id')
     system_info = data.get('system_info')
+    
+    # Log the incoming heartbeat
+    app.logger.info(f"Heartbeat received from client: {client_id} at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
+
     client = Client.query.filter_by(hostname=client_id).first()
 
     if client:
@@ -106,8 +125,10 @@ def heartbeat():
             client.update_system_info()
             client.last_checkin = datetime.utcnow()
             db.session.commit()
+            app.logger.info(f"Client {client_id} approved and updated.")
             return jsonify({'adopted': True, 'message': 'Client approved and updated.'})
         else:
+            app.logger.warning(f"Client {client_id} OS/architecture mismatch. Awaiting approval.")
             return jsonify({'adopted': False, 'message': 'Client OS/architecture mismatch. Awaiting approval.'})
     
     new_client = Client(
@@ -120,17 +141,14 @@ def heartbeat():
     )
     db.session.add(new_client)
     db.session.commit()
-
+    app.logger.info(f"New client {client_id} added. Awaiting approval.")
     return jsonify({'adopted': False, 'message': 'New client. Awaiting approval.'})
-
-# Initialize the database if necessary
-with app.app_context():
-    db.create_all()
 
 # Route to get all client data for AJAX update
 @app.route('/api/clients', methods=['GET'])
 def get_clients():
     """Return client data in JSON format for AJAX updates."""
+    app.logger.info(f"Client data requested at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
     clients = Client.query.all()
     clients_data = []
     
@@ -153,13 +171,15 @@ def get_clients():
         }
         clients_data.append(client_info)
     
+    app.logger.info(f"Returned {len(clients_data)} clients.")
     return jsonify(clients_data)
-#Get health status of server
+
+# Get health status of server
 @app.route('/api/health', methods=['GET'])
 def health():
     """Return a simple health check response."""
+    app.logger.info(f"Health check requested at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
     return jsonify({'status': 'ok'})
-
 
 # Root route - Dashboard
 @app.route('/')
@@ -168,7 +188,17 @@ def dashboard():
     clients = Client.query.all()
     return render_template('dashboard.html', clients=clients, now=datetime.utcnow())
 
+# General error handler
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Log unexpected errors
+    app.logger.error(f"An unexpected error occurred: {str(e)}")
+    return jsonify({'error': 'An unexpected error occurred'}), 500
+
+# Initialize the database if necessary
+with app.app_context():
+    db.create_all()
+
 if __name__ == '__main__':
     app.logger.info("Starting the PatchPilot server...")
     app.run(debug=True)
-
