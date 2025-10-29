@@ -22,7 +22,7 @@ PatchPilot is a cross-platform patch client designed to manage and report softwa
 ```
 PatchPilot/
 │
-│   server.py                       # Main backend file - A Flask-based Python server that handles client registrations, update checks, and administration tasks.
+│   server.py                       # Main backend file - A Flask v3 based Python server that handles client registrations, update checks, and administration tasks.
 │   setup_or_update_client.ps1       # PowerShell script for installing or updating the client on Windows machines.
 │   setup_or_update_client.sh        # Shell script for installing or updating the client on Linux machines.
 │   setup_or_update_server.sh        # Shell script for setting up or updating the server environment on Linux machines.
