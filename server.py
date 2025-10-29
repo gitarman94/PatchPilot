@@ -11,7 +11,7 @@ from flask_sqlalchemy import SQLAlchemy
 app = Flask(__name__)
 
 # Set the DATABASE_URI environment variable if not already set
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI', 'sqlite:///patchpilot.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI', 'sqlite:////opt/patchpilot_server/patchpilot.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.secret_key = os.getenv('SECRET_KEY', 'defaultsecretkey')
 
@@ -207,6 +207,7 @@ if __name__ == '__main__':
         for rule in app.url_map.iter_rules():
             print(f"{rule.endpoint}: {rule}")
     app.run(debug=True)
+
 
 
 
