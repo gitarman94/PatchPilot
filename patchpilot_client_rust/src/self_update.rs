@@ -58,7 +58,7 @@ pub fn check_and_update() -> Result<()> {
 
     let latest_version = resp.tag_name.as_str();
     if latest_version == current_version {
-        log::info!("Already on latest version.");
+        log::info!("Already on the latest version: {}", latest_version);
         return Ok(());
     }
 
@@ -68,6 +68,8 @@ pub fn check_and_update() -> Result<()> {
         .find(|a| a.name == EXE_NAME)
         .ok_or_else(|| anyhow::anyhow!("Executable asset not found"))?;
 
+    log::info!("Downloading new executable: {}", asset.browser_download_url);
+
     let tmp_dir = env::temp_dir();
     let new_exe_path = tmp_dir.join(EXE_NAME);
     download_file(&client, &asset.browser_download_url, &new_exe_path)?;
@@ -76,6 +78,8 @@ pub fn check_and_update() -> Result<()> {
     let updater_path = env::current_exe()?
         .parent().expect("Executable must have a parent directory")
         .join(UPDATER_NAME);
+
+    log::info!("Launching updater: {}", updater_path.display());
 
     let status = Command::new(&updater_path)
         .arg(env::current_exe()?)
@@ -91,12 +95,18 @@ pub fn check_and_update() -> Result<()> {
 }
 
 fn download_file(client: &Client, url: &str, dest: &PathBuf) -> Result<()> {
-    log::info!("Downloading from {}", url);
+    log::info!("Downloading file from: {}", url);
+    
     let mut resp = client.get(url)
         .header("User-Agent", "RustPatchClientUpdater")
         .send()?
         .error_for_status()?;
+
+    log::info!("Saving file to: {}", dest.display());
+    
     let mut file = fs::File::create(dest)?;
     std::io::copy(&mut resp, &mut file)?;
+
+    log::info!("Download complete.");
     Ok(())
 }
