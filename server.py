@@ -111,51 +111,59 @@ def get_ping_latency(host="8.8.8.8"):
 # Heartbeat logic to check adoption
 @app.route('/api/devices/heartbeat', methods=['POST'])
 def heartbeat():
-    # Try to get the JSON data from the request
-    data = request.get_json()
+    try:
+        # Try to get the JSON data from the request
+        data = request.get_json()
+        app.logger.info(f"Received data: {data}")
 
-    # Validate the incoming data
-    if not data or 'device_id' not in data or 'system_info' not in data:
-        app.logger.error("Invalid heartbeat data received. Missing 'device_id' or 'system_info'.")
-        return jsonify({'error': 'Invalid data. Missing required fields.'}), 400
+        # Validate the incoming data
+        if not data or 'device_id' not in data or 'system_info' not in data:
+            app.logger.error("Invalid heartbeat data received. Missing 'device_id' or 'system_info'.")
+            return jsonify({'error': 'Invalid data. Missing required fields.'}), 400
 
-    device_id = data['device_id']
-    system_info = data['system_info']
+        device_id = data['device_id']
+        system_info = data['system_info']
 
-    # Log the incoming heartbeat
-    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Heartbeat received from device: {device_id}")
+        # Log the incoming heartbeat
+        app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Heartbeat received from device: {device_id}")
 
-    # Lookup device by hostname (device_id)
-    device = Device.query.filter_by(hostname=device_id).first()
+        # Lookup device by hostname (device_id)
+        device = Device.query.filter_by(hostname=device_id).first()
+        app.logger.info(f"Device found: {device}")
 
-    # Check if the device exists
-    if device:
-        # Check if OS and architecture match
-        if device.os_name == system_info['os_name'] and device.architecture == system_info['architecture']:
-            # Update system information
-            device.update_system_info()
-            device.last_checkin = datetime.utcnow()
-            db.session.commit()
-            app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Device {device_id} approved and updated.")
-            return jsonify({'adopted': True, 'message': 'Device approved and updated.'})
-        else:
-            # OS/architecture mismatch
-            app.logger.warning(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Device {device_id} OS/architecture mismatch. Awaiting approval.")
-            return jsonify({'adopted': False, 'message': 'Device OS/architecture mismatch. Awaiting approval.'})
-    
-    # If the device doesn't exist, register a new device
-    new_device = Device(
-        device_name=device_id,
-        hostname=device_id,
-        os_name=system_info['os_name'],
-        architecture=system_info['architecture'],
-        last_checkin=datetime.utcnow(),
-        approved=False
-    )
-    db.session.add(new_device)
-    db.session.commit()
-    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - New device {device_id} added. Awaiting approval.")
-    return jsonify({'adopted': False, 'message': 'New device. Awaiting approval.'})
+        # Check if the device exists
+        if device:
+            # Check if OS and architecture match
+            if device.os_name == system_info['os_name'] and device.architecture == system_info['architecture']:
+                # Update system information
+                device.update_system_info()
+                device.last_checkin = datetime.utcnow()
+                db.session.commit()
+                app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Device {device_id} approved and updated.")
+                return jsonify({'adopted': True, 'message': 'Device approved and updated.'})
+            else:
+                # OS/architecture mismatch
+                app.logger.warning(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Device {device_id} OS/architecture mismatch. Awaiting approval.")
+                return jsonify({'adopted': False, 'message': 'Device OS/architecture mismatch. Awaiting approval.'})
+
+        # If the device doesn't exist, register a new device
+        new_device = Device(
+            device_name=device_id,
+            hostname=device_id,
+            os_name=system_info['os_name'],
+            architecture=system_info['architecture'],
+            last_checkin=datetime.utcnow(),
+            approved=False
+        )
+        db.session.add(new_device)
+        db.session.commit()
+        app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - New device {device_id} added. Awaiting approval.")
+        return jsonify({'adopted': False, 'message': 'New device. Awaiting approval.'})
+
+    except Exception as e:
+        # Log any unexpected errors
+        app.logger.error(f"Error processing heartbeat: {str(e)}")
+        return jsonify({'error': 'An error occurred while processing the heartbeat.'}), 500
 
 # Route to get all device data for AJAX update
 @app.route('/api/devices', methods=['GET'])
@@ -220,5 +228,6 @@ if __name__ == '__main__':
         for rule in app.url_map.iter_rules():
             print(f"  {rule} -> {rule.endpoint}")
     app.run(debug=True, host='0.0.0.0', port=8080)
+
 
 
