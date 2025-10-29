@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Client Detail</title>
+    <title>Device Detail</title>
     <!-- Add your CSS stylesheets here -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css">
@@ -11,8 +11,8 @@
 </head>
 <body>
     <div class="container mt-4">
-        <!-- Client Information -->
-        <h2>Client: <span id="client-name">Loading...</span></h2>
+        <!-- Device Information -->
+        <h2>Device: <span id="device-name">Loading...</span></h2>
         <p>OS: <span id="os-name">Loading...</span></p>
         <p>Last Check-in: <span id="last-checkin">Loading...</span></p>
 
@@ -62,33 +62,33 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const clientId = window.location.pathname.split('/').pop(); // Get the client ID from the URL
+            const deviceId = window.location.pathname.split('/').pop(); // Get the device ID from the URL
             
-            // Fetch client data from the server
-            fetch(`/api/clients/${clientId}`)
+            // Fetch device data from the server
+            fetch(`/api/devices/${deviceId}`)
                 .then(response => response.json())
                 .then(data => {
-                    const client = data;
+                    const device = data;
 
-                    // Populate client info
-                    document.getElementById('client-name').textContent = client.client_name;
-                    document.getElementById('os-name').textContent = client.os_name;
-                    document.getElementById('last-checkin').textContent = new Date(client.last_checkin).toLocaleString();
+                    // Populate device info
+                    document.getElementById('device-name').textContent = device.device_name;
+                    document.getElementById('os-name').textContent = device.os_name;
+                    document.getElementById('last-checkin').textContent = new Date(device.last_checkin).toLocaleString();
 
                     // Populate system stats
                     document.getElementById('system-info').innerHTML = `
-                        <p><strong>CPU Usage:</strong> ${client.cpu}%</p>
-                        <p><strong>Total RAM:</strong> ${(client.ram_total / 1024 / 1024 / 1024).toFixed(2)} GB</p>
-                        <p><strong>Used RAM:</strong> ${(client.ram_used / 1024 / 1024 / 1024).toFixed(2)} GB</p>
-                        <p><strong>Free RAM:</strong> ${(client.ram_free / 1024 / 1024 / 1024).toFixed(2)} GB</p>
-                        <p><strong>Disk Health:</strong> ${client.disk_health}</p>
-                        <p><strong>Total Disk:</strong> ${(client.disk_total / 1024 / 1024 / 1024).toFixed(2)} GB</p>
-                        <p><strong>Free Disk:</strong> ${(client.disk_free / 1024 / 1024 / 1024).toFixed(2)} GB</p>
+                        <p><strong>CPU Usage:</strong> ${device.cpu}%</p>
+                        <p><strong>Total RAM:</strong> ${(device.ram_total / 1024 / 1024 / 1024).toFixed(2)} GB</p>
+                        <p><strong>Used RAM:</strong> ${(device.ram_used / 1024 / 1024 / 1024).toFixed(2)} GB</p>
+                        <p><strong>Free RAM:</strong> ${(device.ram_free / 1024 / 1024 / 1024).toFixed(2)} GB</p>
+                        <p><strong>Disk Health:</strong> ${device.disk_health}</p>
+                        <p><strong>Total Disk:</strong> ${(device.disk_total / 1024 / 1024 / 1024).toFixed(2)} GB</p>
+                        <p><strong>Free Disk:</strong> ${(device.disk_free / 1024 / 1024 / 1024).toFixed(2)} GB</p>
                     `;
 
                     // Network Stats
-                    document.getElementById('network-throughput').textContent = client.network_throughput;
-                    document.getElementById('ping-latency').textContent = client.ping_latency;
+                    document.getElementById('network-throughput').textContent = device.network_throughput;
+                    document.getElementById('ping-latency').textContent = device.ping_latency;
 
                     // Initialize CPU, RAM, and Disk usage charts
                     const cpuCtx = document.getElementById('cpuUsageChart').getContext('2d');
@@ -97,7 +97,7 @@
                         data: {
                             labels: ['CPU Usage', 'Idle'],
                             datasets: [{
-                                data: [client.cpu, 100 - client.cpu],
+                                data: [device.cpu, 100 - device.cpu],
                                 backgroundColor: ['#f56c42', '#42f56c'],
                                 borderColor: '#ffffff',
                                 borderWidth: 1
@@ -111,7 +111,7 @@
                         data: {
                             labels: ['Used RAM', 'Free RAM'],
                             datasets: [{
-                                data: [client.ram_used, client.ram_free],
+                                data: [device.ram_used, device.ram_free],
                                 backgroundColor: ['#f56c42', '#42f56c'],
                                 borderColor: '#ffffff',
                                 borderWidth: 1
@@ -125,7 +125,7 @@
                         data: {
                             labels: ['Used Disk', 'Free Disk'],
                             datasets: [{
-                                data: [client.disk_total - client.disk_free, client.disk_free],
+                                data: [device.disk_total - device.disk_free, device.disk_free],
                                 backgroundColor: ['#f56c42', '#42f56c'],
                                 borderColor: '#ffffff',
                                 borderWidth: 1
@@ -133,7 +133,7 @@
                         }
                     });
                 })
-                .catch(error => console.error('Error fetching client data:', error));
+                .catch(error => console.error('Error fetching device data:', error));
         });
     </script>
 </body>
