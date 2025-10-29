@@ -78,11 +78,47 @@ else
     exit 1
 fi
 
-# 7. Checking system resource usage (CPU, Memory)
+# 7. Verifying communication for /api/devices/heartbeat endpoint (to test client-server communication)
+echo "🔍  Verifying /api/devices/heartbeat route..."
+heartbeat_response=$(curl -s -w "%{http_code}" -o heartbeat_response.json http://localhost:8080/api/devices/heartbeat)
+
+# Log the response
+echo "Heartbeat response HTTP code: $heartbeat_response"
+cat heartbeat_response.json
+
+heartbeat_http_code=$(tail -n1 <<< "$heartbeat_response")
+if [ "$heartbeat_http_code" -eq 200 ]; then
+    if jq -e '.status == "success"' heartbeat_response.json > /dev/null; then
+        echo "✔️  Heartbeat response success."
+    else
+        echo "❌  Heartbeat endpoint returned unexpected content: $(cat heartbeat_response.json)"
+        exit 1
+    fi
+else
+    echo "❌  Heartbeat failed with HTTP code $heartbeat_http_code. Response: $(cat heartbeat_response.json)"
+    exit 1
+fi
+
+# 8. Checking client registration status (this tests if the client is visible in the web UI)
+echo "🔍  Verifying client registration status in the web UI..."
+# Fetch client list from API (assuming there's an endpoint like /api/devices)
+client_check=$(curl -s http://localhost:8080/api/devices)
+
+# Check if new client exists in the list (you can customize the client name or ID here)
+new_client_id="example-client-id"  # Replace with actual client ID you're expecting
+if echo "$client_check" | jq -e ".[] | select(.client_id == \"$new_client_id\")" > /dev/null; then
+    echo "✔️  Client is registered and visible in the web UI."
+else
+    echo "❌  Client is NOT registered or not visible in the web UI."
+    echo "Response: $client_check"
+    exit 1
+fi
+
+# 9. Checking system resource usage (CPU, Memory)
 echo "🔍  Checking system resource usage..."
 top -b -n 1 | head -n 20
 
-# 8. Checking for missing critical Python packages
+# 10. Checking for missing critical Python packages
 echo "🔍  Checking for required Python packages..."
 required_packages=("flask" "flask_sqlalchemy" "flask_cors" "gunicorn" "sqlalchemy")
 missing_packages=""
@@ -97,7 +133,7 @@ else
     exit 1
 fi
 
-# 9. Checking Gunicorn logs for worker-related issues
+# 11. Checking Gunicorn logs for worker-related issues
 echo "🔍  Checking Gunicorn logs for worker issues..."
 gunicorn_logs=$(journalctl -u patchpilot_server.service -n 100 --no-pager | grep -i "worker")
 if [ -n "$gunicorn_logs" ]; then
@@ -105,6 +141,39 @@ if [ -n "$gunicorn_logs" ]; then
     echo "$gunicorn_logs"
 else
     echo "⚠️  No Gunicorn worker logs found (may be okay if startup was clean)."
+fi
+
+# 12. Checking Database Communication
+echo "🔍  Checking database communication (SQLite)..."
+# Check if the database is accessible and the required table exists
+sqlite3 /opt/patchpilot_server/patchpilot.db ".tables" | grep -q "devices"
+if [ $? -eq 0 ]; then
+    echo "✔️  Database table 'devices' exists."
+else
+    echo "❌  Database table 'devices' not found."
+    exit 1
+fi
+
+# 13. Checking database logs for errors related to communication
+echo "🔍  Checking database logs for errors..."
+db_errors=$(journalctl -u patchpilot_server.service -n 100 --no-pager | grep -i "sqlite3")
+if [ -n "$db_errors" ]; then
+    echo "❌  Found database errors:"
+    echo "$db_errors"
+    exit 1
+else
+    echo "✔️  No database errors found."
+fi
+
+# 14. Checking for missing or incorrect database entries
+echo "🔍  Checking for missing or incorrect database entries for the new client..."
+client_check_db=$(sqlite3 /opt/patchpilot_server/patchpilot.db "SELECT * FROM devices WHERE client_id='$new_client_id';")
+if [ -n "$client_check_db" ]; then
+    echo "✔️  Client entry found in the database:"
+    echo "$client_check_db"
+else
+    echo "❌  Client entry not found in the database."
+    exit 1
 fi
 
 # End of script
