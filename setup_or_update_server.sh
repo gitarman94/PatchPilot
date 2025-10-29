@@ -142,6 +142,10 @@ ExecStart=${VENV_DIR}/bin/gunicorn -w 4 -b 0.0.0.0:8080 server:app
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
 
+# Redirect both stdout and stderr to the server log file
+StandardOutput=append:${APP_DIR}/server.log
+StandardError=append:${APP_DIR}/server.log
+
 [Install]
 WantedBy=multi-user.target
 EOF
