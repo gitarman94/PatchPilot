@@ -200,12 +200,14 @@ with app.app_context():
     db.create_all()
 
 if __name__ == '__main__':
+   # Initialize the database if necessary
     with app.app_context():
         print("Listing all routes:")
         for rule in app.url_map.iter_rules():
-            print(f"{rule.endpoint}: {url_for(rule.endpoint)}")
+            print(f"{rule.endpoint}: {rule}")
 
     app.run(debug=True)
+
 
 
 
