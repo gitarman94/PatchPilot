@@ -217,7 +217,10 @@ def handle_exception(e):
 # Initialize the database if necessary
 with app.app_context():
     app.logger.info("Initializing database and creating tables...")
-    db.create_all()
+    try:
+        db.create_all()  # This forces any pending migrations
+    except Exception as e:
+        app.logger.error(f"Database creation failed: {str(e)}")
 
 if __name__ == '__main__':
     with app.app_context():
@@ -225,3 +228,4 @@ if __name__ == '__main__':
         for rule in app.url_map.iter_rules():
             print(f"  {rule} -> {rule.endpoint}")
     app.run(debug=True, host='0.0.0.0', port=8080)
+
