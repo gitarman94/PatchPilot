@@ -109,14 +109,14 @@ def get_ping_latency(host="8.8.8.8"):
     return None
 
 # Heartbeat logic to check adoption
-@app.route('/api/client/heartbeat', methods=['POST'])
+@app.route('/api/devices/heartbeat', methods=['POST'])
 def heartbeat():
     data = request.get_json()
     client_id = data.get('client_id')
     system_info = data.get('system_info')
     
     # Log the incoming heartbeat
-    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/client/heartbeat - Heartbeat received from client: {client_id}")
+    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Heartbeat received from client: {client_id}")
 
     client = Client.query.filter_by(hostname=client_id).first()
 
@@ -125,10 +125,10 @@ def heartbeat():
             client.update_system_info()
             client.last_checkin = datetime.utcnow()
             db.session.commit()
-            app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/client/heartbeat - Client {client_id} approved and updated.")
+            app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Client {client_id} approved and updated.")
             return jsonify({'adopted': True, 'message': 'Client approved and updated.'})
         else:
-            app.logger.warning(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/client/heartbeat - Client {client_id} OS/architecture mismatch. Awaiting approval.")
+            app.logger.warning(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Client {client_id} OS/architecture mismatch. Awaiting approval.")
             return jsonify({'adopted': False, 'message': 'Client OS/architecture mismatch. Awaiting approval.'})
     
     new_client = Client(
@@ -141,14 +141,14 @@ def heartbeat():
     )
     db.session.add(new_client)
     db.session.commit()
-    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/client/heartbeat - New client {client_id} added. Awaiting approval.")
+    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - New client {client_id} added. Awaiting approval.")
     return jsonify({'adopted': False, 'message': 'New client. Awaiting approval.'})
 
 # Route to get all client data for AJAX update
-@app.route('/api/clients', methods=['GET'])
+@app.route('/api/devicess', methods=['GET'])
 def get_clients():
     """Return client data in JSON format for AJAX updates."""
-    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/client - Client data requested.")
+    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices - Client data requested.")
 
     clients = Client.query.all()
     clients_data = []
@@ -172,7 +172,7 @@ def get_clients():
         }
         clients_data.append(client_info)
     
-    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/clients - Returned {len(clients_data)} clients.")
+    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devicess - Returned {len(clients_data)} clients.")
     return jsonify(clients_data)
 
 # Get health status of server
@@ -207,6 +207,7 @@ if __name__ == '__main__':
         for rule in app.url_map.iter_rules():
             print(f"{rule.endpoint}: {rule}")
     app.run(debug=True)
+
 
 
 
