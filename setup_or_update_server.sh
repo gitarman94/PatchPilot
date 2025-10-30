@@ -57,7 +57,7 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
 
     echo "🧹 Removing old files..."
     rm -rf /opt/patchpilot_server
-    rm -rf /tmp/patchpilot*
+    rm -rf /tmp/patchpilot_install*
     rm -rf .rustup
 fi
 
@@ -74,7 +74,7 @@ fi
 
 unzip -o latest.zip
 
-cp -r "/tmp/PatchPilot-main" "${APP_DIR}"
+cp -r "/tmp/patchpilot_install/PatchPilot-main" "${APP_DIR}"
 
 rm -rf "/tmp/patchpilot_install"
 rm /opt/patchpilot_server/*
