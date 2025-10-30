@@ -58,6 +58,7 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Removing old files..."
     rm -rf /opt/patchpilot_server
     rm -rf /tmp/patchpilot*
+    rm -rf .rustup
 fi
 
 # Download latest release from GitHub (no token required for public repo)
