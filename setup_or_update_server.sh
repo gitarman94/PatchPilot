@@ -62,7 +62,8 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
 fi
 
 # Download latest release from GitHub (no token required for public repo)
-cd /tmp
+mkdir /tmp/patchpilot_install
+cd /tmp/patchpilot_install
 curl -L "$ZIP_URL" -o latest.zip
 
 # Check if the ZIP file was downloaded successfully
@@ -77,7 +78,7 @@ echo "temp directory $EXTRACTED_DIR"
 echo "app directory ${APP_DIR}"
 cp -r "/tmp/PatchPilot-main" "${APP_DIR}"
 
-rm -rf "/tmp/Patch*"
+rm -rf "/tmp/patchpilot_install"
 rm /opt/patchpilot_server/*
 mv /opt/patchpilot_server/patchpilot_server/* /opt/patchpilot_server/
 
