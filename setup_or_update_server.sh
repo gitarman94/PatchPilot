@@ -150,7 +150,7 @@ chown -R patchpilot:patchpilot "${APP_DIR}"
 # Build the Rust application
 cd "${APP_DIR}"
 echo "🔨 Building the Rust application..."
-cargo build --release
+/opt/patchpilot_server/.cargo/bin/cargo build --release
 
 # Setup systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
