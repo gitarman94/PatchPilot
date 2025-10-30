@@ -55,6 +55,7 @@ class Device(db.Model):
     last_checkin = db.Column(db.DateTime, nullable=False)
     updates_available = db.Column(db.Boolean, nullable=False, default=False)
     approved = db.Column(db.Boolean, nullable=False, default=False)
+    
     # System info fields
     cpu = db.Column(db.Float, nullable=True)
     ram_total = db.Column(db.BigInteger, nullable=True)
@@ -66,9 +67,12 @@ class Device(db.Model):
     network_throughput = db.Column(db.BigInteger, nullable=True)
     ping_latency = db.Column(db.Float, nullable=True)
 
-    def update_system_info(self):
+    # New fields
+    device_type = db.Column(db.String(50), nullable=True)  # New field: Device type (e.g., "Laptop", "Server")
+    device_model = db.Column(db.String(100), nullable=True)  # New field: Device model (e.g., "XPS 13", "MacBook Pro")
+
+    def update_system_info(self, system_info):
         """Fetch and update system information for the device."""
-        system_info = get_system_info()
         self.cpu = system_info['cpu']
         self.ram_total = system_info['ram_total']
         self.ram_used = system_info['ram_used']
@@ -127,6 +131,8 @@ def heartbeat():
 
         device_id = data.get('device_id')
         system_info = data.get('system_info')
+        device_type = data.get('device_type')  # New field
+        device_model = data.get('device_model')  # New field
 
         if not device_id or not system_info:
             app.logger.error(f"Missing device_id or system_info in the request. Device ID: {device_id}, System Info: {system_info}")
@@ -138,16 +144,14 @@ def heartbeat():
         # Query device
         device = Device.query.filter_by(hostname=device_id).first()
         if device:
-            # Check if device's system information matches the heartbeat data
-            if device.os_name == system_info['os_name'] and device.architecture == system_info['architecture']:
-                device.update_system_info()  # Update system stats for the device
-                device.last_checkin = datetime.utcnow()
-                db.session.commit()
-                app.logger.info(f"Device {device_id} approved and updated.")
-                return jsonify({'adopted': True, 'message': 'Device approved and updated.'})
-            else:
-                app.logger.warning(f"Device {device_id} OS/architecture mismatch. Awaiting approval.")
-                return jsonify({'adopted': False, 'message': 'Device OS/architecture mismatch. Awaiting approval.'})
+            # Update system information and new fields
+            device.update_system_info(system_info)
+            device.device_type = device_type
+            device.device_model = device_model
+            device.last_checkin = datetime.utcnow()
+            db.session.commit()
+            app.logger.info(f"Device {device_id} updated.")
+            return jsonify({'adopted': True, 'message': 'Device updated.'})
 
         # If the device doesn't exist, register a new device
         new_device = Device(
@@ -156,7 +160,9 @@ def heartbeat():
             os_name=system_info['os_name'],
             architecture=system_info['architecture'],
             last_checkin=datetime.utcnow(),
-            approved=False
+            approved=False,
+            device_type=device_type,  # New field
+            device_model=device_model  # New field
         )
         db.session.add(new_device)
         db.session.commit()
@@ -192,7 +198,9 @@ def get_devices():
             'disk_free': device.disk_free,
             'disk_health': device.disk_health,
             'network_throughput': device.network_throughput,
-            'ping_latency': device.ping_latency
+            'ping_latency': device.ping_latency,
+            'device_type': device.device_type,  # New field
+            'device_model': device.device_model  # New field
         }
         devices_data.append(device_info)
     
