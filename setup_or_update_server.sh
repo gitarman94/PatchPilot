@@ -68,6 +68,14 @@ apt-get install -y -qq python3 python3-venv python3-pip curl unzip openssl
 # Setup application directories
 mkdir -p "${APP_DIR}/updates"
 
+# Ensure patchpilot user exists
+if ! id -u patchpilot >/dev/null 2>&1; then
+    useradd -r -s /usr/sbin/nologin patchpilot
+fi
+
+# Set ownership of the entire directory to patchpilot
+chown -R patchpilot:patchpilot "${APP_DIR}"
+
 # Create Python virtual environment and install Python packages
 echo "🐍 Creating Python virtual environment..."
 python3 -m venv "${VENV_DIR}"
@@ -102,15 +110,10 @@ cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 chmod +x "${APP_DIR}/server.py"
 chmod +x "${APP_DIR}/server_test.sh"
 
+# Set up the log file and ensure it's accessible by patchpilot
 touch /opt/patchpilot_server/server.log
 chown patchpilot:patchpilot /opt/patchpilot_server/server.log
 chmod 644 /opt/patchpilot_server/server.log
-
-# Ensure patchpilot user exists
-if ! id -u patchpilot >/dev/null 2>&1; then
-    useradd -r -s /usr/sbin/nologin patchpilot
-fi
-chown -R patchpilot:patchpilot "${APP_DIR}"
 
 # Setup SQLite database (no need for init_db here, it's handled by server.py)
 SQLITE_DB="${APP_DIR}/patchpilot.db"
