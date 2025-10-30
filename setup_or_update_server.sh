@@ -55,15 +55,12 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
         done
     fi
 
-    # Remove old application directory, keeping the templates folder intact
+    # Remove old application directory (except templates)
     echo "🧹 Removing old files..."
     rm -rf /opt/patchpilot_server/*
-    rm -rf /opt/patchpilot_server/.*  # Remove hidden files and directories
-
-    # Recreate templates directory
+    
+    # Recreate templates directory to preserve it
     mkdir -p /opt/patchpilot_server/templates
-    # Optionally, copy the template files if needed:
-    # cp -r /opt/patchpilot_server/patchpilot_server/templates/* /opt/patchpilot_server/templates/
 fi
 
 # Install system packages
@@ -80,6 +77,11 @@ if ! command -v cargo >/dev/null 2>&1; then
 else
     echo "✅ Rust is already installed."
     source "$HOME/.cargo/env"
+fi
+
+# Ensure patchpilot user exists
+if ! id -u patchpilot >/dev/null 2>&1; then
+    useradd -r -s /usr/sbin/nologin patchpilot
 fi
 
 # Download latest release from GitHub (no token required for public repo)
@@ -102,7 +104,6 @@ cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 
 # Move files from /opt/patchpilot_server/patchpilot_server/ to /opt/patchpilot_server/
 mv /opt/patchpilot_server/patchpilot_server/* /opt/patchpilot_server/
-mv /opt/patchpilot_server/patchpilot_server/.* /opt/patchpilot_server/  # Move hidden files
 
 # Remove the empty directory
 rm -rf /opt/patchpilot_server/patchpilot_server/
@@ -130,11 +131,6 @@ else
 fi
 printf "ADMIN_TOKEN=%s\n" "$ADMIN_TOKEN" > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
-
-# Ensure patchpilot user exists
-if ! id -u patchpilot >/dev/null 2>&1; then
-    useradd -r -s /usr/sbin/nologin patchpilot
-fi
 
 # Set ownership of the entire directory to patchpilot
 chown -R patchpilot:patchpilot "${APP_DIR}"
