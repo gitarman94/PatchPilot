@@ -5,7 +5,7 @@ set -e
 INSTALL_DIR="/opt/patchpilot_client"
 SRC_DIR="/tmp/patchpilot_client_src"
 RUST_REPO="https://github.com/gitarman94/PatchPilot.git"
-CLIENT_PATH="$INSTALL_DIR/rust_patch_client"
+CLIENT_PATH="$INSTALL_DIR/patchpilot_client"  # Updated path
 UPDATER_PATH="$INSTALL_DIR/patchpilot_updater"
 CONFIG_PATH="$INSTALL_DIR/config.json"
 SERVER_URL_FILE="$INSTALL_DIR/server_url.txt"
@@ -69,7 +69,7 @@ common_install_update() {
   fi
   mkdir -p "$SRC_DIR"
   git clone "$RUST_REPO" "$SRC_DIR"
-  cd "$SRC_DIR/patchpilot_client_rust"
+  cd "$SRC_DIR/patchpilot_client"  # Updated directory name
 
   export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
   export OPENSSL_INCLUDE_DIR=/usr/include
@@ -89,9 +89,9 @@ install() {
   # Install the client binary
   echo "[*] Installing client to $CLIENT_PATH..."
   mkdir -p "$INSTALL_DIR"
-  cp target/release/rust_patch_client "$CLIENT_PATH"
+  cp target/release/patchpilot_client "$CLIENT_PATH"  # Updated binary name
 
-  # Prompt for the server IP manually (after nmap is removed)
+  # Prompt for the server IP manually
   detect_server
 
   # Setup systemd service
@@ -134,9 +134,9 @@ update() {
 
   # Install the client binary
   echo "[*] Installing client to $CLIENT_PATH..."
-  cp target/release/rust_patch_client "$CLIENT_PATH"
+  cp target/release/patchpilot_client "$CLIENT_PATH"  # Updated binary name
 
-  # Prompt for the server IP manually (after nmap is removed)
+  # Prompt for the server IP manually
   detect_server
 
   # Setup systemd service (same as install)
