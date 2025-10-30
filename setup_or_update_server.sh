@@ -60,10 +60,9 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
     rm -rf /opt/patchpilot_install*
     rm -rf "$HOME/.cargo" "$HOME/.rustup"  # Remove Rust as well
 
-    # remove rustup and cargo binaries globally if you want to clean them
+    # Remove rustup and cargo binaries globally if you want to clean them
     rm -f /usr/local/bin/cargo /usr/local/bin/rustup
 fi
-
 
 # Create the required directories before usage
 mkdir -p /opt/patchpilot_install
@@ -114,6 +113,13 @@ if ! command -v cargo >/dev/null 2>&1; then
 
     # Verify Rust installation and the toolchain version
     "${CARGO_HOME}/bin/cargo" --version
+
+    # Update the patchpilot user profile to include Rust paths
+    echo "export CARGO_HOME=${APP_DIR}/.cargo" >> /home/patchpilot/.bashrc
+    echo "export RUSTUP_HOME=${APP_DIR}/.rustup" >> /home/patchpilot/.bashrc
+    echo "export PATH=\$CARGO_HOME/bin:\$PATH" >> /home/patchpilot/.bashrc
+    chown patchpilot:patchpilot /home/patchpilot/.bashrc
+
 else
     echo "✅ Rust is already installed."
     export CARGO_HOME="${APP_DIR}/.cargo"
@@ -167,6 +173,9 @@ User=patchpilot
 Group=patchpilot
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_FILE}
+Environment="CARGO_HOME=${APP_DIR}/.cargo"
+Environment="RUSTUP_HOME=${APP_DIR}/.rustup"
+Environment="PATH=${APP_DIR}/.cargo/bin:\$PATH"
 
 ExecStart=${APP_DIR}/target/release/patchpilot_server
 ExecReload=/bin/kill -s HUP \$MAINPID
