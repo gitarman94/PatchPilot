@@ -51,14 +51,19 @@ mod windows_service {
 
         let client = Client::new();
         let server_url = "http://127.0.0.1:8080"; // Replace with actual server URL
-        let device_id = "unique-device-id"; // Replaced "client_id" with "device_id"
+        let device_id = "unique-device-id"; // Replace with a dynamic or actual unique device ID
 
         // Heartbeat and adoption check loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
             log::info!("Checking adoption status for device...");
 
+            // Send the heartbeat check
             let response = client.post(format!("{}/api/devices/heartbeat", server_url))
-                .json(&json!({ "device_id": device_id })) // Replaced "client_id" with "device_id"
+                .json(&json!({
+                    "device_id": device_id, // Device identifier
+                    "device_type": "Laptop", // Example device type, change as needed
+                    "device_model": "XPS 13", // Example device model, change as needed
+                }))
                 .send();
 
             match response {
@@ -83,12 +88,15 @@ mod windows_service {
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
             log::info!("Sending system update for device...");
 
-            let sys_info = "System info goes here"; // Gather and format system info here
+            // Gather system info here (this is placeholder data)
+            let sys_info = "System info goes here"; // Collect and format actual system info
+
+            // Send system update
             let response = client.post(format!("{}/api/devices/update_status", server_url))
-                .json(&json!( {
-                    "device_id": device_id, // Replaced "client_id" with "device_id"
+                .json(&json!({
+                    "device_id": device_id, // Device identifier
                     "status": "active", // Update status
-                    "system_info": sys_info,
+                    "system_info": sys_info, // Actual system information
                 }))
                 .send();
 
