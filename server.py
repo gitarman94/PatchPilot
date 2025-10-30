@@ -36,12 +36,6 @@ handler.setFormatter(formatter)
 # Add the handler to the app's logger
 app.logger.addHandler(handler)
 
-# Optionally, log to the console for errors only (stdout)
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.ERROR)  # Only log errors to the console
-console_handler.setFormatter(formatter)
-app.logger.addHandler(console_handler)
-
 # Set the logging level for the app's logger (capture INFO level and above)
 app.logger.setLevel(logging.INFO)
 
@@ -174,6 +168,34 @@ def heartbeat():
         app.logger.error(f"Error processing heartbeat: {str(e)}. Data: {data}")
         return jsonify({'adopted': False, 'message': 'An error occurred while processing the request'}), 500
 
+# Endpoint to approve a device
+@app.route('/api/devices/approve', methods=['POST'])
+def approve_device():
+    try:
+        data = request.get_json()
+        hostname = data.get('hostname')
+
+        if not hostname:
+            return jsonify({'success': False, 'message': 'Hostname is required'}), 400
+
+        # Find the device by hostname
+        device = Device.query.filter_by(hostname=hostname).first()
+
+        if not device:
+            return jsonify({'success': False, 'message': 'Device not found'}), 404
+
+        # Update the device's approval status
+        device.approved = True
+        db.session.commit()
+
+        app.logger.info(f"Device {hostname} approved successfully.")
+
+        return jsonify({'success': True, 'message': 'Device approved successfully'}), 200
+
+    except Exception as e:
+        app.logger.error(f"Error approving device: {str(e)}")
+        return jsonify({'success': False, 'message': 'An error occurred while approving the device'}), 500
+
 # Route to get all device data for AJAX update
 @app.route('/api/devices', methods=['GET'])
 def get_devices():
@@ -199,46 +221,13 @@ def get_devices():
             'disk_health': device.disk_health,
             'network_throughput': device.network_throughput,
             'ping_latency': device.ping_latency,
+            'approved': device.approved,
             'device_type': device.device_type,  # New field
             'device_model': device.device_model  # New field
         }
         devices_data.append(device_info)
-    
-    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices - Returned {len(devices_data)} devices.")
+
     return jsonify(devices_data)
 
-# Get health status of server
-@app.route('/api/health', methods=['GET'])
-def health():
-    """Return a simple health check response."""
-    app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/health - Health check requested.")
-    return jsonify({'status': 'ok'})
-
-# Root route - Dashboard
-@app.route('/')
-def dashboard():
-    """Render the dashboard template without authentication."""
-    devices = Device.query.all()
-    return render_template('dashboard.html', devices=devices, now=datetime.utcnow())
-
-# General error handler
-@app.errorhandler(Exception)
-def handle_exception(e):
-    # Log unexpected errors
-    app.logger.error(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - Error - An unexpected error occurred: {str(e)}")
-    return jsonify({'error': 'An unexpected error occurred'}), 500
-
-# Initialize the database if necessary
-with app.app_context():
-    app.logger.info("Initializing database and creating tables...")
-    try:
-        db.create_all()  # This forces any pending migrations
-    except Exception as e:
-        app.logger.error(f"Database creation failed: {str(e)}")
-
-if __name__ == '__main__':
-    with app.app_context():
-        print("Listing all routes:")
-        for rule in app.url_map.iter_rules():
-            print(f"  {rule} -> {rule.endpoint}")
-    app.run(debug=False, host='0.0.0.0', port=8080)
+if __name__ == "__main__":
+    app.run(debug=False, host='0.0.0.0', port=5000)
