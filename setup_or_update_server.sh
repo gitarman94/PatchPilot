@@ -79,7 +79,7 @@ fi
 
 unzip -o latest.zip
 cd "${APP_DIR}"
-mv -f "/opt/patchpilot_install/PatchPilot-main/patchpilot_server" "${APP_DIR}"
+mv -f "/opt/patchpilot_install/PatchPilot-main/patchpilot_server/*" "${APP_DIR}"
 mv -f "/opt/patchpilot_install/PatchPilot-main/templates" "${APP_DIR}"
 mv -f "/opt/patchpilot_install/PatchPilot-main/server_test.sh" "${APP_DIR}"
 rm -rf "/opt/patchpilot_install"
