@@ -67,7 +67,7 @@ apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlit
 # Install Rust if not installed
 if ! command -v cargo >/dev/null 2>&1; then
     echo "⚙️ Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | yes | sh
     source "$HOME/.cargo/env"
 else
     echo "✅ Rust is already installed."
