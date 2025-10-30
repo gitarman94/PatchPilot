@@ -7,7 +7,6 @@ BRANCH="main"
 ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.zip"
 
 APP_DIR="/opt/patchpilot_server"
-VENV_DIR="${APP_DIR}/venv"
 SERVICE_NAME="patchpilot_server.service"
 SYSTEMD_DIR="/etc/systemd/system"
 
@@ -44,11 +43,11 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
         systemctl disable "${SERVICE_NAME}" || true
     fi
 
-    # Kill any running server.py instances in the application directory
-    pids=$(pgrep -f "^${APP_DIR}/server.py$" || true)
+    # Kill any running processes in the application directory
+    pids=$(pgrep -f "^${APP_DIR}/target/release/patchpilot_server$" || true)
     if [[ -n "$pids" ]]; then
         for pid in $pids; do
-            echo "🛑 Terminating running server.py process $pid..."
+            echo "🛑 Terminating running process $pid..."
             kill -15 "$pid" 2>/dev/null || true
             sleep 2
             kill -9 "$pid" 2>/dev/null || true
@@ -63,7 +62,14 @@ fi
 echo "📦 Installing required packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv python3-pip curl unzip openssl
+apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlite3-dev
+
+# Install Rust if not installed
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "⚙️ Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    source "$HOME/.cargo/env"
+fi
 
 # Setup application directories
 mkdir -p "${APP_DIR}/updates"
@@ -75,20 +81,6 @@ fi
 
 # Set ownership of the entire directory to patchpilot
 chown -R patchpilot:patchpilot "${APP_DIR}"
-
-# Create Python virtual environment and install Python packages
-echo "🐍 Creating Python virtual environment..."
-python3 -m venv "${VENV_DIR}"
-"${VENV_DIR}/bin/pip" install --upgrade pip setuptools wheel
-source "${VENV_DIR}/bin/activate"
-
-# Install required Python packages for Flask and additional extensions
-echo "Installing Flask and extensions..."
-pip install Flask Flask-SQLAlchemy Flask-Cors gunicorn Flask-SocketIO Flask-Celery Flask-Login psutil
-
-# Install Celery's Redis broker (optional but recommended)
-echo "Installing Celery's Redis broker (optional but recommended)..."
-pip install redis
 
 # Download latest release from GitHub (no token required for public repo)
 TMPDIR=$(mktemp -d)
@@ -107,15 +99,13 @@ unzip -o latest.zip
 
 EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
 cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
-chmod +x "${APP_DIR}/server.py"
-chmod +x "${APP_DIR}/server_test.sh"
 
-# Set up the log file and ensure it's accessible by patchpilot
+# Set up log file and permissions
 touch /opt/patchpilot_server/server.log
 chown patchpilot:patchpilot /opt/patchpilot_server/server.log
 chmod 644 /opt/patchpilot_server/server.log
 
-# Setup SQLite database (no need for init_db here, it's handled by server.py)
+# Setup SQLite database (no need for init_db here, it's handled by the server)
 SQLITE_DB="${APP_DIR}/patchpilot.db"
 touch "$SQLITE_DB"
 chown patchpilot:patchpilot "$SQLITE_DB"
@@ -134,6 +124,12 @@ fi
 printf "ADMIN_TOKEN=%s\n" "$ADMIN_TOKEN" > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
+# Build the Rust application
+cd "${APP_DIR}"
+
+echo "🔨 Building the Rust application..."
+cargo build --release
+
 # Setup systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
@@ -146,8 +142,8 @@ Group=patchpilot
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_FILE}
 
-# Explicitly configure gunicorn to log access and errors to the server.log
-ExecStart=/opt/patchpilot_server/venv/bin/gunicorn -w 4 -b 0.0.0.0:8080 --chdir /opt/patchpilot_server server:app --access-logfile ${APP_DIR}/server.log --error-logfile ${APP_DIR}/server.log
+# Explicitly configure the Rust app to log access and errors to the server.log
+ExecStart=${APP_DIR}/target/release/patchpilot_server
 
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
@@ -161,10 +157,11 @@ StandardError=append:${APP_DIR}/server.log
 WantedBy=multi-user.target
 EOF
 
-# Start the service *after* database initialization (which is handled by server.py)
+# Start the service *after* database initialization (handled by the Rust app)
 systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
 
+# Clean up the temporary client files
 rm -r /opt/patchpilot_server/patchpilot_client_rust/
 rm /opt/patchpilot_server/setup_or_update_client*
 
