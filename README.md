@@ -22,12 +22,17 @@ PatchPilot is a cross-platform patch client designed to manage and report softwa
 ```
 PatchPilot/
 │
-│   server.py                       # Main backend file - A Flask v3 based Python server that handles client registrations, update checks, and administration tasks.
-│   setup_or_update_client.ps1       # PowerShell script for installing or updating the client on Windows machines.
-│   setup_or_update_client.sh        # Shell script for installing or updating the client on Linux machines.
-│   setup_or_update_server.sh        # Shell script for setting up or updating the server environment on Linux machines.
+├───Patchpilot_server                # Rust-based backend server
+│   │   Cargo.toml                   # Rust configuration file, managing dependencies and project settings.
+│   │
+│   └───src                          # Source directory for Rust code.
+│           main.rs                   # Entry point for the Rust server application.
+│           models.rs                 # Defines data models and structures used by the server.
+│           schema.rs                 # Defines the database schema for the server.
+│           server.rs                 # Core server logic, including routes and API handling.
+│           patch_management.rs       # Logic for managing patching tasks, updates, and registrations.
 │
-├───patchpilot_client_rust           # Rust client code (shared across Windows & Linux) for handling communication and updates.
+├───patchpilot_client                # Rust client code (shared across Windows & Linux) for handling communication and updates.
 │   │   Cargo.toml                   # Rust configuration file, managing dependencies and project settings.
 │   │
 │   └───src                          # Source directory for Rust code.
@@ -39,10 +44,11 @@ PatchPilot/
 │           system_info.rs            # Collects system information (e.g., CPU, RAM, OS version) to send back to the server.
 │           updater.rs                # Manages the update process, including checking for available updates and applying them.
 │
-└───templates                        # HTML templates used by the Flask server for the web UI.
+└───templates                        # HTML templates used by the Rust server for the web UI.
         client.html                   # Template displaying the list of all registered clients in the admin dashboard.
         client_detail.html            # Template for showing detailed information about a specific client (e.g., status, updates, system info).
         dashboard.html                # Main dashboard template that aggregates information about all clients and allows admin actions.
+
 
 ```
 
