@@ -156,6 +156,13 @@ cd "${APP_DIR}"
 echo "🔨 Building the Rust application..."
 /opt/patchpilot_server/.cargo/bin/cargo build --release
 
+# Add Rust environment variables system-wide
+echo "🛠️ Setting up system-wide environment variables..."
+
+echo "CARGO_HOME=/opt/patchpilot_server/.cargo" | tee -a /etc/environment
+echo "RUSTUP_HOME=/opt/patchpilot_server/.rustup" | tee -a /etc/environment
+echo "PATH=\$CARGO_HOME/bin:\$PATH" | tee -a /etc/environment
+
 # Setup systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
@@ -167,10 +174,6 @@ User=patchpilot
 Group=patchpilot
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_FILE}
-Environment="CARGO_HOME=${APP_DIR}/.cargo"
-Environment="RUSTUP_HOME=${APP_DIR}/.rustup"
-Environment="PATH=${APP_DIR}/.cargo/bin:\$PATH"
-
 ExecStart=${APP_DIR}/target/release/patchpilot_server
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
@@ -181,6 +184,9 @@ StandardError=append:${APP_DIR}/server.log
 [Install]
 WantedBy=multi-user.target
 EOF
+
+# Reload the environment file to pick up changes
+source /etc/environment
 
 # Start the service
 systemctl daemon-reload
