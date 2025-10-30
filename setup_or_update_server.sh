@@ -74,8 +74,6 @@ fi
 
 unzip -o latest.zip
 
-echo "temp directory $EXTRACTED_DIR"
-echo "app directory ${APP_DIR}"
 cp -r "/tmp/PatchPilot-main" "${APP_DIR}"
 
 rm -rf "/tmp/patchpilot_install"
