@@ -63,6 +63,7 @@ fi
 
 # Download latest release from GitHub (no token required for public repo)
 mkdir /opt/patchpilot_install
+mkdir /opt/patchpilot_server
 cd /opt/patchpilot_install
 curl -L "$ZIP_URL" -o latest.zip
 
