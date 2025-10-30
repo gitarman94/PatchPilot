@@ -13,6 +13,7 @@ SYSTEMD_DIR="/etc/systemd/system"
 FORCE_REINSTALL=false
 UPGRADE=false
 
+# Parse command-line arguments
 for arg in "$@"; do
     case "$arg" in
         --force)   FORCE_REINSTALL=true ;;
@@ -54,8 +55,15 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
         done
     fi
 
-    # Remove the old application directory
-    rm -rf "${APP_DIR}"
+    # Remove old application directory, keeping the templates folder intact
+    echo "🧹 Removing old files..."
+    rm -rf /opt/patchpilot_server/*
+    rm -rf /opt/patchpilot_server/.*  # Remove hidden files and directories
+
+    # Recreate templates directory
+    mkdir -p /opt/patchpilot_server/templates
+    # Optionally, copy the template files if needed:
+    # cp -r /opt/patchpilot_server/patchpilot_server/templates/* /opt/patchpilot_server/templates/
 fi
 
 # Install system packages
@@ -73,17 +81,6 @@ else
     echo "✅ Rust is already installed."
     source "$HOME/.cargo/env"
 fi
-
-# Setup application directories
-mkdir -p "${APP_DIR}/updates"
-
-# Ensure patchpilot user exists
-if ! id -u patchpilot >/dev/null 2>&1; then
-    useradd -r -s /usr/sbin/nologin patchpilot
-fi
-
-# Set ownership of the entire directory to patchpilot
-chown -R patchpilot:patchpilot "${APP_DIR}"
 
 # Download latest release from GitHub (no token required for public repo)
 TMPDIR=$(mktemp -d)
@@ -103,16 +100,23 @@ unzip -o latest.zip
 EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
 cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 
-# Set up log file and permissions
-touch /opt/patchpilot_server/server.log
-chown patchpilot:patchpilot /opt/patchpilot_server/server.log
-chmod 644 /opt/patchpilot_server/server.log
+# Move files from /opt/patchpilot_server/patchpilot_server/ to /opt/patchpilot_server/
+mv /opt/patchpilot_server/patchpilot_server/* /opt/patchpilot_server/
+mv /opt/patchpilot_server/patchpilot_server/.* /opt/patchpilot_server/  # Move hidden files
 
-# Setup SQLite database (no need for init_db here, it's handled by the server)
+# Remove the empty directory
+rm -rf /opt/patchpilot_server/patchpilot_server/
+
+# Set up SQLite database
 SQLITE_DB="${APP_DIR}/patchpilot.db"
 touch "$SQLITE_DB"
 chown patchpilot:patchpilot "$SQLITE_DB"
 chmod 600 "$SQLITE_DB"
+
+# Set up log file and permissions
+touch /opt/patchpilot_server/server.log
+chown patchpilot:patchpilot /opt/patchpilot_server/server.log
+chmod 644 /opt/patchpilot_server/server.log
 
 # Setup admin token
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
@@ -127,9 +131,16 @@ fi
 printf "ADMIN_TOKEN=%s\n" "$ADMIN_TOKEN" > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
+# Ensure patchpilot user exists
+if ! id -u patchpilot >/dev/null 2>&1; then
+    useradd -r -s /usr/sbin/nologin patchpilot
+fi
+
+# Set ownership of the entire directory to patchpilot
+chown -R patchpilot:patchpilot "${APP_DIR}"
+
 # Build the Rust application
 cd "${APP_DIR}"
-
 echo "🔨 Building the Rust application..."
 cargo build --release
 
@@ -145,14 +156,10 @@ Group=patchpilot
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_FILE}
 
-# Explicitly configure the Rust app to log access and errors to the server.log
 ExecStart=${APP_DIR}/target/release/patchpilot_server
-
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
 RestartSec=10
-
-# Redirect both stdout and stderr to the server log file
 StandardOutput=append:${APP_DIR}/server.log
 StandardError=append:${APP_DIR}/server.log
 
@@ -160,7 +167,7 @@ StandardError=append:${APP_DIR}/server.log
 WantedBy=multi-user.target
 EOF
 
-# Start the service *after* database initialization (handled by the Rust app)
+# Start the service
 systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
 
