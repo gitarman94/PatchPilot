@@ -62,10 +62,7 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
 fi
 
 # Download latest release from GitHub (no token required for public repo)
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
-cd "$TMPDIR"
-
+cd /tmp
 curl -L "$ZIP_URL" -o latest.zip
 
 # Check if the ZIP file was downloaded successfully
@@ -76,12 +73,11 @@ fi
 
 unzip -o latest.zip
 
-EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
 echo "temp directory $EXTRACTED_DIR"
 echo "app directory ${APP_DIR}"
-cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
+cp -r "/tmp/PatchPilot-main" "${APP_DIR}"
 
-rm -rf "${EXTRACTED_DIR}"
+rm -rf "/tmp/Patch*"
 rm /opt/patchpilot_server/*
 mv /opt/patchpilot_server/patchpilot_server/* /opt/patchpilot_server/
 
