@@ -4,6 +4,8 @@ extern crate serde;
 extern crate serde_json;
 extern crate chrono;
 extern crate env_logger;
+extern crate r2d2;
+extern crate diesel_r2d2;
 
 use diesel::prelude::*;
 use rocket::{State, Response};
@@ -12,12 +14,14 @@ use rocket::serde::{json::Json, Deserialize, Serialize};
 use rocket::tokio::task::spawn_blocking;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use r2d2::PooledConnection;
+use diesel::r2d2::ConnectionManager;
+use anyhow::{Result, Context};
 
 mod schema;
 mod models;
 
 use models::{Device, NewDevice};
-use rocket::fs::FileServer;
 
 #[derive(Deserialize, Serialize)]
 struct Heartbeat {
@@ -42,76 +46,75 @@ struct SystemInfo {
     ping_latency: Option<f32>,
 }
 
+// Database connection pool type
+type DbPool = r2d2::Pool<ConnectionManager<SqliteConnection>>;
+
 #[launch]
 fn rocket() -> _ {
     env_logger::init();
+
+    // Create a connection pool
+    let manager = ConnectionManager::<SqliteConnection>::new("patchpilot.db");
+    let pool = r2d2::Pool::builder().build(manager).expect("Failed to create pool.");
+
     rocket::build()
-        .mount("/", FileServer::from("./static"))
+        .manage(pool)  // Add the connection pool as a managed state
+        .mount("/", rocket::fs::FileServer::from("./static"))
         .mount("/api", routes![heartbeat, get_devices, approve_device])
-        .manage(Arc::new(Mutex::new(establish_connection())))
 }
 
-fn establish_connection() -> SqliteConnection {
-    let database_url = "patchpilot.db";
-    SqliteConnection::establish(&database_url).expect("Error connecting to the database")
+fn establish_connection(pool: &DbPool) -> PooledConnection<ConnectionManager<SqliteConnection>> {
+    pool.get().expect("Failed to get a DB connection from the pool.")
 }
 
 #[post("/devices/heartbeat", format = "json", data = "<heartbeat>")]
-async fn heartbeat(heartbeat: Json<Heartbeat>, db: &State<Arc<Mutex<SqliteConnection>>>) -> Result<Json<Device>, String> {
-    let conn = db.lock().await;
+async fn heartbeat(
+    heartbeat: Json<Heartbeat>,
+    pool: &State<DbPool>,
+) -> Result<Json<Device>, String> {
+    let conn = establish_connection(pool);
 
     let device_info = heartbeat.into_inner();
     let device_id = device_info.device_id.clone();
 
-    // Check if device exists
-    let device = diesel::select(diesel::dsl::exists(
-        schema::devices::table.filter(schema::devices::hostname.eq(&device_id))
-    ))
-    .get_result(&*conn)
-    .map_err(|_| "Failed to query the device")?;
+    // Using Diesel's upsert functionality (on_conflict) for updating or inserting a device
+    let new_device = NewDevice {
+        device_name: &device_id,
+        hostname: &device_id,
+        os_name: &device_info.system_info.os_name,
+        architecture: &device_info.system_info.architecture,
+        last_checkin: chrono::Utc::now().naive_utc(),
+        approved: false,
+        device_type: device_info.device_type.unwrap_or_default(),
+        device_model: device_info.device_model.unwrap_or_default(),
+    };
 
-    if device {
-        // Update the device if it exists
-        diesel::update(schema::devices::table.filter(schema::devices::hostname.eq(&device_id)))
-            .set((
-                schema::devices::cpu.eq(device_info.system_info.cpu),
-                schema::devices::ram_total.eq(device_info.system_info.ram_total),
-                schema::devices::ram_used.eq(device_info.system_info.ram_used),
-                schema::devices::ram_free.eq(device_info.system_info.ram_free),
-                schema::devices::disk_total.eq(device_info.system_info.disk_total),
-                schema::devices::disk_free.eq(device_info.system_info.disk_free),
-                schema::devices::network_throughput.eq(device_info.system_info.network_throughput),
-                schema::devices::ping_latency.eq(device_info.system_info.ping_latency),
-            ))
-            .execute(&*conn)
-            .map_err(|_| "Failed to update device")?;
-    } else {
-        // Register a new device if it doesn't exist
-        let new_device = NewDevice {
-            device_name: &device_id,
-            hostname: &device_id,
-            os_name: &device_info.system_info.os_name,
-            architecture: &device_info.system_info.architecture,
-            last_checkin: chrono::Utc::now().naive_utc(),
-            approved: false,
-            device_type: device_info.device_type.unwrap_or_default(),
-            device_model: device_info.device_model.unwrap_or_default(),
-        };
-
-        diesel::insert_into(schema::devices::table)
-            .values(&new_device)
-            .execute(&*conn)
-            .map_err(|_| "Failed to insert new device")?;
-    }
+    // Perform an upsert (insert or update) for the device based on the hostname
+    diesel::insert_into(schema::devices::table)
+        .values(&new_device)
+        .on_conflict(schema::devices::hostname)
+        .do_update()
+        .set((
+            schema::devices::cpu.eq(device_info.system_info.cpu),
+            schema::devices::ram_total.eq(device_info.system_info.ram_total),
+            schema::devices::ram_used.eq(device_info.system_info.ram_used),
+            schema::devices::ram_free.eq(device_info.system_info.ram_free),
+            schema::devices::disk_total.eq(device_info.system_info.disk_total),
+            schema::devices::disk_free.eq(device_info.system_info.disk_free),
+            schema::devices::network_throughput.eq(device_info.system_info.network_throughput),
+            schema::devices::ping_latency.eq(device_info.system_info.ping_latency),
+        ))
+        .execute(&conn)
+        .map_err(|e| format!("Failed to upsert device: {}", e))?;
 
     Ok(Json(Device {
-        id: 0,  // placeholder
+        id: 0,  // Placeholder
         device_name: device_id,
         hostname: device_id,
         os_name: device_info.system_info.os_name,
         architecture: device_info.system_info.architecture,
         last_checkin: chrono::Utc::now().naive_utc(),
-        approved: false,  // placeholder
+        approved: false,  // Placeholder
         cpu: device_info.system_info.cpu,
         ram_total: device_info.system_info.ram_total,
         ram_used: device_info.system_info.ram_used,
@@ -127,22 +130,25 @@ async fn heartbeat(heartbeat: Json<Heartbeat>, db: &State<Arc<Mutex<SqliteConnec
 
 // Endpoint for approving a device
 #[post("/devices/approve", format = "json", data = "<device>")]
-async fn approve_device(device: Json<Device>, db: &State<Arc<Mutex<SqliteConnection>>>) -> Result<Json<Device>, String> {
-    let conn = db.lock().await;
+async fn approve_device(
+    device: Json<Device>,
+    pool: &State<DbPool>,
+) -> Result<Json<Device>, String> {
+    let conn = establish_connection(pool);
 
     diesel::update(schema::devices::table.filter(schema::devices::hostname.eq(&device.hostname)))
         .set(schema::devices::approved.eq(true))
-        .execute(&*conn)
+        .execute(&conn)
         .map_err(|_| "Failed to approve device")?;
 
     Ok(Json(device.into_inner()))
 }
 
 #[get("/devices")]
-async fn get_devices(db: &State<Arc<Mutex<SqliteConnection>>>) -> Json<Vec<Device>> {
-    let conn = db.lock().await;
-    let results = schema::devices::table.load::<Device>(&*conn).expect("Error loading devices");
+async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> {
+    let conn = establish_connection(pool);
+    let results = schema::devices::table.load::<Device>(&conn)
+        .map_err(|_| "Error loading devices")?;
 
-    Json(results)
+    Ok(Json(results))
 }
-
