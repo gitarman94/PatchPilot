@@ -23,7 +23,7 @@ LOG_FILE = '/opt/patchpilot_server/server.log'
 
 # Set up rotating log handler (5MB max file size, keep 5 backup files)
 handler = RotatingFileHandler(LOG_FILE, maxBytes=5*1024*1024, backupCount=5)
-handler.setLevel(logging.INFO)
+handler.setLevel(logging.INFO)  # Set the level of logging to INFO
 
 # Define log format: date/time - endpoint/product - log message
 formatter = logging.Formatter('%(asctime)s - %(message)s')
@@ -31,13 +31,15 @@ handler.setFormatter(formatter)
 
 # Add the handler to the app's logger
 app.logger.addHandler(handler)
-app.logger.setLevel(logging.INFO)
 
-# Optionally, log to the console as well (stdout)
+# Optionally, log to the console for errors only (stdout)
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.ERROR)  # Only log errors to the console
 console_handler.setFormatter(formatter)
 app.logger.addHandler(console_handler)
+
+# Set the logging level for the app's logger (capture INFO level and above)
+app.logger.setLevel(logging.INFO)
 
 # Define the Device model
 class Device(db.Model):
@@ -127,7 +129,7 @@ def heartbeat():
             return jsonify({'adopted': False, 'message': 'Missing device_id or system_info'}), 400
 
         # Log the incoming heartbeat
-        app.logger.info(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} - /api/devices/heartbeat - Heartbeat received from device: {device_id}")
+        app.logger.info(f"Heartbeat received from device: {device_id}")
 
         # Query device
         device = Device.query.filter_by(hostname=device_id).first()
@@ -227,5 +229,4 @@ if __name__ == '__main__':
         print("Listing all routes:")
         for rule in app.url_map.iter_rules():
             print(f"  {rule} -> {rule.endpoint}")
-    app.run(debug=True, host='0.0.0.0', port=8080)
-
+    app.run(debug=False, host='0.0.0.0', port=8080)
