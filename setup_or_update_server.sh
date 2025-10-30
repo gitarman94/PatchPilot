@@ -55,25 +55,9 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
         done
     fi
 
-    # Remove the old application directory, keeping the templates folder intact
     echo "🧹 Removing old files..."
     rm -rf /opt/patchpilot_server
-fi
-
-# Install system packages
-echo "📦 Installing required packages..."
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlite3-dev
-
-# Install Rust if not installed
-if ! command -v cargo >/dev/null 2>&1; then
-    echo "⚙️ Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source "$HOME/.cargo/env"
-else
-    echo "✅ Rust is already installed."
-    source "$HOME/.cargo/env"
+    rm -rf /tmp/patchpilot*
 fi
 
 # Download latest release from GitHub (no token required for public repo)
@@ -92,6 +76,8 @@ fi
 unzip -o latest.zip
 
 EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
+echo "temp directory $EXTRACTED_DIR"
+echo "app directory ${APP_DIR}"
 cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 
 rm -rf "${EXTRACTED_DIR}"
@@ -100,6 +86,22 @@ mv /opt/patchpilot_server/patchpilot_server/* /opt/patchpilot_server/
 
 # Remove the empty directory
 rm -rf /opt/patchpilot_server/patchpilot_server/
+
+# Install system packages
+echo "📦 Installing required packages..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlite3-dev
+
+# Install Rust if not installed
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "⚙️ Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source "$HOME/.cargo/env"
+else
+    echo "✅ Rust is already installed."
+    source "$HOME/.cargo/env"
+fi
 
 # Set up SQLite database
 SQLITE_DB="${APP_DIR}/patchpilot.db"
