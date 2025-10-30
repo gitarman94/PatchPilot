@@ -62,8 +62,8 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
 fi
 
 # Download latest release from GitHub (no token required for public repo)
-mkdir /opt/patchpilot_install
-cd /opt/patchpilot_install
+mkdir -p "/opt/patchpilot_install"
+cd "/opt/patchpilot_install"
 curl -L "$ZIP_URL" -o latest.zip
 
 # Check if the ZIP file was downloaded successfully
