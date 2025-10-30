@@ -83,7 +83,7 @@ def get_system_info():
     disk_info = psutil.disk_usage('/')
     disk_health = "Good" if disk_info.percent < 85 else "Warning"
     network_info = psutil.net_io_counters()
-    ping_latency = get_ping_latency("8.8.8.8")  # Ping Google DNS for latency measurement
+    ping_latency = get_ping_latency("1.1.1.1")  # Ping Cloudflare DNS (1.1.1.1) for latency measurement
     
     return {
         'cpu': cpu_info,
@@ -98,7 +98,7 @@ def get_system_info():
     }
 
 # Function to measure ping latency
-def get_ping_latency(host="8.8.8.8"):
+def get_ping_latency(host="1.1.1.1"):
     """Get the ping latency in milliseconds."""
     try:
         response = subprocess.check_output(['ping', '-c', '1', host], stderr=subprocess.STDOUT, universal_newlines=True)
