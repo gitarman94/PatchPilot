@@ -197,6 +197,33 @@
             buttons: ['copy', 'csv', 'excel', 'pdf', 'print'],
         });
 
+        /* Approve button functionality */
+        $('body').on('click', '.approve-btn', function () {
+            const row = $(this).closest('tr');  // Get the closest row
+            const hostname = row.find('td:eq(1)').text();  // Get the hostname from the second column
+
+            // Send the approval request via AJAX
+            $.ajax({
+                url: '/api/devices/approve',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ hostname: hostname }),
+                success: function(response) {
+                    if (response.success) {
+                        // Update the UI to reflect the approval
+                        row.find('.approve-btn').prop('disabled', true);  // Disable the approve button
+                        row.find('.approve-btn').text('Approved');  // Change button text to 'Approved'
+                        showToast('Device approved successfully.', 'success');  // Show a success toast
+                    } else {
+                        showToast('Failed to approve device.', 'danger');  // Show an error toast
+                    }
+                },
+                error: function() {
+                    showToast('Error occurred while approving device.', 'danger');  // Show error toast
+                }
+            });
+        });
+
         /* Modal opening behavior */
         $('body').on('click', '.device-link', function () {
             const deviceId = $(this).closest('tr').data('device-id');
