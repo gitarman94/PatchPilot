@@ -114,12 +114,6 @@ if ! command -v cargo >/dev/null 2>&1; then
     # Verify Rust installation and the toolchain version
     "${CARGO_HOME}/bin/cargo" --version
 
-    # Update the patchpilot user profile to include Rust paths
-    echo "export CARGO_HOME=${APP_DIR}/.cargo" >> /home/patchpilot/.bashrc
-    echo "export RUSTUP_HOME=${APP_DIR}/.rustup" >> /home/patchpilot/.bashrc
-    echo "export PATH=\$CARGO_HOME/bin:\$PATH" >> /home/patchpilot/.bashrc
-    chown patchpilot:patchpilot /home/patchpilot/.bashrc
-
 else
     echo "✅ Rust is already installed."
     export CARGO_HOME="${APP_DIR}/.cargo"
