@@ -62,8 +62,10 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
 fi
 
 # Create the required directories before usage
-mkdir -p "${APP_DIR}"
 mkdir /opt/patchpilot_install
+mkdir /opt/patchpilot_server
+chown -R patchpilot:patchpilot /opt/patchpilot_server
+chmod -R 644 /opt/patchpilot_server
 
 # Download latest release from GitHub (no token required for public repo)
 cd /opt/patchpilot_install
@@ -81,9 +83,6 @@ mv -f "/opt/patchpilot_install/PatchPilot-main/patchpilot_server" "${APP_DIR}"
 mv -f "/opt/patchpilot_install/PatchPilot-main/templates" "${APP_DIR}"
 mv -f "/opt/patchpilot_install/PatchPilot-main/server_test.sh" "${APP_DIR}"
 rm -rf "/opt/patchpilot_install"
-
-chown -R patchpilot:patchpilot /opt/patchpilot_server
-chmod -R 644 /opt/patchpilot_server
 
 # Install system packages
 echo "📦 Installing required packages..."
