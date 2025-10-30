@@ -73,11 +73,8 @@ if [[ ! -f latest.zip ]]; then
 fi
 
 unzip -o latest.zip
-if [[ ! -d $APP_DIR ]]; then
-    mkdir $APP_DIR
-fi
 
-mv -f "/tmp/patchpilot_install/PatchPilot-main/patchpilot_server" "${APP_DIR}/"
+mv -f "/tmp/patchpilot_install/PatchPilot-main/patchpilot_server" "/opt"
 mv -f "/tmp/patchpilot_install/PatchPilot-main/templates" "${APP_DIR}"
 mf -f "/tmp/patchpilot_install/PatchPilot-main/server_test.sh" "${APP_DIR}/"
 rm -rf "/tmp/patchpilot_install"
