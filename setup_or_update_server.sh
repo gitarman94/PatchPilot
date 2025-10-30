@@ -76,10 +76,14 @@ unzip -o latest.zip
 if [[ ! -d $APP_DIR ]]; then
     mkdir $APP_DIR
 fi
-mv -f "/tmp/patchpilot_install/PatchPilot-main/patchpilot_server/*" "${APP_DIR}/"
+
+mv -f "/tmp/patchpilot_install/PatchPilot-main/patchpilot_server" "${APP_DIR}/"
 mv -f "/tmp/patchpilot_install/PatchPilot-main/templates" "${APP_DIR}"
 mf -f "/tmp/patchpilot_install/PatchPilot-main/server_test.sh" "${APP_DIR}/"
 rm -rf "/tmp/patchpilot_install"
+
+chown -R patchpilot:patchpilot /opt/patchpilot_server
+chmod -R 644 /opt/patchpilot_server
 
 # Install system packages
 echo "📦 Installing required packages..."
@@ -105,8 +109,7 @@ chmod 600 "$SQLITE_DB"
 
 # Set up log file and permissions
 touch /opt/patchpilot_server/server.log
-chown patchpilot:patchpilot /opt/patchpilot_server/server.log
-chmod 644 /opt/patchpilot_server/server.log
+
 
 # Setup admin token
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
