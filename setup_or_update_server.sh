@@ -142,7 +142,10 @@ User=patchpilot
 Group=patchpilot
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_FILE}
+
+# Explicitly configure gunicorn to log access and errors to the server.log
 ExecStart=/opt/patchpilot_server/venv/bin/gunicorn -w 4 -b 0.0.0.0:8080 --chdir /opt/patchpilot_server server:app --access-logfile ${APP_DIR}/server.log --error-logfile ${APP_DIR}/server.log
+
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
 RestartSec=10
