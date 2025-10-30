@@ -21,6 +21,10 @@ db = SQLAlchemy(app)
 # --- Logging Configuration ---
 LOG_FILE = '/opt/patchpilot_server/server.log'
 
+# Ensure log file exists and has proper permissions
+if not os.path.exists(os.path.dirname(LOG_FILE)):
+    os.makedirs(os.path.dirname(LOG_FILE))
+
 # Set up rotating log handler (5MB max file size, keep 5 backup files)
 handler = RotatingFileHandler(LOG_FILE, maxBytes=5*1024*1024, backupCount=5)
 handler.setLevel(logging.INFO)  # Set the level of logging to INFO
@@ -83,7 +87,7 @@ def get_system_info():
     disk_info = psutil.disk_usage('/')
     disk_health = "Good" if disk_info.percent < 85 else "Warning"
     network_info = psutil.net_io_counters()
-    ping_latency = get_ping_latency("1.1.1.1")  # Ping Cloudflare DNS (1.1.1.1) for latency measurement
+    ping_latency = get_ping_latency("1.1.1.1")  # Ping Cloudflare DNS for latency measurement
     
     return {
         'cpu': cpu_info,
