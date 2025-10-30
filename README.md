@@ -47,9 +47,9 @@ PatchPilot/
 │           updater.rs                # Manages the update process, including checking for available updates and applying them.
 │
 └───templates                        # HTML templates used by the Rust server for the web UI.
-client.html                   # Template displaying the list of all registered clients in the admin dashboard.
-client_detail.html            # Template for showing detailed information about a specific client (e.g., status, updates, system info).
-dashboard.html                # Main dashboard template that aggregates information about all clients and allows admin actions.
+│       client.html                   # Template displaying the list of all registered clients in the admin dashboard.
+│       client_detail.html            # Template for showing detailed information about a specific client (e.g., status, updates, system info).
+│       dashboard.html                # Main dashboard template that aggregates information about all clients and allows admin actions.
 
 ````
 
