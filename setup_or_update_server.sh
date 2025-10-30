@@ -57,13 +57,7 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
 
     # Remove the old application directory, keeping the templates folder intact
     echo "🧹 Removing old files..."
-    rm -rf /opt/patchpilot_server/*
-    rm -rf /opt/patchpilot_server/.*  # Remove hidden files and directories
-
-    # Recreate templates directory
-    mkdir -p /opt/patchpilot_server/templates
-    # Optionally, copy the template files if needed:
-    # cp -r /opt/patchpilot_server/patchpilot_server/templates/* /opt/patchpilot_server/templates/
+    rm -rf /opt/patchpilot_server
 fi
 
 # Install system packages
@@ -100,9 +94,9 @@ unzip -o latest.zip
 EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*")
 cp -r "${EXTRACTED_DIR}/"* "${APP_DIR}/"
 
-# Move files from /opt/patchpilot_server/patchpilot_server/ to /opt/patchpilot_server/
+rm -rf "${EXTRACTED_DIR}"
+rm /opt/patchpilot_server/*
 mv /opt/patchpilot_server/patchpilot_server/* /opt/patchpilot_server/
-mv /opt/patchpilot_server/patchpilot_server/.* /opt/patchpilot_server/  # Move hidden files
 
 # Remove the empty directory
 rm -rf /opt/patchpilot_server/patchpilot_server/
