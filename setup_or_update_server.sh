@@ -76,7 +76,7 @@ unzip -o latest.zip
 
 mv -f "/tmp/patchpilot_install/PatchPilot-main/patchpilot_server" "/opt"
 mv -f "/tmp/patchpilot_install/PatchPilot-main/templates" "${APP_DIR}"
-mf -f "/tmp/patchpilot_install/PatchPilot-main/server_test.sh" "${APP_DIR}/"
+mv -f "/tmp/patchpilot_install/PatchPilot-main/server_test.sh" "${APP_DIR}/"
 rm -rf "/tmp/patchpilot_install"
 
 chown -R patchpilot:patchpilot /opt/patchpilot_server
