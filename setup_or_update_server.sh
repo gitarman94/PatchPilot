@@ -58,8 +58,12 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Removing old files..."
     rm -rf /opt/patchpilot_server
     rm -rf /opt/patchpilot_install*
-    rm -rf .rustup
+    rm -rf "$HOME/.cargo" "$HOME/.rustup"  # Remove Rust as well
+
+    # remove rustup and cargo binaries globally if you want to clean them
+    rm -f /usr/local/bin/cargo /usr/local/bin/rustup
 fi
+
 
 # Create the required directories before usage
 mkdir -p /opt/patchpilot_install
