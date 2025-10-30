@@ -69,7 +69,7 @@ PatchPilot/
 # Remove sudo at the beginning of lines if you're running as root
 sudo apt-get update
 sudo apt-get install -y curl git
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_server.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh)"
 ````
 
 This will:
@@ -85,7 +85,7 @@ This will:
 * If you need to force reinstall:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_server.sh)" -- --force
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh)" -- --force
 ```
 
 ---
