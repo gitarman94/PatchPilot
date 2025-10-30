@@ -29,7 +29,9 @@ fn run_linux_device_loop() -> Result<()> {
         let response = client.post(format!("{}/api/devices/heartbeat", server_url))
             .json(&json!( {
                 "device_id": "unique-device-id", // Use unique device ID here
-                "system_info": system_info // Add the actual system info
+                "system_info": system_info, // Add the actual system info
+                "device_type": "Laptop", // Add device type (e.g., Laptop, Server)
+                "device_model": "XPS 13" // Add device model (e.g., XPS 13, MacBook Pro)
             }))
             .send();
 
