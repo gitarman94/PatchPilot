@@ -62,8 +62,8 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
 fi
 
 # Download latest release from GitHub (no token required for public repo)
-mkdir -p "/opt/patchpilot_install"
-cd "/opt/patchpilot_install"
+mkdir /opt/patchpilot_install
+cd /opt/patchpilot_install
 curl -L "$ZIP_URL" -o latest.zip
 
 # Check if the ZIP file was downloaded successfully
@@ -88,14 +88,19 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlite3-dev
 
-# Install Rust if not installed
+# Install Rust if not installed (directly in /opt/patchpilot_server)
 if ! command -v cargo >/dev/null 2>&1; then
-    echo "⚙️ Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source "$HOME/.cargo/env"
+    echo "⚙️ Installing Rust in /opt/patchpilot_server..."
+    mkdir -p "${APP_DIR}/.cargo" "${APP_DIR}/.rustup"
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
+    export CARGO_HOME="${APP_DIR}/.cargo"
+    export RUSTUP_HOME="${APP_DIR}/.rustup"
+    export PATH="$CARGO_HOME/bin:$PATH"
 else
     echo "✅ Rust is already installed."
-    source "$HOME/.cargo/env"
+    export CARGO_HOME="${APP_DIR}/.cargo"
+    export RUSTUP_HOME="${APP_DIR}/.rustup"
+    export PATH="$CARGO_HOME/bin:$PATH"
 fi
 
 # Set up SQLite database
@@ -106,7 +111,6 @@ chmod 600 "$SQLITE_DB"
 
 # Set up log file and permissions
 touch /opt/patchpilot_server/server.log
-
 
 # Setup admin token
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
