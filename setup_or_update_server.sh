@@ -62,8 +62,8 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
 fi
 
 # Create the required directories before usage
-mkdir /opt/patchpilot_install
-mkdir /opt/patchpilot_server
+mkdir -p /opt/patchpilot_install
+mkdir -p /opt/patchpilot_server
 chown -R patchpilot:patchpilot /opt/patchpilot_server
 chmod -R 644 /opt/patchpilot_server
 
