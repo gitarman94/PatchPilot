@@ -57,13 +57,13 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
 
     echo "🧹 Removing old files..."
     rm -rf /opt/patchpilot_server
-    rm -rf /tmp/patchpilot_install*
+    rm -rf /opt/patchpilot_install*
     rm -rf .rustup
 fi
 
 # Download latest release from GitHub (no token required for public repo)
-mkdir /tmp/patchpilot_install
-cd /tmp/patchpilot_install
+mkdir /opt/patchpilot_install
+cd /opt/patchpilot_install
 curl -L "$ZIP_URL" -o latest.zip
 
 # Check if the ZIP file was downloaded successfully
@@ -74,10 +74,10 @@ fi
 
 unzip -o latest.zip
 
-mv -f "/tmp/patchpilot_install/PatchPilot-main/patchpilot_server" "/opt"
-mv -f "/tmp/patchpilot_install/PatchPilot-main/templates" "${APP_DIR}"
-mv -f "/tmp/patchpilot_install/PatchPilot-main/server_test.sh" "${APP_DIR}"
-rm -rf "/tmp/patchpilot_install"
+mv -f "/opt/patchpilot_install/PatchPilot-main/patchpilot_server" "/opt"
+mv -f "/opt/patchpilot_install/PatchPilot-main/templates" "${APP_DIR}"
+mv -f "/opt/patchpilot_install/PatchPilot-main/server_test.sh" "${APP_DIR}"
+rm -rf "/opt/patchpilot_install"
 
 chown -R patchpilot:patchpilot /opt/patchpilot_server
 chmod -R 644 /opt/patchpilot_server
