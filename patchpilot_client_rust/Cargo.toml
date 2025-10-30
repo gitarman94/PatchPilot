@@ -27,5 +27,3 @@ path = "src/main.rs"
 [[bin]]
 name = "patchpilot_updater"
 path = "src/patchpilot_updater.rs"
-
-
