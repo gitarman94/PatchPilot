@@ -33,9 +33,22 @@ else
     exit 1
 fi
 
+# Function to clean up environment variables in /etc/environment
+cleanup_environment_variables() {
+    echo "🧹 Removing Rust-related environment variables from /etc/environment..."
+    
+    # Remove lines containing CARGO_HOME, RUSTUP_HOME, and modified PATH
+    sed -i '/CARGO_HOME/d' /etc/environment
+    sed -i '/RUSTUP_HOME/d' /etc/environment
+    sed -i '/PATH=.*\/opt\/patchpilot_server\/.cargo\/bin/d' /etc/environment
+}
+
 # Cleanup old install first if --force is used
 if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Cleaning up old installation..."
+
+    # Remove environment variables before continuing
+    cleanup_environment_variables
 
     # Stop and disable systemd service if it exists
     if systemctl list-units --full -all | grep -q "^${SERVICE_NAME}"; then
