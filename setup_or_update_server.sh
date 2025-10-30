@@ -93,13 +93,23 @@ apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlit
 # Install Rust if not installed (directly in /opt/patchpilot_server)
 if ! command -v cargo >/dev/null 2>&1; then
     echo "⚙️ Installing Rust in /opt/patchpilot_server..."
+
+    # Create directories for Rust installation
     mkdir -p "${APP_DIR}/.cargo" "${APP_DIR}/.rustup"
+
+    # Install Rust with the minimal profile
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
+
+    # Set the Rust home directories explicitly
     export CARGO_HOME="${APP_DIR}/.cargo"
     export RUSTUP_HOME="${APP_DIR}/.rustup"
     export PATH="$CARGO_HOME/bin:$PATH"
-    # Set default toolchain to stable
+
+    # Make sure the default toolchain is set to stable
     "${CARGO_HOME}/bin/rustup" default stable
+
+    # Verify Rust installation and the toolchain version
+    "${CARGO_HOME}/bin/cargo" --version
 else
     echo "✅ Rust is already installed."
     export CARGO_HOME="${APP_DIR}/.cargo"
