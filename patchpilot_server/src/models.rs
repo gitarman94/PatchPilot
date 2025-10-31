@@ -32,4 +32,14 @@ pub struct NewDevice<'a> {
     pub architecture: &'a str,
     pub last_checkin: NaiveDateTime,
     pub approved: bool,
-    pub device_type: &'
+    pub cpu: f32,
+    pub ram_total: i64,
+    pub ram_used: i64,
+    pub ram_free: i64,
+    pub disk_total: i64,
+    pub disk_free: i64,
+    pub network_throughput: i64,
+    pub ping_latency: Option<f32>,
+    pub device_type: &'a str,
+    pub device_model: &'a str,
+}
