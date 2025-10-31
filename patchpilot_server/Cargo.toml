@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rocket = { version = "0.5.1", features = ["json", "diesel_sqlite"] }
-diesel = { version = "2.2.12", features = ["sqlite", "json"] }
+rocket = { version = "0.5.1", features = ["json"] }
+diesel = { version = "2.0", features = ["sqlite"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 log = "0.4.21"
 env_logger = "0.11.8"
 chrono = "0.4.40"
-sysinfo = "0.32.1"  # Replacing psutil, compatible with Rust
+sysinfo = "0.32.1"
+rocket_sync_db_pools = "0.1"
