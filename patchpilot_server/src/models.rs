@@ -1,8 +1,12 @@
-use diesel::{Insertable, Queryable};
-use chrono::{NaiveDateTime};
-use serde::{Serialize, Deserialize};
+use diesel::prelude::*;
+use rocket::serde::{Serialize, Deserialize};
+use chrono::NaiveDateTime;
 
-#[derive(Queryable, Serialize, Deserialize)]
+use crate::schema::devices;
+
+#[derive(Queryable, Selectable, Serialize, Deserialize, Debug)]
+#[diesel(table_name = devices)]
+#[diesel(check_for_backend(Sqlite))]
 pub struct Device {
     pub id: i32,
     pub device_name: String,
@@ -17,14 +21,15 @@ pub struct Device {
     pub ram_free: i64,
     pub disk_total: i64,
     pub disk_free: i64,
+    pub disk_health: String,
     pub network_throughput: i64,
-    pub ping_latency: Option<f32>,
+    pub ping_latency: f32,
     pub device_type: String,
     pub device_model: String,
 }
 
 #[derive(Insertable)]
-#[table_name = "devices"]
+#[diesel(table_name = devices)]
 pub struct NewDevice<'a> {
     pub device_name: &'a str,
     pub hostname: &'a str,
@@ -38,8 +43,9 @@ pub struct NewDevice<'a> {
     pub ram_free: i64,
     pub disk_total: i64,
     pub disk_free: i64,
+    pub disk_health: &'a str,
     pub network_throughput: i64,
-    pub ping_latency: Option<f32>,
+    pub ping_latency: f32,
     pub device_type: &'a str,
     pub device_model: &'a str,
 }
