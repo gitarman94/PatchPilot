@@ -176,6 +176,9 @@ echo "CARGO_HOME=/opt/patchpilot_server/.cargo" | tee -a /etc/environment
 echo "RUSTUP_HOME=/opt/patchpilot_server/.rustup" | tee -a /etc/environment
 echo "PATH=\$CARGO_HOME/bin:\$PATH" | tee -a /etc/environment
 
+# Reload system environment to ensure these variables are set
+source /etc/environment
+
 # Setup systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
@@ -199,10 +202,9 @@ WantedBy=multi-user.target
 EOF
 
 # Reload the environment file to pick up changes
-source /etc/environment
+systemctl daemon-reload
 
 # Start the service
-systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
 
 # Clean up the temporary client files
