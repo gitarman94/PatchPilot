@@ -115,9 +115,9 @@ if ! command -v cargo >/dev/null 2>&1; then
     
     # Add Rust environment variables system-wide (before installing Rust)
     echo "🛠️ Setting up system-wide environment variables..."
-    echo "CARGO_HOME=/opt/patchpilot_server/.cargo" | tee -a /etc/environment
-    echo "RUSTUP_HOME=/opt/patchpilot_server/.rustup" | tee -a /etc/environment
-    echo "PATH=\$CARGO_HOME/bin:\$PATH" | tee -a /etc/environment
+    echo "CARGO_HOME=/opt/patchpilot_server/.cargo" >> /etc/environment
+    echo "RUSTUP_HOME=/opt/patchpilot_server/.rustup" >> /etc/environment
+    echo "PATH=\$CARGO_HOME/bin:\$PATH" >> /etc/environment
 
     # Install Rust with the minimal profile
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
