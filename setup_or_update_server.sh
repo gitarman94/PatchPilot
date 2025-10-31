@@ -112,6 +112,12 @@ if ! command -v cargo >/dev/null 2>&1; then
 
     # Create directories for Rust installation
     mkdir -p "${APP_DIR}/.cargo" "${APP_DIR}/.rustup"
+    
+    # Add Rust environment variables system-wide (before installing Rust)
+    echo "🛠️ Setting up system-wide environment variables..."
+    echo "CARGO_HOME=/opt/patchpilot_server/.cargo" | tee -a /etc/environment
+    echo "RUSTUP_HOME=/opt/patchpilot_server/.rustup" | tee -a /etc/environment
+    echo "PATH=\$CARGO_HOME/bin:\$PATH" | tee -a /etc/environment
 
     # Install Rust with the minimal profile
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
@@ -169,16 +175,6 @@ cd "${APP_DIR}"
 echo "🔨 Building the Rust application..."
 /opt/patchpilot_server/.cargo/bin/cargo build --release
 
-# Add Rust environment variables system-wide
-echo "🛠️ Setting up system-wide environment variables..."
-
-echo "CARGO_HOME=/opt/patchpilot_server/.cargo" | tee -a /etc/environment
-echo "RUSTUP_HOME=/opt/patchpilot_server/.rustup" | tee -a /etc/environment
-echo "PATH=\$CARGO_HOME/bin:\$PATH" | tee -a /etc/environment
-
-# Reload system environment to ensure these variables are set
-source /etc/environment
-
 # Setup systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
@@ -202,9 +198,10 @@ WantedBy=multi-user.target
 EOF
 
 # Reload the environment file to pick up changes
-systemctl daemon-reload
+source /etc/environment
 
 # Start the service
+systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
 
 # Clean up the temporary client files
