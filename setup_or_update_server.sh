@@ -44,7 +44,12 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
         systemctl disable "${SERVICE_NAME}" || true
     fi
 
-    # Kill any running processes in the application directory
+    echo "🧹 Removing Rust-related environment variables from /etc/environment..."
+    sed -i '/CARGO_HOME/d' /etc/environment
+    sed -i '/RUSTUP_HOME/d' /etc/environment
+    sed -i '/PATH=.*\/opt\/patchpilot_server\/.cargo\/bin/d' /etc/environment
+    
+    echo "🧹 Killing any running processes in the application directory"
     pids=$(pgrep -f "^${APP_DIR}/target/release/patchpilot_server$" || true)
     if [[ -n "$pids" ]]; then
         for pid in $pids; do
