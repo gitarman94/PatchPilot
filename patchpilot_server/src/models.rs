@@ -1,6 +1,7 @@
 use diesel::prelude::*;
-use rocket::serde::{Serialize, Deserialize};
+use diesel::sqlite::Sqlite; // required for #[diesel(check_for_backend(Sqlite))]
 use chrono::NaiveDateTime;
+use rocket::serde::{Serialize, Deserialize};
 
 use crate::schema::devices;
 
@@ -49,3 +50,4 @@ pub struct NewDevice<'a> {
     pub device_type: &'a str,
     pub device_model: &'a str,
 }
+
