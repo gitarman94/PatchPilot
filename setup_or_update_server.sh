@@ -33,22 +33,9 @@ else
     exit 1
 fi
 
-# Function to clean up environment variables in /etc/environment
-cleanup_environment_variables() {
-    echo "🧹 Removing Rust-related environment variables from /etc/environment..."
-    
-    # Remove lines containing CARGO_HOME, RUSTUP_HOME, and modified PATH
-    sed -i '/CARGO_HOME/d' /etc/environment
-    sed -i '/RUSTUP_HOME/d' /etc/environment
-    sed -i '/PATH=.*\/opt\/patchpilot_server\/.cargo\/bin/d' /etc/environment
-}
-
 # Cleanup old install first if --force is used
 if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Cleaning up old installation..."
-
-    # Remove environment variables before continuing
-    cleanup_environment_variables
 
     # Stop and disable systemd service if it exists
     if systemctl list-units --full -all | grep -q "^${SERVICE_NAME}"; then
@@ -108,17 +95,16 @@ apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlit
 
 # Install Rust if not installed (directly in /opt/patchpilot_server)
 if ! command -v cargo >/dev/null 2>&1; then
-    echo "⚙️ Installing Rust in /opt/patchpilot_server..."
-
-    # Create directories for Rust installation
-    mkdir -p "${APP_DIR}/.cargo" "${APP_DIR}/.rustup"
-    
     # Add Rust environment variables system-wide (before installing Rust)
     echo "🛠️ Setting up system-wide environment variables..."
     echo "CARGO_HOME=/opt/patchpilot_server/.cargo" >> /etc/environment
     echo "RUSTUP_HOME=/opt/patchpilot_server/.rustup" >> /etc/environment
     echo "PATH=\$CARGO_HOME/bin:\$PATH" >> /etc/environment
-
+    
+    echo "⚙️ Installing Rust in /opt/patchpilot_server..."
+    # Create directories for Rust installation
+    mkdir -p "${APP_DIR}/.cargo" "${APP_DIR}/.rustup"
+    
     # Install Rust with the minimal profile
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 
