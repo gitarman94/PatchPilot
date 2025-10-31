@@ -1,27 +1,24 @@
-#[macro_use] extern crate rocket;
-#[macro_use] extern crate diesel;
-extern crate serde;
-extern crate serde_json;
-extern crate chrono;
-extern crate env_logger;
-extern crate r2d2;
-extern crate diesel_r2d2;
+#[macro_use]
+extern crate rocket;
+#[macro_use]
+extern crate diesel;
 
 use diesel::prelude::*;
-use rocket::{State, Response};
-use rocket::tokio::sync::Mutex;
+use diesel::r2d2::{ConnectionManager, PooledConnection};
+use r2d2::Pool;
+
+use rocket::{State};
 use rocket::serde::{json::Json, Deserialize, Serialize};
-use rocket::tokio::task::spawn_blocking;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use r2d2::PooledConnection;
-use diesel::r2d2::ConnectionManager;
-use anyhow::{Result, Context};
+use chrono::Utc;
+use anyhow::Result;
 
 mod schema;
 mod models;
 
 use models::{Device, NewDevice};
+
+// Type alias for your connection pool
+type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
 #[derive(Deserialize, Serialize)]
 struct Heartbeat {
@@ -152,3 +149,4 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
 
     Ok(Json(results))
 }
+
