@@ -90,6 +90,7 @@ cd "${APP_DIR}"
 mv /opt/patchpilot_install/PatchPilot-main/patchpilot_server/* ${APP_DIR}
 mv /opt/patchpilot_install/PatchPilot-main/templates ${APP_DIR}
 mv /opt/patchpilot_install/PatchPilot-main/server_test.sh ${APP_DIR}
+chmod +x ${APP_DIR}/server_test.sh
 rm -rf "/opt/patchpilot_install"
 
 # Install system packages
