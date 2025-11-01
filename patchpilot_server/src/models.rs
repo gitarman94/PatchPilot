@@ -5,7 +5,6 @@ use rocket::serde::{Serialize, Deserialize};
 use crate::schema::devices;
 
 #[derive(Queryable, Serialize, Deserialize, Debug)]
-#[diesel(table_name = devices)]
 pub struct Device {
     pub id: i32,
     pub device_name: String,
@@ -26,7 +25,6 @@ pub struct Device {
     pub device_type: String,
     pub device_model: String,
 
-    // Computed fields for the dashboard — NOT in the DB
     #[diesel(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uptime: Option<String>,
@@ -59,7 +57,6 @@ pub struct NewDevice {
 }
 
 impl Device {
-    /// Compute uptime as a human-readable string based on last_checkin
     pub fn compute_uptime(&self) -> String {
         let duration = Utc::now().naive_utc() - self.last_checkin;
         let hours = duration.num_hours();
@@ -67,7 +64,6 @@ impl Device {
         format!("{}h {}m", hours, minutes)
     }
 
-    /// Update computed fields before sending to the frontend
     pub fn enrich_for_dashboard(mut self) -> Self {
         self.uptime = Some(self.compute_uptime());
         self.updates_available = false; // Placeholder
@@ -75,7 +71,6 @@ impl Device {
     }
 }
 
-// Helper to create a NewDevice from DeviceInfo
 impl NewDevice {
     pub fn from_device_info(device_id: &str, info: &crate::main::DeviceInfo) -> Self {
         Self {
