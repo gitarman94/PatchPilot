@@ -15,7 +15,6 @@ use diesel::sqlite::SqliteConnection;
 // Type alias for SQLite connection pool
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
-// Helper to get a DB connection
 fn establish_connection(pool: &DbPool) -> PooledConnection<ConnectionManager<SqliteConnection>> {
     pool.get().expect("Failed to get a DB connection from the pool.")
 }
@@ -53,7 +52,6 @@ async fn register_or_update_device(
     use crate::schema::devices::dsl::*;
     let mut conn = establish_connection(pool);
 
-    // Convert DeviceInfo into NewDevice (handles cloning and Option safely)
     let new_device = NewDevice::from_device_info(device_id, &device_info);
 
     diesel::insert_into(devices)
