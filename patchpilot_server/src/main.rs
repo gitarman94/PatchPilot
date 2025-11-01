@@ -1,21 +1,21 @@
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, PooledConnection};
 use r2d2::Pool;
-
 use rocket::{get, post, routes, launch, State};
 use rocket::serde::{json::Json, Deserialize};
-use rocket::fs::{FileServer, NamedFile, relative};
+use rocket_dyn_templates::{Template, context};
 use chrono::Utc;
 use anyhow::Result;
-use std::path::PathBuf;
 
 mod schema;
 mod models;
 
 use models::{Device, NewDevice};
 
+// Type alias for SQLite connection pool
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
+// Helper to get a DB connection
 fn establish_connection(pool: &DbPool) -> PooledConnection<ConnectionManager<SqliteConnection>> {
     pool.get().expect("Failed to get a DB connection from the pool.")
 }
@@ -44,7 +44,7 @@ pub struct SystemInfo {
     pub ping_latency: Option<f32>,
 }
 
-#[post("/api/device/<device_id>", format = "json", data = "<device_info>")]
+#[post("/device/<device_id>", format = "json", data = "<device_info>")]
 async fn register_or_update_device(
     pool: &State<DbPool>,
     device_id: &str,
@@ -99,7 +99,7 @@ async fn register_or_update_device(
     Ok(Json(result))
 }
 
-#[get("/api/devices")]
+#[get("/devices")]
 async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> {
     use crate::schema::devices::dsl::*;
     let mut conn = establish_connection(pool);
@@ -111,10 +111,18 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
     Ok(Json(results))
 }
 
-// Serve dashboard HTML
+// Dashboard route
 #[get("/")]
-async fn dashboard() -> Option<NamedFile> {
-    NamedFile::open(relative!("templates/dashboard.html")).await.ok()
+async fn dashboard(pool: &State<DbPool>) -> Template {
+    use crate::schema::devices::dsl::*;
+    let mut conn = establish_connection(pool);
+
+    let all_devices = devices.load::<Device>(&mut conn).unwrap_or_default();
+
+    Template::render("dashboard", context! {
+        devices: all_devices,
+        now: Utc::now().naive_utc(),
+    })
 }
 
 #[launch]
@@ -123,7 +131,6 @@ fn rocket() -> _ {
 
     env_logger::init();
 
-    // DB pool
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
     let pool = Pool::builder()
@@ -132,11 +139,7 @@ fn rocket() -> _ {
 
     rocket::build()
         .manage(pool)
-        .mount("/", routes![dashboard, register_or_update_device, get_devices])
-        // Serve `static/` directory at `/static` path
-        .mount("/static", FileServer::from(relative!("static")))
-        .configure(rocket::Config {
-            port: 8080,
-            ..rocket::Config::default()
-        })
+        .mount("/api", routes![register_or_update_device, get_devices])
+        .mount("/", routes![dashboard])
+        .attach(Template::fairing())
 }
