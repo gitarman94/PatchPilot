@@ -1,6 +1,4 @@
 #[macro_use]
-extern crate rocket;
-#[macro_use]
 extern crate diesel;
 
 use diesel::prelude::*;
@@ -8,7 +6,7 @@ use diesel::r2d2::{ConnectionManager, PooledConnection};
 use r2d2::Pool;
 
 use rocket::{State};
-use rocket::serde::{json::Json, Deserialize, Serialize};
+use rocket::serde::{json::Json, Deserialize};
 use chrono::Utc;
 use anyhow::Result;
 
@@ -135,4 +133,5 @@ fn rocket() -> _ {
         .manage(pool)
         .mount("/", routes![register_or_update_device, get_devices])
 }
+
 
