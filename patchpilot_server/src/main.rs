@@ -93,9 +93,9 @@ async fn register_or_update_device(
 
     let result = devices
         .filter(device_name.eq(device_id))
-        .select(Device::as_select())
         .first::<Device>(&mut conn)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+        .enrich_for_dashboard(); // <-- compute uptime & updates
 
     Ok(Json(result))
 }
@@ -106,9 +106,11 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
     let mut conn = establish_connection(pool);
 
     let results = devices
-        .select(Device::as_select())
         .load::<Device>(&mut conn)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|d| d.enrich_for_dashboard()) // <-- compute uptime & updates
+        .collect::<Vec<Device>>();
 
     Ok(Json(results))
 }
@@ -119,9 +121,11 @@ async fn dashboard(pool: &State<DbPool>) -> Template {
     let mut conn = establish_connection(pool);
 
     let all_devices = devices
-        .select(Device::as_select())
         .load::<Device>(&mut conn)
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .map(|d| d.enrich_for_dashboard()) // <-- compute uptime & updates
+        .collect::<Vec<Device>>();
 
     Template::render("dashboard", context! {
         devices: all_devices,
