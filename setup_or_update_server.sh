@@ -185,6 +185,7 @@ WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_FILE}
 Environment="RUST_LOG=info"
 Environment="DATABASE_URL=sqlite:///opt/patchpilot_server/patchpilot.db"
+Environment="ROCKET_ADDRESS=0.0.0.0"
 ExecStart=${APP_DIR}/target/release/patchpilot_server
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
