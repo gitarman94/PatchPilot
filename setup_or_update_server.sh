@@ -196,10 +196,6 @@ source /etc/environment
 systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
 
-# Clean up the temporary client files
-rm -r /opt/patchpilot_server/patchpilot_client_rust/
-rm /opt/patchpilot_server/setup_or_update_client*
-
 # Output success message
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete!"
