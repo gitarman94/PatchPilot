@@ -21,7 +21,7 @@ pub struct Device {
     pub disk_free: i64,
     pub disk_health: String,
     pub network_throughput: i64,
-    pub ping_latency: Option<f32>,  // <- make nullable to match DB
+    pub ping_latency: Option<f32>,  
     pub device_type: String,
     pub device_model: String,
 
@@ -49,9 +49,32 @@ pub struct NewDevice {
     pub disk_free: i64,
     pub disk_health: String,
     pub network_throughput: i64,
-    pub ping_latency: Option<f32>,  // <- match Device
+    pub ping_latency: Option<f32>,  
     pub device_type: String,
     pub device_model: String,
+}
+
+// Define DeviceInfo here so models.rs doesn’t reference main.rs
+#[derive(Debug, Clone)]
+pub struct SystemInfo {
+    pub os_name: String,
+    pub architecture: String,
+    pub cpu: f32,
+    pub ram_total: i64,
+    pub ram_used: i64,
+    pub ram_free: i64,
+    pub disk_total: i64,
+    pub disk_free: i64,
+    pub disk_health: String,
+    pub network_throughput: i64,
+    pub ping_latency: Option<f32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeviceInfo {
+    pub system_info: SystemInfo,
+    pub device_type: Option<String>,
+    pub device_model: Option<String>,
 }
 
 impl Device {
@@ -70,7 +93,7 @@ impl Device {
 }
 
 impl NewDevice {
-    pub fn from_device_info(device_id: &str, info: &crate::main::DeviceInfo) -> Self {
+    pub fn from_device_info(device_id: &str, info: &DeviceInfo) -> Self {
         Self {
             device_name: device_id.to_string(),
             hostname: device_id.to_string(),
@@ -86,7 +109,7 @@ impl NewDevice {
             disk_free: info.system_info.disk_free,
             disk_health: info.system_info.disk_health.clone(),
             network_throughput: info.system_info.network_throughput,
-            ping_latency: info.system_info.ping_latency, // keep as Option
+            ping_latency: info.system_info.ping_latency,
             device_type: info.device_type.clone().unwrap_or_default(),
             device_model: info.device_model.clone().unwrap_or_default(),
         }
