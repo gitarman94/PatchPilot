@@ -44,7 +44,7 @@ pub struct SystemInfo {
     pub ping_latency: Option<f32>,
 }
 
-#[post("/device/<device_id>", format = "json", data = "<device_info>")]
+#[post("/devices/<device_id>", format = "json", data = "<device_info>")]
 async fn register_or_update_device(
     pool: &State<DbPool>,
     device_id: &str,
@@ -111,7 +111,6 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
     Ok(Json(results))
 }
 
-// Dashboard route
 #[get("/")]
 async fn dashboard(pool: &State<DbPool>) -> Template {
     use crate::schema::devices::dsl::*;
