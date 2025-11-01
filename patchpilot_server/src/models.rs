@@ -21,15 +21,13 @@ pub struct Device {
     pub disk_free: i64,
     pub disk_health: String,
     pub network_throughput: i64,
-    pub ping_latency: f32,
+    pub ping_latency: Option<f32>,  // <- make nullable to match DB
     pub device_type: String,
     pub device_model: String,
 
-    #[diesel(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uptime: Option<String>,
 
-    #[diesel(skip)]
     #[serde(default)]
     pub updates_available: bool,
 }
@@ -51,7 +49,7 @@ pub struct NewDevice {
     pub disk_free: i64,
     pub disk_health: String,
     pub network_throughput: i64,
-    pub ping_latency: f32,
+    pub ping_latency: Option<f32>,  // <- match Device
     pub device_type: String,
     pub device_model: String,
 }
@@ -66,7 +64,7 @@ impl Device {
 
     pub fn enrich_for_dashboard(mut self) -> Self {
         self.uptime = Some(self.compute_uptime());
-        self.updates_available = false; // Placeholder
+        self.updates_available = false;
         self
     }
 }
@@ -88,7 +86,7 @@ impl NewDevice {
             disk_free: info.system_info.disk_free,
             disk_health: info.system_info.disk_health.clone(),
             network_throughput: info.system_info.network_throughput,
-            ping_latency: info.system_info.ping_latency.unwrap_or(0.0),
+            ping_latency: info.system_info.ping_latency, // keep as Option
             device_type: info.device_type.clone().unwrap_or_default(),
             device_model: info.device_model.clone().unwrap_or_default(),
         }
