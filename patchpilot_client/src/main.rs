@@ -11,92 +11,61 @@ use std::time::Duration;
 use reqwest::blocking::Client;
 use serde_json::json;
 
+// Main loop for Linux or non-Windows devices
 #[cfg(not(windows))]
-fn run_linux_device_loop() -> Result<()> {
-    info!("Linux Patch Device starting...");
+fn run_device_loop() -> Result<()> {
+    info!("Patch Device starting...");
 
-    // Linux device main loop
     let client = Client::new();
-    let server_url = "http://127.0.0.1:8080";  // Replace with actual server URL
-
-    // Retry mechanism for heartbeat and system update
-    let mut retries = 3;
+    let server_url = "http://127.0.0.1:8080"; // Replace with actual server URL
+    let device_id = "unique-device-id";      // Replace with unique device ID
 
     loop {
-        // Send heartbeat to check adoption status
-        info!("Sending heartbeat to check adoption status...");
-        let system_info = system_info::get_system_info()?; // Fetch system info from system_info.rs
-        let response = client.post(format!("{}/api/devices/heartbeat", server_url))
-            .json(&json!( {
-                "device_id": "unique-device-id", // Use unique device ID here
-                "system_info": system_info, // Add the actual system info
-                "device_type": "Laptop", // Add device type (e.g., Laptop, Server)
-                "device_model": "XPS 13" // Add device model (e.g., XPS 13, MacBook Pro)
+        // Fetch system info
+        let system_info = match system_info::get_system_info() {
+            Ok(info) => info,
+            Err(e) => {
+                error!("Failed to get system info: {:?}", e);
+                thread::sleep(Duration::from_secs(60));
+                continue;
+            }
+        };
+
+        // Send system info to server
+        let response = client.post(format!("{}/api/device/{}", server_url, device_id))
+            .json(&json!({
+                "system_info": system_info,
+                "device_type": "Laptop",
+                "device_model": "XPS 13"
             }))
             .send();
 
         match response {
-            Ok(resp) if resp.status().is_success() => {
-                let status: serde_json::Value = resp.json()?;
-                if status["adopted"].as_bool() == Some(true) {
-                    info!("Device approved. Starting system report loop...");
-                    break; // Proceed to normal reporting after adoption
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    info!("System info successfully sent to server.");
+                } else if resp.status().as_u16() == 403 {
+                    error!("Device not approved by server. Reporting skipped.");
                 } else {
-                    info!("Waiting for approval...");
+                    error!("Unexpected server response: {:?}", resp.status());
                 }
             },
             Err(e) => {
-                error!("Error sending heartbeat: {:?}", e);
-                retries -= 1;
-                if retries == 0 {
-                    error!("Failed to check adoption status after multiple attempts.");
-                    return Err(anyhow::anyhow!("Adoption check failed")).into();
-                }
-            },
-            // Adding a wildcard match for any Ok response
-            Ok(_) => {
-                error!("Unexpected response type received");
-                retries -= 1;
-                if retries == 0 {
-                    error!("Failed to check adoption status after multiple attempts.");
-                    return Err(anyhow::anyhow!("Unexpected response type")).into();
-                }
+                error!("Failed to send system info: {:?}", e);
             }
         }
 
-        // Wait for the next heartbeat
-        thread::sleep(Duration::from_secs(30)); // Heartbeat interval
-    }
-
-    // Report system info once adopted
-    loop {
-        info!("Sending system update...");
-
-        let system_info = system_info::get_system_info()?; // Fetch system info from system_info.rs
-        let response = client.post(format!("{}/api/devices/update_status", server_url))
-            .json(&json!( {
-                "device_id": "unique-device-id", // Replace with actual unique device ID
-                "status": "active", // Customize status if needed
-                "system_info": system_info // Send system info here
-            }))
-            .send();
-
-        if let Err(e) = response {
-            error!("Failed to send system info: {:?}", e);
-        }
-
-        // Wait before sending the next update
-        thread::sleep(Duration::from_secs(600)); // Regular update interval
+        // Wait before next update
+        thread::sleep(Duration::from_secs(600)); // 10-minute interval
     }
 }
 
 fn main() -> Result<()> {
-    // Initialize logger
+    // Initialize logging
     SimpleLogger::init(LevelFilter::Info, Config::default()).unwrap();
-
     info!("Rust Patch Device starting...");
 
-    // Spawn self-update thread
+    // Start self-update thread
     thread::spawn(|| {
         loop {
             if let Err(e) = self_update::check_and_update() {
@@ -106,7 +75,7 @@ fn main() -> Result<()> {
         }
     });
 
-    // Run platform-specific main loop
+    // Platform-specific main loop
     #[cfg(windows)]
     {
         if let Err(e) = windows_service::run_service() {
@@ -114,10 +83,10 @@ fn main() -> Result<()> {
         }
     }
 
-    #[cfg(not(windows))] // Linux or other non-Windows systems
+    #[cfg(not(windows))]
     {
-        if let Err(e) = run_linux_device_loop() {
-            error!("Linux device loop failed: {:?}", e);
+        if let Err(e) = run_device_loop() {
+            error!("Device loop failed: {:?}", e);
         }
     }
 
