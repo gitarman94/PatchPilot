@@ -72,8 +72,12 @@ fi
 # Create the required directories before usage
 mkdir -p /opt/patchpilot_install
 mkdir -p /opt/patchpilot_server
+# Fix ownership first
 chown -R patchpilot:patchpilot /opt/patchpilot_server
-chmod -R 644 /opt/patchpilot_server
+# Correct permissions
+find /opt/patchpilot_server -type d -exec chmod 755 {} \;   # directories need execute bit
+find /opt/patchpilot_server -type f -exec chmod 644 {} \;   # files stay read/write for owner only
+
 
 # Download latest release from GitHub (no token required for public repo)
 cd /opt/patchpilot_install
