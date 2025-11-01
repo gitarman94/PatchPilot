@@ -5,6 +5,7 @@ use rocket::{get, post, routes, launch, State};
 use rocket::serde::{json::Json, Deserialize};
 use rocket_dyn_templates::{Template, context};
 use chrono::Utc;
+use log::{info, error};
 
 mod schema;
 mod models;
@@ -15,8 +16,30 @@ use diesel::sqlite::SqliteConnection;
 // Type alias for SQLite connection pool
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
-fn establish_connection(pool: &DbPool) -> PooledConnection<ConnectionManager<SqliteConnection>> {
-    pool.get().expect("Failed to get a DB connection from the pool.")
+// Custom error type
+#[derive(Debug)]
+pub enum ApiError {
+    DbError(diesel::result::Error),
+    ValidationError(String),
+}
+
+impl From<diesel::result::Error> for ApiError {
+    fn from(e: diesel::result::Error) -> Self {
+        ApiError::DbError(e)
+    }
+}
+
+impl ApiError {
+    fn message(&self) -> String {
+        match self {
+            ApiError::DbError(e) => format!("Database error: {}", e),
+            ApiError::ValidationError(msg) => msg.clone(),
+        }
+    }
+}
+
+fn establish_connection(pool: &DbPool) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, ApiError> {
+    pool.get().map_err(|e| ApiError::ValidationError(format!("Failed to get DB connection: {}", e)))
 }
 
 #[derive(Deserialize)]
@@ -43,16 +66,22 @@ pub struct SystemInfo {
     pub ping_latency: Option<f32>,
 }
 
-#[post("/devices/<device_id>", format = "json", data = "<device_info>")]
-async fn register_or_update_device(
-    pool: &State<DbPool>,
-    device_id: &str,
-    device_info: Json<DeviceInfo>,
-) -> Result<Json<Device>, String> {
-    use crate::schema::devices::dsl::*;
-    let mut conn = establish_connection(pool);
+// Basic validation example
+fn validate_device_info(info: &DeviceInfo) -> Result<(), ApiError> {
+    if info.system_info.cpu < 0.0 {
+        return Err(ApiError::ValidationError("CPU usage cannot be negative".into()));
+    }
+    if info.system_info.ram_total <= 0 {
+        return Err(ApiError::ValidationError("RAM total must be positive".into()));
+    }
+    Ok(())
+}
 
-    let new_device = NewDevice::from_device_info(device_id, &device_info);
+// Separate registration function
+fn insert_or_update_device(conn: &mut SqliteConnection, device_id: &str, info: &DeviceInfo) -> Result<Device, ApiError> {
+    use crate::schema::devices::dsl::*;
+
+    let new_device = NewDevice::from_device_info(device_id, info);
 
     diesel::insert_into(devices)
         .values(&new_device)
@@ -69,22 +98,40 @@ async fn register_or_update_device(
             ping_latency.eq(new_device.ping_latency),
             last_checkin.eq(new_device.last_checkin),
         ))
-        .execute(&mut conn)
-        .map_err(|e| e.to_string())?;
+        .execute(conn)?;
 
-    let result = devices
+    let updated_device = devices
         .filter(device_name.eq(device_id))
-        .first::<Device>(&mut conn)
-        .map_err(|e| e.to_string())?
-        .enrich_for_dashboard();
+        .first::<Device>(conn)?;
 
-    Ok(Json(result))
+    Ok(updated_device.enrich_for_dashboard())
+}
+
+#[post("/devices/<device_id>", format = "json", data = "<device_info>")]
+async fn register_or_update_device(
+    pool: &State<DbPool>,
+    device_id: &str,
+    device_info: Json<DeviceInfo>,
+) -> Result<Json<Device>, String> {
+    validate_device_info(&device_info).map_err(|e| e.message())?;
+
+    let mut conn = establish_connection(pool).map_err(|e| e.message())?;
+    match insert_or_update_device(&mut conn, device_id, &device_info) {
+        Ok(device) => {
+            info!("Device {} registered/updated successfully", device_id);
+            Ok(Json(device))
+        }
+        Err(e) => {
+            error!("Failed to register/update device {}: {}", device_id, e.message());
+            Err(e.message())
+        }
+    }
 }
 
 #[get("/devices")]
 async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> {
     use crate::schema::devices::dsl::*;
-    let mut conn = establish_connection(pool);
+    let mut conn = establish_connection(pool).map_err(|e| e.message())?;
 
     let results = devices
         .load::<Device>(&mut conn)
@@ -96,17 +143,21 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
     Ok(Json(results))
 }
 
-#[get("/")]
-async fn dashboard(pool: &State<DbPool>) -> Template {
+// Separate data-fetching function for dashboard
+fn fetch_all_devices(conn: &mut SqliteConnection) -> Vec<Device> {
     use crate::schema::devices::dsl::*;
-    let mut conn = establish_connection(pool);
-
-    let all_devices = devices
-        .load::<Device>(&mut conn)
+    devices
+        .load::<Device>(conn)
         .unwrap_or_default()
         .into_iter()
         .map(|d| d.enrich_for_dashboard())
-        .collect::<Vec<Device>>();
+        .collect()
+}
+
+#[get("/")]
+async fn dashboard(pool: &State<DbPool>) -> Template {
+    let mut conn = establish_connection(pool).expect("DB connection failed for dashboard");
+    let all_devices = fetch_all_devices(&mut conn);
 
     Template::render("dashboard", context! {
         devices: all_devices,
