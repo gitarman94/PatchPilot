@@ -1,183 +1,175 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "==============================="
-echo " PatchPilot Server Test Script"
-echo "==============================="
+echo "======================================"
+echo "   PatchPilot Server Diagnostic Test  "
+echo "======================================"
 
-# Activate virtualenv
-echo "🔧  Activating virtual environment..."
-source /opt/patchpilot_server/venv/bin/activate
+SERVICE_NAME="patchpilot_server.service"
+APP_DIR="/opt/patchpilot_server"
+DB_PATH="${APP_DIR}/patchpilot.db"
+SERVER_URL="http://localhost:8080"
+TEST_DEVICE_ID="diagnostic-test-device-001"
+TMP_DIR="/tmp/patchpilot_test"
+mkdir -p "$TMP_DIR"
 
-# Install jq if not already installed
-echo "🔧  Ensuring jq is installed..."
-apt install jq -y
-
-# 1. Checking systemd service status
-echo "🔍  Checking systemd service 'patchpilot_server.service'..."
-service_status=$(systemctl is-active patchpilot_server.service)
-if [ "$service_status" == "active" ]; then
-    echo "✔️  Service is active."
-else
-    echo "❌  Service is not active. Status: $service_status"
-    exit 1
-fi
-
-# 2. Verifying HTTP health endpoint
-echo "🔍  Verifying HTTP health endpoint..."
-health_status=$(curl -s -w "%{http_code}" -o health_response.json http://localhost:8080/api/health)
-
-# Log the raw response for debugging
-echo "Health check HTTP code: $health_status"
-cat health_response.json
-
-# Extract HTTP code
-http_code=$(tail -n1 <<< "$health_status")
-if [ "$http_code" -eq 200 ]; then
-    if jq -e '.status == "ok"' health_response.json > /dev/null; then
-        echo "✔️  Health endpoint returned status=ok."
+###############################################
+# 1. Check systemd service
+###############################################
+echo "🔍 Checking systemd service: ${SERVICE_NAME}"
+if systemctl list-units --full -all | grep -q "^${SERVICE_NAME}"; then
+    status=$(systemctl is-active "${SERVICE_NAME}")
+    if [[ "$status" == "active" ]]; then
+        echo "✔️  Service is active."
     else
-        echo "❌  Health check returned unexpected content: $(cat health_response.json)"
+        echo "❌  Service exists but is not active: $status"
+        journalctl -u "${SERVICE_NAME}" -n 30 --no-pager
         exit 1
     fi
 else
-    echo "❌  Health check failed with HTTP code $http_code. Response: $(cat health_response.json)"
+    echo "❌  Service not found: ${SERVICE_NAME}"
     exit 1
 fi
 
-# 3. Checking Flask/Gunicorn logs for recent errors
-echo "🔍  Checking Flask/Gunicorn logs for recent errors..."
-journalctl -u patchpilot_server.service -n 50 --no-pager | tail -n 20
-
-# 4. Checking for Jinja2 template syntax errors
-echo "🔍  Checking for Jinja2 template syntax errors..."
-jinja_errors=$(journalctl -u patchpilot_server.service -n 100 --no-pager | grep -i "jinja2.exceptions.TemplateSyntaxError")
-if [ -n "$jinja_errors" ]; then
-    echo "❌  Found Jinja2 template errors:"
-    echo "$jinja_errors"
-    exit 1
+###############################################
+# 2. Check open port
+###############################################
+echo "🔍 Checking if port 8080 is listening..."
+if ss -tulpn | grep -q ":8080"; then
+    echo "✔️  Port 8080 is open."
 else
-    echo "✔️  No Jinja2 template errors found."
-fi
-
-# 5. Checking Gunicorn workers
-echo "🔍  Checking Gunicorn workers..."
-gunicorn_workers=$(pgrep -af gunicorn)
-if [ -n "$gunicorn_workers" ]; then
-    echo "✔️  Gunicorn workers are running:"
-    echo "$gunicorn_workers"
-else
-    echo "❌  Gunicorn workers are not running."
+    echo "❌  Port 8080 is not open — server may have failed to bind."
     exit 1
 fi
 
-# 6. Verifying Flask routes via HTTP (avoid import issues)
-echo "🔍  Verifying /api/health route via HTTP..."
-route_check=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/health)
-if [ "$route_check" -eq 200 ]; then
-    echo "✔️  /api/health route exists."
+###############################################
+# 3. Verify API routes
+###############################################
+echo "🔍 Checking /api/devices endpoint..."
+resp_code=$(curl -s -o "${TMP_DIR}/devices.json" -w "%{http_code}" "${SERVER_URL}/api/devices")
+if [[ "$resp_code" == "200" ]]; then
+    echo "✔️  /api/devices endpoint reachable."
 else
-    echo "❌  /api/health route not found. HTTP code: $route_check"
+    echo "❌  Failed to reach /api/devices — HTTP $resp_code"
+    cat "${TMP_DIR}/devices.json" || true
     exit 1
 fi
 
-# 7. Verifying communication for /api/devices/heartbeat endpoint (to test device-server communication)
-echo "🔍  Verifying /api/devices/heartbeat route..."
-heartbeat_response=$(curl -s -w "%{http_code}" -o heartbeat_response.json http://localhost:8080/api/devices/heartbeat)
+###############################################
+# 4. Register or update a test device
+###############################################
+echo "🔍 Testing device registration endpoint..."
+read -r -d '' DEVICE_PAYLOAD <<EOF
+{
+  "device_type": "server_test",
+  "device_model": "RustCheck",
+  "system_info": {
+    "os_name": "Linux",
+    "architecture": "x86_64",
+    "cpu": 2.4,
+    "ram_total": 8192,
+    "ram_used": 4096,
+    "ram_free": 4096,
+    "disk_total": 512000,
+    "disk_free": 256000,
+    "disk_health": "good",
+    "network_throughput": 1000,
+    "ping_latency": 10.5
+  }
+}
+EOF
 
-# Log the response
-echo "Heartbeat response HTTP code: $heartbeat_response"
-cat heartbeat_response.json
+post_code=$(curl -s -o "${TMP_DIR}/register.json" -w "%{http_code}" \
+    -X POST "${SERVER_URL}/api/device/${TEST_DEVICE_ID}" \
+    -H "Content-Type: application/json" \
+    -d "$DEVICE_PAYLOAD")
 
-heartbeat_http_code=$(tail -n1 <<< "$heartbeat_response")
-if [ "$heartbeat_http_code" -eq 200 ]; then
-    if jq -e '.status == "success"' heartbeat_response.json > /dev/null; then
-        echo "✔️  Heartbeat response success."
-    else
-        echo "❌  Heartbeat endpoint returned unexpected content: $(cat heartbeat_response.json)"
-        exit 1
-    fi
+if [[ "$post_code" == "200" ]]; then
+    echo "✔️  Device registration succeeded."
 else
-    echo "❌  Heartbeat failed with HTTP code $heartbeat_http_code. Response: $(cat heartbeat_response.json)"
+    echo "❌  Device registration failed with HTTP code $post_code"
+    cat "${TMP_DIR}/register.json" || true
     exit 1
 fi
 
-# 8. Checking device registration status (this tests if the device is visible in the web UI)
-echo "🔍  Verifying device registration status in the web UI..."
-# Fetch device list from API (assuming there's an endpoint like /api/devices)
-device_check=$(curl -s http://localhost:8080/api/devices)
-
-# Check if new device exists in the list (you can customize the device name or ID here)
-new_device_id="example-device-id"  # Replace with actual device ID you're expecting
-if echo "$device_check" | jq -e ".[] | select(.device_id == \"$new_device_id\")" > /dev/null; then
-    echo "✔️  Device is registered and visible in the web UI."
+###############################################
+# 5. Confirm device appears in GET /api/devices
+###############################################
+if jq -e ".[] | select(.device_name == \"${TEST_DEVICE_ID}\")" "${TMP_DIR}/devices.json" >/dev/null; then
+    echo "✔️  Device ${TEST_DEVICE_ID} appears in device list."
 else
-    echo "❌  Device is NOT registered or not visible in the web UI."
-    echo "Response: $device_check"
+    echo "❌  Device ${TEST_DEVICE_ID} not found in device list."
+    echo "Response:"
+    cat "${TMP_DIR}/devices.json"
     exit 1
 fi
 
-# 9. Checking system resource usage (CPU, Memory)
-echo "🔍  Checking system resource usage..."
-top -b -n 1 | head -n 20
-
-# 10. Checking for missing critical Python packages
-echo "🔍  Checking for required Python packages..."
-required_packages=("flask" "flask_sqlalchemy" "flask_cors" "gunicorn" "sqlalchemy")
-missing_packages=""
-for pkg in "${required_packages[@]}"; do
-    pip show "$pkg" >/dev/null 2>&1 || missing_packages+="$pkg "
-done
-
-if [ -z "$missing_packages" ]; then
-    echo "✔️  All required Python packages are installed."
+###############################################
+# 6. Database validation
+###############################################
+echo "🔍 Checking SQLite database integrity..."
+if [[ -f "$DB_PATH" ]]; then
+    echo "✔️  Database file exists."
 else
-    echo "❌  Missing critical Python packages: $missing_packages"
+    echo "❌  Database file missing: $DB_PATH"
     exit 1
 fi
 
-# 11. Checking Gunicorn logs for worker-related issues
-echo "🔍  Checking Gunicorn logs for worker issues..."
-gunicorn_logs=$(journalctl -u patchpilot_server.service -n 100 --no-pager | grep -i "worker")
-if [ -n "$gunicorn_logs" ]; then
-    echo "✔️  Found Gunicorn worker logs:"
-    echo "$gunicorn_logs"
+echo "🔍 Validating database schema..."
+tables=$(sqlite3 "$DB_PATH" ".tables")
+if echo "$tables" | grep -q "devices"; then
+    echo "✔️  'devices' table exists."
 else
-    echo "⚠️  No Gunicorn worker logs found (may be okay if startup was clean)."
-fi
-
-# 12. Checking Database Communication
-echo "🔍  Checking database communication (SQLite)..."
-# Check if the database is accessible and the required table exists
-sqlite3 /opt/patchpilot_server/patchpilot.db ".tables" | grep -q "device"
-if [ $? -eq 0 ]; then
-    echo "✔️  Database table 'device' exists."
-else
-    echo "❌  Database table 'device' not found."
+    echo "❌  'devices' table missing!"
+    echo "$tables"
     exit 1
 fi
 
-# 13. Checking database logs for errors related to communication
-echo "🔍  Checking database logs for errors..."
-db_errors=$(journalctl -u patchpilot_server.service -n 100 --no-pager | grep -i "sqlite3")
-if [ -n "$db_errors" ]; then
-    echo "❌  Found database errors:"
-    echo "$db_errors"
-    exit 1
+echo "🔍 Checking that ${TEST_DEVICE_ID} exists in DB..."
+db_entry=$(sqlite3 "$DB_PATH" "SELECT device_name, os_name, cpu FROM devices WHERE device_name='${TEST_DEVICE_ID}';")
+if [[ -n "$db_entry" ]]; then
+    echo "✔️  Found device in DB: $db_entry"
 else
-    echo "✔️  No database errors found."
-fi
-
-# 14. Checking for missing or incorrect database entries
-echo "🔍  Checking for missing or incorrect database entries for the new device..."
-device_check_db=$(sqlite3 /opt/patchpilot_server/patchpilot.db "SELECT * FROM devices WHERE device_id='$new_device_id';")
-if [ -n "$device_check_db" ]; then
-    echo "✔️  Device entry found in the database:"
-    echo "$device_check_db"
-else
-    echo "❌  Device entry not found in the database."
+    echo "❌  Device not found in DB."
     exit 1
 fi
 
-# End of script
-echo "=============================="
-echo "All tests completed successfully."
+###############################################
+# 7. Log inspection
+###############################################
+echo "🔍 Checking recent server logs for warnings or errors..."
+recent_logs=$(journalctl -u "${SERVICE_NAME}" -n 50 --no-pager)
+if echo "$recent_logs" | grep -Eiq "error|panic|failed"; then
+    echo "❌  Errors found in recent logs:"
+    echo "$recent_logs" | grep -Ei "error|panic|failed"
+    exit 1
+else
+    echo "✔️  No critical errors in recent logs."
+fi
+
+###############################################
+# 8. Resource usage snapshot
+###############################################
+echo "🔍 Capturing CPU and memory usage for patchpilot_server..."
+ps -C patchpilot_server -o pid,%cpu,%mem,cmd || echo "⚠️  Process not found (may be fine if using Rocket as PID 1)."
+
+###############################################
+# 9. Database integrity check (deep)
+###############################################
+echo "🔍 Running SQLite integrity check..."
+if sqlite3 "$DB_PATH" "PRAGMA integrity_check;" | grep -q "ok"; then
+    echo "✔️  SQLite integrity check passed."
+else
+    echo "❌  SQLite integrity check failed!"
+    sqlite3 "$DB_PATH" "PRAGMA integrity_check;"
+    exit 1
+fi
+
+###############################################
+# 10. Cleanup temporary test files
+###############################################
+rm -rf "$TMP_DIR"
+
+echo "======================================"
+echo "✅ All diagnostics completed successfully."
+echo "======================================"
