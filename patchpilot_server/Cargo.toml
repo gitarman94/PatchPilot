@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rocket = { version = "0.5.1", features = ["json"] }
+rocket = { version = "0.5.1", features = ["json", "templating"] }
+rocket_dyn_templates = "0.1.0"  # required for Template::render
 diesel = { version = "2.3.3", features = ["sqlite", "r2d2", "chrono", "serde_json"] }
 r2d2 = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
