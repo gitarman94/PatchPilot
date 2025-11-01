@@ -1,11 +1,8 @@
-#[macro_use]
-extern crate diesel;
-
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, PooledConnection};
 use r2d2::Pool;
 
-use rocket::{State};
+use rocket::{get, post, routes, launch, State};
 use rocket::serde::{json::Json, Deserialize};
 use chrono::Utc;
 use anyhow::Result;
@@ -117,7 +114,7 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
 }
 
 #[launch]
-fn rocket() -> _ {
+fn rocket() -> rocket::Rocket<rocket::Build> {
     use std::env;
 
     env_logger::init();
@@ -133,5 +130,3 @@ fn rocket() -> _ {
         .manage(pool)
         .mount("/", routes![register_or_update_device, get_devices])
 }
-
-
