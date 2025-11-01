@@ -177,6 +177,7 @@ User=patchpilot
 Group=patchpilot
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_FILE}
+Environment="RUST_LOG=info"
 ExecStart=${APP_DIR}/target/release/patchpilot_server
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
