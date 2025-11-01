@@ -2,7 +2,7 @@ use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, PooledConnection};
 use r2d2::Pool;
 use rocket::{get, post, routes, launch, State};
-use rocket::serde::{json::Json, Deserialize};
+use rocket::serde::json::Json;
 use rocket_dyn_templates::{Template, context};
 use chrono::Utc;
 use log::{info, error};
@@ -10,7 +10,7 @@ use log::{info, error};
 mod schema;
 mod models;
 
-use models::{Device, NewDevice};
+use models::{Device, NewDevice, DeviceInfo, SystemInfo};
 use diesel::sqlite::SqliteConnection;
 
 // Type alias for SQLite connection pool
@@ -40,30 +40,6 @@ impl ApiError {
 
 fn establish_connection(pool: &DbPool) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, ApiError> {
     pool.get().map_err(|e| ApiError::ValidationError(format!("Failed to get DB connection: {}", e)))
-}
-
-#[derive(Deserialize)]
-#[serde(crate = "rocket::serde")]
-pub struct DeviceInfo {
-    pub device_type: Option<String>,
-    pub device_model: Option<String>,
-    pub system_info: SystemInfo,
-}
-
-#[derive(Deserialize)]
-#[serde(crate = "rocket::serde")]
-pub struct SystemInfo {
-    pub os_name: String,
-    pub architecture: String,
-    pub cpu: f32,
-    pub ram_total: i64,
-    pub ram_used: i64,
-    pub ram_free: i64,
-    pub disk_total: i64,
-    pub disk_free: i64,
-    pub disk_health: String,
-    pub network_throughput: i64,
-    pub ping_latency: Option<f32>,
 }
 
 // Basic validation example
