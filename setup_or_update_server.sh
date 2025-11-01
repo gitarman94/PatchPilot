@@ -72,12 +72,6 @@ fi
 # Create the required directories before usage
 mkdir -p /opt/patchpilot_install
 mkdir -p /opt/patchpilot_server
-# Fix ownership first
-chown -R patchpilot:patchpilot /opt/patchpilot_server
-# Correct permissions
-find /opt/patchpilot_server -type d -exec chmod 755 {} \;   # directories need execute bit
-find /opt/patchpilot_server -type f -exec chmod 644 {} \;   # files stay read/write for owner only
-
 
 # Download latest release from GitHub (no token required for public repo)
 cd /opt/patchpilot_install
@@ -170,6 +164,12 @@ chown -R patchpilot:patchpilot "${APP_DIR}"
 cd "${APP_DIR}"
 echo "🔨 Building the Rust application..."
 /opt/patchpilot_server/.cargo/bin/cargo build --release
+
+# Fix ownership first
+chown -R patchpilot:patchpilot /opt/patchpilot_server
+# Correct permissions
+find /opt/patchpilot_server -type d -exec chmod 755 {} \;   # directories need execute bit
+find /opt/patchpilot_server -type f -exec chmod 644 {} \;   # files stay read/write for owner only
 
 # Setup systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
