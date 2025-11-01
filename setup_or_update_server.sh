@@ -170,6 +170,7 @@ chown -R patchpilot:patchpilot /opt/patchpilot_server
 # Correct permissions
 find /opt/patchpilot_server -type d -exec chmod 755 {} \;   # directories need execute bit
 find /opt/patchpilot_server -type f -exec chmod 644 {} \;   # files stay read/write for owner only
+chmod +x /opt/patchpilot_server/target/release/patchpilot_server
 
 # Setup systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
