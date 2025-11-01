@@ -5,12 +5,12 @@ use rocket::{get, post, routes, launch, State};
 use rocket::serde::{json::Json, Deserialize};
 use rocket_dyn_templates::{Template, context};
 use chrono::Utc;
-use anyhow::Result;
 
 mod schema;
 mod models;
 
 use models::{Device, NewDevice};
+use diesel::sqlite::SqliteConnection;
 
 // Type alias for SQLite connection pool
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
@@ -53,40 +53,23 @@ async fn register_or_update_device(
     use crate::schema::devices::dsl::*;
     let mut conn = establish_connection(pool);
 
-    let new_device = NewDevice {
-        device_name: device_id,
-        hostname: device_id,
-        os_name: &device_info.system_info.os_name,
-        architecture: &device_info.system_info.architecture,
-        last_checkin: Utc::now().naive_utc(),
-        approved: false,
-        cpu: device_info.system_info.cpu,
-        ram_total: device_info.system_info.ram_total,
-        ram_used: device_info.system_info.ram_used,
-        ram_free: device_info.system_info.ram_free,
-        disk_total: device_info.system_info.disk_total,
-        disk_free: device_info.system_info.disk_free,
-        disk_health: &device_info.system_info.disk_health,
-        network_throughput: device_info.system_info.network_throughput,
-        ping_latency: device_info.system_info.ping_latency.unwrap_or(0.0),
-        device_type: device_info.device_type.as_deref().unwrap_or(""),
-        device_model: device_info.device_model.as_deref().unwrap_or(""),
-    };
+    // Convert DeviceInfo into NewDevice (handles cloning and Option safely)
+    let new_device = NewDevice::from_device_info(device_id, &device_info);
 
     diesel::insert_into(devices)
         .values(&new_device)
         .on_conflict(device_name)
         .do_update()
         .set((
-            cpu.eq(device_info.system_info.cpu),
-            ram_total.eq(device_info.system_info.ram_total),
-            ram_used.eq(device_info.system_info.ram_used),
-            ram_free.eq(device_info.system_info.ram_free),
-            disk_total.eq(device_info.system_info.disk_total),
-            disk_free.eq(device_info.system_info.disk_free),
-            network_throughput.eq(device_info.system_info.network_throughput),
-            ping_latency.eq(device_info.system_info.ping_latency.unwrap_or(0.0)),
-            last_checkin.eq(Utc::now().naive_utc()),
+            cpu.eq(new_device.cpu),
+            ram_total.eq(new_device.ram_total),
+            ram_used.eq(new_device.ram_used),
+            ram_free.eq(new_device.ram_free),
+            disk_total.eq(new_device.disk_total),
+            disk_free.eq(new_device.disk_free),
+            network_throughput.eq(new_device.network_throughput),
+            ping_latency.eq(new_device.ping_latency),
+            last_checkin.eq(new_device.last_checkin),
         ))
         .execute(&mut conn)
         .map_err(|e| e.to_string())?;
@@ -95,7 +78,7 @@ async fn register_or_update_device(
         .filter(device_name.eq(device_id))
         .first::<Device>(&mut conn)
         .map_err(|e| e.to_string())?
-        .enrich_for_dashboard(); // <-- compute uptime & updates
+        .enrich_for_dashboard();
 
     Ok(Json(result))
 }
@@ -109,7 +92,7 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
         .load::<Device>(&mut conn)
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|d| d.enrich_for_dashboard()) // <-- compute uptime & updates
+        .map(|d| d.enrich_for_dashboard())
         .collect::<Vec<Device>>();
 
     Ok(Json(results))
@@ -124,7 +107,7 @@ async fn dashboard(pool: &State<DbPool>) -> Template {
         .load::<Device>(&mut conn)
         .unwrap_or_default()
         .into_iter()
-        .map(|d| d.enrich_for_dashboard()) // <-- compute uptime & updates
+        .map(|d| d.enrich_for_dashboard())
         .collect::<Vec<Device>>();
 
     Template::render("dashboard", context! {
