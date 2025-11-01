@@ -123,14 +123,14 @@
                 </td>
                 <td class="text-nowrap">
                     {% if not device.approved %}
-                        <button class="btn btn-sm btn-outline-success approve-btn" title="Approve">
+                        <button class="btn btn-sm btn-outline-success approve-btn" data-bs-toggle="tooltip" title="Approve">
                             <i class="fa-solid fa-check"></i>
                         </button>
                     {% endif %}
-                    <button class="btn btn-sm btn-outline-warning force-btn" title="Force update">
+                    <button class="btn btn-sm btn-outline-warning force-btn" data-bs-toggle="tooltip" title="Force update">
                         <i class="fa-solid fa-rotate"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-info checkin-btn" title="Allow check‑in">
+                    <button class="btn btn-sm btn-outline-info checkin-btn" data-bs-toggle="tooltip" title="Allow check‑in">
                         <i class="fa-solid fa-check-double"></i>
                     </button>
                 </td>
@@ -197,12 +197,14 @@
             buttons: ['copy', 'csv', 'excel', 'pdf', 'print'],
         });
 
+        // Initialize Bootstrap tooltips
+        $('[data-bs-toggle="tooltip"]').tooltip();
+
         /* Approve button functionality */
         $('body').on('click', '.approve-btn', function () {
-            const row = $(this).closest('tr');  // Get the closest row
-            const hostname = row.find('td:eq(1)').text();  // Get the hostname from the second column
+            const row = $(this).closest('tr');
+            const hostname = row.find('td:eq(2)').text(); // correct Hostname column
 
-            // Send the approval request via AJAX
             $.ajax({
                 url: '/api/devices/approve',
                 type: 'POST',
@@ -210,18 +212,34 @@
                 data: JSON.stringify({ hostname: hostname }),
                 success: function(response) {
                     if (response.success) {
-                        // Update the UI to reflect the approval
-                        row.find('.approve-btn').prop('disabled', true);  // Disable the approve button
-                        row.find('.approve-btn').text('Approved');  // Change button text to 'Approved'
-                        showToast('Device approved successfully.', 'success');  // Show a success toast
+                        row.find('.approve-btn').prop('disabled', true).text('Approved');
+                        showToast('Device approved successfully.', 'success');
                     } else {
-                        showToast('Failed to approve device.', 'danger');  // Show an error toast
+                        showToast('Failed to approve device.', 'danger');
                     }
                 },
                 error: function() {
-                    showToast('Error occurred while approving device.', 'danger');  // Show error toast
+                    showToast('Error occurred while approving device.', 'danger');
                 }
             });
+        });
+
+        /* Bulk approve */
+        $('#bulkApprove').click(() => {
+            const selectedRows = table.rows({ selected: true }).nodes();
+            selectedRows.each((index, row) => {
+                const hostname = $(row).find('td:eq(2)').text();
+                $.ajax({
+                    url: '/api/devices/approve',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ hostname: hostname }),
+                    success: function(resp) {
+                        $(row).find('.approve-btn').prop('disabled', true).text('Approved');
+                    }
+                });
+            });
+            showToast('Selected devices approved.', 'success');
         });
 
         /* Modal opening behavior */
@@ -230,7 +248,7 @@
             $('#deviceDetailModal').modal('show');
             $('#deviceDetailBody').html('<div class="text-center py-5"><div class="spinner-border" role="status"></div></div>');
 
-            // Simulate loading device details (replace this with an actual API call)
+            // Simulate loading device details (replace with actual API call)
             setTimeout(function() {
                 $('#deviceDetailBody').html(`<p>Details for device ${deviceId} will be shown here.</p>`);
             }, 1000);
