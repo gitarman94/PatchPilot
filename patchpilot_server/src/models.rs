@@ -1,13 +1,11 @@
 use diesel::prelude::*;
-use diesel::sqlite::Sqlite;
 use chrono::{NaiveDateTime, Utc};
 use rocket::serde::{Serialize, Deserialize};
 
 use crate::schema::devices;
 
-#[derive(Queryable, Selectable, Serialize, Deserialize, Debug)]
+#[derive(Queryable, Serialize, Deserialize, Debug)]
 #[diesel(table_name = devices)]
-#[diesel(check_for_backend(Sqlite))]
 pub struct Device {
     pub id: i32,
     pub device_name: String,
@@ -40,11 +38,11 @@ pub struct Device {
 
 #[derive(Insertable)]
 #[diesel(table_name = devices)]
-pub struct NewDevice<'a> {
-    pub device_name: &'a str,
-    pub hostname: &'a str,
-    pub os_name: &'a str,
-    pub architecture: &'a str,
+pub struct NewDevice {
+    pub device_name: String,
+    pub hostname: String,
+    pub os_name: String,
+    pub architecture: String,
     pub last_checkin: NaiveDateTime,
     pub approved: bool,
     pub cpu: f32,
@@ -53,11 +51,11 @@ pub struct NewDevice<'a> {
     pub ram_free: i64,
     pub disk_total: i64,
     pub disk_free: i64,
-    pub disk_health: &'a str,
+    pub disk_health: String,
     pub network_throughput: i64,
     pub ping_latency: f32,
-    pub device_type: &'a str,
-    pub device_model: &'a str,
+    pub device_type: String,
+    pub device_model: String,
 }
 
 impl Device {
@@ -74,5 +72,30 @@ impl Device {
         self.uptime = Some(self.compute_uptime());
         self.updates_available = false; // Placeholder
         self
+    }
+}
+
+// Helper to create a NewDevice from DeviceInfo
+impl NewDevice {
+    pub fn from_device_info(device_id: &str, info: &crate::main::DeviceInfo) -> Self {
+        Self {
+            device_name: device_id.to_string(),
+            hostname: device_id.to_string(),
+            os_name: info.system_info.os_name.clone(),
+            architecture: info.system_info.architecture.clone(),
+            last_checkin: Utc::now().naive_utc(),
+            approved: false,
+            cpu: info.system_info.cpu,
+            ram_total: info.system_info.ram_total,
+            ram_used: info.system_info.ram_used,
+            ram_free: info.system_info.ram_free,
+            disk_total: info.system_info.disk_total,
+            disk_free: info.system_info.disk_free,
+            disk_health: info.system_info.disk_health.clone(),
+            network_throughput: info.system_info.network_throughput,
+            ping_latency: info.system_info.ping_latency.unwrap_or(0.0),
+            device_type: info.device_type.clone().unwrap_or_default(),
+            device_model: info.device_model.clone().unwrap_or_default(),
+        }
     }
 }
