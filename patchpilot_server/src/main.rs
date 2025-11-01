@@ -4,7 +4,7 @@ use r2d2::Pool;
 
 use rocket::{get, post, routes, launch, State};
 use rocket::serde::{json::Json, Deserialize};
-use rocket::fs::{NamedFile, relative};
+use rocket::fs::{FileServer, NamedFile, relative};
 use chrono::Utc;
 use anyhow::Result;
 use std::path::PathBuf;
@@ -14,10 +14,8 @@ mod models;
 
 use models::{Device, NewDevice};
 
-// Type alias for our SQLite connection pool
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
-// Establish connection helper
 fn establish_connection(pool: &DbPool) -> PooledConnection<ConnectionManager<SqliteConnection>> {
     pool.get().expect("Failed to get a DB connection from the pool.")
 }
@@ -113,7 +111,7 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
     Ok(Json(results))
 }
 
-// Serve the dashboard HTML
+// Serve dashboard HTML
 #[get("/")]
 async fn dashboard() -> Option<NamedFile> {
     NamedFile::open(relative!("templates/dashboard.html")).await.ok()
@@ -125,7 +123,7 @@ fn rocket() -> _ {
 
     env_logger::init();
 
-    // Set up database pool
+    // DB pool
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
     let pool = Pool::builder()
@@ -135,6 +133,8 @@ fn rocket() -> _ {
     rocket::build()
         .manage(pool)
         .mount("/", routes![dashboard, register_or_update_device, get_devices])
+        // Serve `static/` directory at `/static` path
+        .mount("/static", FileServer::from(relative!("static")))
         .configure(rocket::Config {
             port: 8080,
             ..rocket::Config::default()
