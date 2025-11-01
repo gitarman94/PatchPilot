@@ -93,6 +93,7 @@ async fn register_or_update_device(
 
     let result = devices
         .filter(device_name.eq(device_id))
+        .select(Device::as_select())
         .first::<Device>(&mut conn)
         .map_err(|e| e.to_string())?;
 
@@ -105,6 +106,7 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
     let mut conn = establish_connection(pool);
 
     let results = devices
+        .select(Device::as_select())
         .load::<Device>(&mut conn)
         .map_err(|e| e.to_string())?;
 
@@ -116,7 +118,10 @@ async fn dashboard(pool: &State<DbPool>) -> Template {
     use crate::schema::devices::dsl::*;
     let mut conn = establish_connection(pool);
 
-    let all_devices = devices.load::<Device>(&mut conn).unwrap_or_default();
+    let all_devices = devices
+        .select(Device::as_select())
+        .load::<Device>(&mut conn)
+        .unwrap_or_default();
 
     Template::render("dashboard", context! {
         devices: all_devices,
