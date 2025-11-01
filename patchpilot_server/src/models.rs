@@ -1,5 +1,5 @@
 use diesel::prelude::*;
-use diesel::sqlite::Sqlite; // Required for #[diesel(check_for_backend(Sqlite))]
+use diesel::sqlite::Sqlite;
 use chrono::{NaiveDateTime, Utc};
 use rocket::serde::{Serialize, Deserialize};
 
@@ -28,9 +28,12 @@ pub struct Device {
     pub device_type: String,
     pub device_model: String,
 
-    // Computed fields for the dashboard
+    // Computed fields for the dashboard — NOT in the DB
+    #[diesel(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uptime: Option<String>,
+
+    #[diesel(skip)]
     #[serde(default)]
     pub updates_available: bool,
 }
@@ -69,7 +72,7 @@ impl Device {
     /// Update computed fields before sending to the frontend
     pub fn enrich_for_dashboard(mut self) -> Self {
         self.uptime = Some(self.compute_uptime());
-        self.updates_available = false; // Placeholder for update check
+        self.updates_available = false; // Placeholder
         self
     }
 }
