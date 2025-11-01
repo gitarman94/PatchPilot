@@ -159,18 +159,9 @@ mod unix {
 
     pub fn get_cpu_info() -> Result<f32> {
         log::info!("Retrieving CPU load for Unix device...");
-        let cpu_load = Command::new("top")
-            .arg("-b")
-            .arg("-n1")
-            .arg("|")
-            .arg("grep")
-            .arg("Cpu(s)")
-            .arg("|")
-            .arg("sed")
-            .arg(r"'s/.*, *\([0-9.]*\)%* id.*/\\1/'")
-            .arg("|")
-            .arg("awk")
-            .arg("'BEGIN {print 100 - $1}'")
+        let cpu_load = Command::new("sh")
+            .arg("-c")
+            .arg("top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'")
             .output()
             .map_err(|e| anyhow!("Failed to execute top command for CPU load: {}", e))?;
 
@@ -213,7 +204,7 @@ mod unix {
     }
 }
 
-// Unified function to get system info, uses the platform-specific modules
+// Unified function
 pub fn get_system_info() -> Result<serde_json::Value> {
     #[cfg(windows)]
     {
@@ -253,3 +244,7 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         Ok(system_info)
     }
 }
+
+// Optional helpers
+pub fn get_device_type() -> &'static str { "Laptop" } 
+pub fn get_device_model() -> &'static str { "XPS 13" }  
