@@ -4,8 +4,10 @@ use r2d2::Pool;
 
 use rocket::{get, post, routes, launch, State};
 use rocket::serde::{json::Json, Deserialize};
+use rocket::fs::{NamedFile, relative};
 use chrono::Utc;
 use anyhow::Result;
+use std::path::PathBuf;
 
 mod schema;
 mod models;
@@ -73,7 +75,6 @@ async fn register_or_update_device(
         device_model: device_info.device_model.as_deref().unwrap_or(""),
     };
 
-    // Insert or update existing device
     diesel::insert_into(devices)
         .values(&new_device)
         .on_conflict(device_name)
@@ -92,7 +93,6 @@ async fn register_or_update_device(
         .execute(&mut conn)
         .map_err(|e| e.to_string())?;
 
-    // Return the updated record
     let result = devices
         .filter(device_name.eq(device_id))
         .first::<Device>(&mut conn)
@@ -113,8 +113,14 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
     Ok(Json(results))
 }
 
+// Serve the dashboard HTML
+#[get("/")]
+async fn dashboard() -> Option<NamedFile> {
+    NamedFile::open(relative!("templates/dashboard.html")).await.ok()
+}
+
 #[launch]
-fn rocket() -> rocket::Rocket<rocket::Build> {
+fn rocket() -> _ {
     use std::env;
 
     env_logger::init();
@@ -128,5 +134,9 @@ fn rocket() -> rocket::Rocket<rocket::Build> {
 
     rocket::build()
         .manage(pool)
-        .mount("/", routes![register_or_update_device, get_devices])
+        .mount("/", routes![dashboard, register_or_update_device, get_devices])
+        .configure(rocket::Config {
+            port: 8080,
+            ..rocket::Config::default()
+        })
 }
