@@ -122,7 +122,6 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
 fn rocket() -> _ {
     use std::env;
 
-    env::set_var("RUST_LOG", "info");
     env_logger::init();
 
     // Set up database pool
@@ -136,3 +135,4 @@ fn rocket() -> _ {
         .manage(pool)
         .mount("/", routes![register_or_update_device, get_devices])
 }
+
