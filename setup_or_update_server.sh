@@ -33,23 +33,19 @@ else
     exit 1
 fi
 
-# Cleanup old install first if --force is used
+# Cleanup old install if --force is used
 if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Cleaning up old installation..."
-
-    # Stop and disable systemd service if it exists
     if systemctl list-units --full -all | grep -q "^${SERVICE_NAME}"; then
         echo "🛑 Stopping systemd service ${SERVICE_NAME}..."
         systemctl stop "${SERVICE_NAME}" || true
         systemctl disable "${SERVICE_NAME}" || true
     fi
 
-    echo "🧹 Removing Rust-related environment variables from /etc/environment..."
     sed -i '/CARGO_HOME/d' /etc/environment
     sed -i '/RUSTUP_HOME/d' /etc/environment
     sed -i '/PATH=.*\/opt\/patchpilot_server\/.cargo\/bin/d' /etc/environment
     
-    echo "🧹 Killing any running processes in the application directory"
     pids=$(pgrep -f "^${APP_DIR}/target/release/patchpilot_server$" || true)
     if [[ -n "$pids" ]]; then
         for pid in $pids; do
@@ -60,24 +56,19 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
         done
     fi
 
-    echo "🧹 Removing old files..."
     rm -rf /opt/patchpilot_server
     rm -rf /opt/patchpilot_install*
-    rm -rf "$HOME/.cargo" "$HOME/.rustup"  # Remove Rust as well
-
-    # Remove rustup and cargo binaries globally if you want to clean them
+    rm -rf "$HOME/.cargo" "$HOME/.rustup"
     rm -f /usr/local/bin/cargo /usr/local/bin/rustup
 fi
 
-# Create the required directories before usage
+# Create required directories
 mkdir -p /opt/patchpilot_install
 mkdir -p /opt/patchpilot_server
 
-# Download latest release from GitHub (no token required for public repo)
+# Download latest release
 cd /opt/patchpilot_install
 curl -L "$ZIP_URL" -o latest.zip
-
-# Check if the ZIP file was downloaded successfully
 if [[ ! -f latest.zip ]]; then
     echo "❌ Download failed! Please check the URL."
     exit 1
@@ -97,32 +88,23 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlite3-dev
 
-# Install Rust if not installed (directly in /opt/patchpilot_server)
+# Install Rust if not installed
 if ! command -v cargo >/dev/null 2>&1; then
-    # Add Rust environment variables system-wide (before installing Rust)
     echo "🛠️ Setting up system-wide environment variables..."
     echo "CARGO_HOME=/opt/patchpilot_server/.cargo" >> /etc/environment
     echo "RUSTUP_HOME=/opt/patchpilot_server/.rustup" >> /etc/environment
     echo "PATH=\$CARGO_HOME/bin:\$PATH" >> /etc/environment
     
-    echo "⚙️ Installing Rust in /opt/patchpilot_server..."
-    # Create directories for Rust installation
+    echo "⚙️ Installing Rust..."
     mkdir -p "${APP_DIR}/.cargo" "${APP_DIR}/.rustup"
-    
-    # Install Rust with the minimal profile
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 
-    # Set the Rust home directories explicitly
     export CARGO_HOME="${APP_DIR}/.cargo"
     export RUSTUP_HOME="${APP_DIR}/.rustup"
     export PATH="$CARGO_HOME/bin:$PATH"
 
-    # Make sure the default toolchain is set to stable
     "${CARGO_HOME}/bin/rustup" default stable
-
-    # Verify Rust installation and the toolchain version
     "${CARGO_HOME}/bin/cargo" --version
-
 else
     echo "✅ Rust is already installed."
     export CARGO_HOME="${APP_DIR}/.cargo"
@@ -130,16 +112,16 @@ else
     export PATH="$CARGO_HOME/bin:$PATH"
 fi
 
-# Set up SQLite database
+# SQLite database setup
 SQLITE_DB="${APP_DIR}/patchpilot.db"
 touch "$SQLITE_DB"
 chown patchpilot:patchpilot "$SQLITE_DB"
 chmod 600 "$SQLITE_DB"
 
-# Set up log file and permissions
+# Log file
 touch /opt/patchpilot_server/server.log
 
-# Setup admin token
+# Admin token
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
 ENV_FILE="${APP_DIR}/admin_token.env"
 if [[ ! -f "$TOKEN_FILE" ]]; then
@@ -157,38 +139,53 @@ if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -s /usr/sbin/nologin patchpilot
 fi
 
-# Set ownership of the entire directory to patchpilot
+# Ownership
 chown -R patchpilot:patchpilot "${APP_DIR}"
 
-# Build the Rust application
+# Build Rust app
 cd "${APP_DIR}"
 echo "🔨 Building the Rust application..."
 /opt/patchpilot_server/.cargo/bin/cargo build --release
 
-# Fix ownership first
+# Permissions
 chown -R patchpilot:patchpilot /opt/patchpilot_server
-# Correct permissions
-find /opt/patchpilot_server -type d -exec chmod 755 {} \;   # directories need execute bit
-find /opt/patchpilot_server -type f -exec chmod 644 {} \;   # files stay read/write for owner only
+find /opt/patchpilot_server -type d -exec chmod 755 {} \;
+find /opt/patchpilot_server -type f -exec chmod 644 {} \;
 chmod +x /opt/patchpilot_server/target/release/patchpilot_server
 
-# Setup systemd service
+# Create Rocket.toml
+cat > "${APP_DIR}/Rocket.toml" <<EOF
+[default]
+address = "0.0.0.0"
+port = 8080
+log = "normal"
+
+[release]
+log = "critical"
+EOF
+chown patchpilot:patchpilot "${APP_DIR}/Rocket.toml"
+
+# Create .env for systemd
+APP_ENV_FILE="${APP_DIR}/.env"
+cat > "${APP_ENV_FILE}" <<EOF
+DATABASE_URL=sqlite://${APP_DIR}/patchpilot.db
+RUST_LOG=info
+EOF
+chown patchpilot:patchpilot "${APP_ENV_FILE}"
+chmod 600 "${APP_ENV_FILE}"
+
+# Setup systemd service (simplified)
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
-Description=Patch Management Server
+Description=PatchPilot Server
 After=network.target
 
 [Service]
 User=patchpilot
 Group=patchpilot
 WorkingDirectory=${APP_DIR}
-EnvironmentFile=${ENV_FILE}
-Environment="RUST_LOG=info"
-Environment="DATABASE_URL=sqlite:///opt/patchpilot_server/patchpilot.db"
-Environment="ROCKET_ADDRESS=0.0.0.0"
-Environment="ROCKET_PORT=8080"
+EnvironmentFile=${APP_ENV_FILE}
 ExecStart=${APP_DIR}/target/release/patchpilot_server
-ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
 RestartSec=10
 StandardOutput=append:${APP_DIR}/server.log
@@ -198,14 +195,10 @@ StandardError=append:${APP_DIR}/server.log
 WantedBy=multi-user.target
 EOF
 
-# Reload the environment file to pick up changes
-source /etc/environment
-
-# Start the service
+# Reload and start service
 systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
 
-# Output success message
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete!"
 echo "🌐 Dashboard: http://${SERVER_IP}:8080"
