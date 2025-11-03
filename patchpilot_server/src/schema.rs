@@ -17,9 +17,8 @@ diesel::table! {
         disk_free -> BigInt,
         disk_health -> Text,
         network_throughput -> BigInt,
-        ping_latency FLOAT NULL,
+        ping_latency -> Nullable<Float>,
         device_type -> Text,
         device_model -> Text,
     }
 }
-
