@@ -4,7 +4,6 @@ use r2d2::Pool;
 use rocket::{get, post, routes, launch, State};
 use rocket::serde::json::Json;
 use rocket::fs::{FileServer, NamedFile};
-use chrono::Utc;
 use log::{info, error};
 use std::path::{Path, PathBuf};
 
@@ -178,3 +177,4 @@ fn rocket() -> _ {
         // Optional: Serve /static path for CSS/JS/images (redundant if templates contain them)
         .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))
 }
+
