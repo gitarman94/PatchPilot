@@ -10,7 +10,7 @@ use log::{info, error};
 mod schema;
 mod models;
 
-use models::{Device, NewDevice, DeviceInfo, SystemInfo};
+use models::{Device, NewDevice, DeviceInfo};
 use diesel::sqlite::SqliteConnection;
 
 // Type alias for SQLite connection pool
@@ -183,3 +183,4 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard])
         .attach(Template::fairing())
 }
+
