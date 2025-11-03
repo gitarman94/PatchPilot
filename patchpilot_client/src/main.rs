@@ -33,11 +33,7 @@ fn run_device_loop() -> Result<()> {
 
         // Send system info to server
         let response = client.post(format!("{}/api/device/{}", server_url, device_id))
-            .json(&json!({
-                "system_info": system_info,
-                "device_type": "Laptop",
-                "device_model": "XPS 13"
-            }))
+            .json(&system_info)
             .send();
 
         match response {
