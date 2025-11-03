@@ -7,6 +7,8 @@ mod windows_service {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::{thread, time::Duration};
 
+    use crate::system_info;
+
     define_windows_service!(ffi_service_main, my_service_main);
 
     lazy_static::lazy_static! {
@@ -15,7 +17,7 @@ mod windows_service {
 
     pub fn run_service() -> Result<()> {
         log::info!("Starting Windows service...");
-        service_dispatcher::start("RustPatchDeviceService", ffi_service_main)?; // Renamed service name to "Device"
+        service_dispatcher::start("RustPatchDeviceService", ffi_service_main)?;
         Ok(())
     }
 
@@ -26,7 +28,7 @@ mod windows_service {
     }
 
     fn run() -> Result<()> {
-        let status_handle = service_control_handler::register("RustPatchDeviceService", move |control_event| { // Renamed service name to "Device"
+        let status_handle = service_control_handler::register("RustPatchDeviceService", move |control_event| {
             match control_event {
                 ServiceControl::Stop | ServiceControl::Shutdown => {
                     log::info!("Service stopping...");
@@ -51,18 +53,21 @@ mod windows_service {
 
         let client = Client::new();
         let server_url = "http://127.0.0.1:8080"; // Replace with actual server URL
-        let device_id = "unique-device-id"; // Replace with a dynamic or actual unique device ID
+
+        // Gather dynamic device info once
+        let device_id = system_info::get_system_info()?.get("serial_number").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+        let device_type = system_info::get_device_type();
+        let device_model = system_info::get_device_model();
 
         // Heartbeat and adoption check loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
             log::info!("Checking adoption status for device...");
 
-            // Send the heartbeat check
             let response = client.post(format!("{}/api/devices/heartbeat", server_url))
                 .json(&json!({
-                    "device_id": device_id, // Device identifier
-                    "device_type": "Laptop", // Example device type, change as needed
-                    "device_model": "XPS 13", // Example device model, change as needed
+                    "device_id": device_id,
+                    "device_type": device_type,
+                    "device_model": device_model,
                 }))
                 .send();
 
@@ -71,7 +76,7 @@ mod windows_service {
                     let status: serde_json::Value = resp.json()?;
                     if status["adopted"].as_bool() == Some(true) {
                         log::info!("Device approved. Starting regular updates...");
-                        break; // Proceed to regular update mode
+                        break;
                     } else {
                         log::info!("Waiting for approval...");
                     }
@@ -80,23 +85,27 @@ mod windows_service {
                 Err(e) => log::error!("Error checking adoption status: {:?}", e),
             }
 
-            // Sleep before the next heartbeat check
-            thread::sleep(Duration::from_secs(30)); // Heartbeat interval
+            thread::sleep(Duration::from_secs(30));
         }
 
         // Regular system update loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
             log::info!("Sending system update for device...");
 
-            // Gather system info here (this is placeholder data)
-            let sys_info = "System info goes here"; // Collect and format actual system info
+            // Gather dynamic system info
+            let sys_info = match system_info::get_system_info() {
+                Ok(info) => info,
+                Err(e) => {
+                    log::error!("Failed to gather system info: {:?}", e);
+                    json!({})
+                }
+            };
 
-            // Send system update
             let response = client.post(format!("{}/api/devices/update_status", server_url))
                 .json(&json!({
-                    "device_id": device_id, // Device identifier
-                    "status": "active", // Update status
-                    "system_info": sys_info, // Actual system information
+                    "device_id": device_id,
+                    "status": "active",
+                    "system_info": sys_info,
                 }))
                 .send();
 
@@ -104,11 +113,9 @@ mod windows_service {
                 log::error!("Failed to send system update: {:?}", e);
             }
 
-            // Sleep before the next system status update
-            thread::sleep(Duration::from_secs(600)); // Regular update interval
+            thread::sleep(Duration::from_secs(600));
         }
 
-        // Stop the service
         log::info!("Service stopping...");
         status.current_state = ServiceState::Stopped;
         status_handle.set_service_status(status)?;
@@ -124,19 +131,28 @@ mod unix_service {
     use serde_json::json;
     use std::{thread, time::Duration};
 
+    use crate::system_info;
+
     pub fn run_unix_service() -> Result<()> {
         log::info!("Starting Unix service...");
 
         let client = Client::new();
-        let server_url = "http://127.0.0.1:8080"; // Replace with actual server URL
-        let device_id = "unique-device-id"; // Replaced "client_id" with "device_id"
+        let server_url = "http://127.0.0.1:8080"; 
 
-        // Heartbeat and adoption check loop
+        let system_info_json = system_info::get_system_info()?;
+        let device_id = system_info_json.get("serial_number").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+        let device_type = system_info::get_device_type();
+        let device_model = system_info::get_device_model();
+
         loop {
             log::info!("Checking adoption status for device...");
 
             let response = client.post(format!("{}/api/devices/heartbeat", server_url))
-                .json(&json!({ "device_id": device_id })) // Replaced "client_id" with "device_id"
+                .json(&json!({
+                    "device_id": device_id,
+                    "device_type": device_type,
+                    "device_model": device_model,
+                }))
                 .send();
 
             match response {
@@ -144,7 +160,7 @@ mod unix_service {
                     let status: serde_json::Value = resp.json()?;
                     if status["adopted"].as_bool() == Some(true) {
                         log::info!("Device approved. Starting system updates...");
-                        break; // Proceed to regular update mode
+                        break;
                     } else {
                         log::info!("Waiting for approval...");
                     }
@@ -153,18 +169,24 @@ mod unix_service {
                 Err(e) => log::error!("Error checking adoption status: {:?}", e),
             }
 
-            thread::sleep(Duration::from_secs(30)); // Heartbeat interval
+            thread::sleep(Duration::from_secs(30));
         }
 
-        // Regular system update loop
         loop {
             log::info!("Sending system update for device...");
 
-            let sys_info = "System info goes here"; // Gather and format system info here
+            let sys_info = match system_info::get_system_info() {
+                Ok(info) => info,
+                Err(e) => {
+                    log::error!("Failed to gather system info: {:?}", e);
+                    json!({})
+                }
+            };
+
             let response = client.post(format!("{}/api/devices/update_status", server_url))
-                .json(&json!( {
-                    "device_id": device_id, // Replaced "client_id" with "device_id"
-                    "status": "active", // Update status
+                .json(&json!({
+                    "device_id": device_id,
+                    "status": "active",
                     "system_info": sys_info,
                 }))
                 .send();
@@ -173,10 +195,8 @@ mod unix_service {
                 log::error!("Failed to send system update: {:?}", e);
             }
 
-            thread::sleep(Duration::from_secs(600)); // Regular update interval
+            thread::sleep(Duration::from_secs(600));
         }
-
-        Ok(())
     }
 }
 
