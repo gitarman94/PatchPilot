@@ -9,7 +9,6 @@ use simplelog::{Config, LevelFilter, SimpleLogger};
 use std::thread;
 use std::time::Duration;
 use reqwest::blocking::Client;
-use serde_json::json;
 
 // Main loop for Linux or non-Windows devices
 #[cfg(not(windows))]
@@ -88,3 +87,4 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
