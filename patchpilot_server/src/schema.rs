@@ -1,5 +1,3 @@
-// @generated automatically by Diesel CLI.
-
 diesel::table! {
     devices (id) {
         id -> Integer,
@@ -20,5 +18,7 @@ diesel::table! {
         ping_latency -> Nullable<Float>,
         device_type -> Text,
         device_model -> Text,
+        uptime -> Nullable<Text>,
+        updates_available -> Bool,
     }
 }
