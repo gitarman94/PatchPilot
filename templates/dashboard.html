@@ -77,7 +77,7 @@
     <table id="devicesTable" class="display nowrap table table-striped table-hover" style="width:100%">
         <thead>
             <tr>
-                <th></th> <!-- Checkbox column -->
+                <th></th>
                 <th>Device ID</th>
                 <th>Hostname</th>
                 <th>OS</th>
@@ -93,53 +93,9 @@
                 <th>Actions</th>
             </tr>
         </thead>
-        <tbody>
-            {% for device in devices %}
-            <tr data-device-id="{{ device.id }}">
-                <td class="select-checkbox"></td>
-                <td><a href="#" class="device-link text-primary">{{ device.id }}</a></td>
-                <td>{{ device.device_name or '—' }}</td>
-                <td>{{ device.os_name or '—' }}</td>
-                <td>{{ device.cpu or '—' }}</td>
-                <td>{{ device.ram or '—' }}</td>
-                <td>{{ device.disk_total or '—' }}/{{ device.disk_free or '—' }}</td>
-                <td>{{ device.disk_health or '—' }}</td>
-                <td>{{ device.network_throughput or '—' }}</td>
-                <td>{{ device.ping_latency or '—' }}</td>
-                <td>{{ device.uptime or '—' }}</td>
-                <td>
-                    {% if device.last_checkin and (now - device.last_checkin).total_seconds() < 600 %}
-                        <span class="status-online">🟢 Online</span>
-                    {% else %}
-                        <span class="status-offline">🔴 Offline</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if device.updates_available %}
-                        <span class="status-updates">⚠️ Yes</span>
-                    {% else %}
-                        <span class="status-updates">✅ No</span>
-                    {% endif %}
-                </td>
-                <td class="text-nowrap">
-                    {% if not device.approved %}
-                        <button class="btn btn-sm btn-outline-success approve-btn" data-bs-toggle="tooltip" title="Approve">
-                            <i class="fa-solid fa-check"></i>
-                        </button>
-                    {% endif %}
-                    <button class="btn btn-sm btn-outline-warning force-btn" data-bs-toggle="tooltip" title="Force update">
-                        <i class="fa-solid fa-rotate"></i>
-                    </button>
-                    <button class="btn btn-sm btn-outline-info checkin-btn" data-bs-toggle="tooltip" title="Allow check‑in">
-                        <i class="fa-solid fa-check-double"></i>
-                    </button>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
+        <tbody></tbody>
     </table>
 
-    <!-- Toast container -->
     <div class="toast-container"></div>
 
     <!-- Detail modal -->
@@ -178,7 +134,7 @@
 
     /* Toast helper */
     function showToast(message, type='success') {
-        const toast = $(` 
+        const toast = $(`
             <div class="toast align-items-center text-bg-${type} border-0 mb-2" role="alert">
                 <div class="d-flex">
                     <div class="toast-body">${message}</div>
@@ -189,69 +145,107 @@
         new bootstrap.Toast(toast[0]).show();
     }
 
-    /* DataTable setup */
     $(document).ready(function () {
         const table = $('#devicesTable').DataTable({
             responsive: true,
             select: { style: 'multi' },
             buttons: ['copy', 'csv', 'excel', 'pdf', 'print'],
-        });
-
-        // Initialize Bootstrap tooltips
-        $('[data-bs-toggle="tooltip"]').tooltip();
-
-        /* Approve button functionality */
-        $('body').on('click', '.approve-btn', function () {
-            const row = $(this).closest('tr');
-            const hostname = row.find('td:eq(2)').text(); // correct Hostname column
-
-            $.ajax({
-                url: '/api/devices/approve',
-                type: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({ hostname: hostname }),
-                success: function(response) {
-                    if (response.success) {
-                        row.find('.approve-btn').prop('disabled', true).text('Approved');
-                        showToast('Device approved successfully.', 'success');
-                    } else {
-                        showToast('Failed to approve device.', 'danger');
+            data: [],
+            columns: [
+                { data: null, defaultContent: '', className: 'select-checkbox' },
+                { data: 'id', render: d => `<a href="#" class="device-link text-primary">${d}</a>` },
+                { data: 'device_name', defaultContent: '—' },
+                { data: 'os_name', defaultContent: '—' },
+                { data: 'cpu', render: d => d ? `${d.toFixed(1)}%` : '—' },
+                { data: null, render: d => d.ram_total ? `${(d.ram_used / d.ram_total * 100).toFixed(1)}%` : '—' },
+                { data: null, render: d => d.disk_total ? `${(d.disk_total / 1024 ** 3).toFixed(1)} GB` : '—' },
+                { data: 'disk_health', defaultContent: '—' },
+                { data: 'network_throughput', defaultContent: '—' },
+                { data: 'ping_latency', render: d => d ? `${d} ms` : '—' },
+                { data: 'uptime', render: d => d ? `${d} sec` : '—' },
+                {
+                    data: 'last_checkin',
+                    render: ts => {
+                        if (!ts) return '<span class="status-offline">🔴 Offline</span>';
+                        const diff = (Date.now() - new Date(ts)) / 1000;
+                        return diff < 600
+                            ? '<span class="status-online">🟢 Online</span>'
+                            : '<span class="status-offline">🔴 Offline</span>';
                     }
                 },
-                error: function() {
-                    showToast('Error occurred while approving device.', 'danger');
+                {
+                    data: 'updates_available',
+                    render: d => d
+                        ? '<span class="status-updates">⚠️ Yes</span>'
+                        : '<span class="status-updates">✅ No</span>'
+                },
+                {
+                    data: null,
+                    render: d => `
+                        ${!d.approved ? `<button class="btn btn-sm btn-outline-success approve-btn" title="Approve"><i class="fa-solid fa-check"></i></button>` : ''}
+                        <button class="btn btn-sm btn-outline-warning force-btn" title="Force update"><i class="fa-solid fa-rotate"></i></button>
+                        <button class="btn btn-sm btn-outline-info checkin-btn" title="Allow check-in"><i class="fa-solid fa-check-double"></i></button>
+                    `
                 }
-            });
+            ]
         });
 
-        /* Bulk approve */
-        $('#bulkApprove').click(() => {
-            const selectedRows = table.rows({ selected: true }).nodes();
-            selectedRows.each((index, row) => {
-                const hostname = $(row).find('td:eq(2)').text();
-                $.ajax({
-                    url: '/api/devices/approve',
-                    type: 'POST',
-                    contentType: 'application/json',
-                    data: JSON.stringify({ hostname: hostname }),
-                    success: function(resp) {
-                        $(row).find('.approve-btn').prop('disabled', true).text('Approved');
-                    }
+        // Load devices from API
+        async function loadDevices() {
+            try {
+                const res = await fetch('/api/devices');
+                const devices = await res.json();
+                table.clear().rows.add(devices).draw();
+            } catch (err) {
+                console.error('Error loading devices:', err);
+                showToast('Failed to load devices.', 'danger');
+            }
+        }
+
+        loadDevices();
+        setInterval(loadDevices, 30000); // refresh every 30s
+
+        $('body').on('click', '.approve-btn', async function () {
+            const row = table.row($(this).closest('tr')).data();
+            try {
+                const resp = await fetch('/api/devices/approve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hostname: row.device_name })
                 });
-            });
-            showToast('Selected devices approved.', 'success');
+                const json = await resp.json();
+                if (json.success) {
+                    showToast('Device approved successfully.');
+                    loadDevices();
+                } else showToast('Failed to approve device.', 'danger');
+            } catch {
+                showToast('Error approving device.', 'danger');
+            }
         });
 
-        /* Modal opening behavior */
+        $('#bulkApprove').click(async () => {
+            const selected = table.rows({ selected: true }).data().toArray();
+            for (const d of selected) {
+                await fetch('/api/devices/approve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hostname: d.device_name })
+                });
+            }
+            showToast('Selected devices approved.');
+            loadDevices();
+        });
+
         $('body').on('click', '.device-link', function () {
-            const deviceId = $(this).closest('tr').data('device-id');
+            const row = table.row($(this).closest('tr')).data();
             $('#deviceDetailModal').modal('show');
             $('#deviceDetailBody').html('<div class="text-center py-5"><div class="spinner-border" role="status"></div></div>');
-
-            // Simulate loading device details (replace with actual API call)
-            setTimeout(function() {
-                $('#deviceDetailBody').html(`<p>Details for device ${deviceId} will be shown here.</p>`);
-            }, 1000);
+            fetch(`/api/devices/${row.id}`)
+                .then(res => res.json())
+                .then(data => {
+                    $('#deviceDetailBody').html(`<pre>${JSON.stringify(data, null, 2)}</pre>`);
+                })
+                .catch(() => $('#deviceDetailBody').html('<p>Error loading details.</p>'));
         });
     });
 </script>
