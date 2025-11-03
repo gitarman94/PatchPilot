@@ -25,11 +25,7 @@ pub struct Device {
     pub ping_latency: Option<f32>,
     pub device_type: String,
     pub device_model: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub uptime: Option<String>,
-
-    #[serde(default)]
     pub updates_available: bool,
 }
 
@@ -53,6 +49,8 @@ pub struct NewDevice {
     pub ping_latency: Option<f32>,
     pub device_type: String,
     pub device_model: String,
+    pub uptime: Option<String>,
+    pub updates_available: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,7 +85,7 @@ impl Device {
 
     pub fn enrich_for_dashboard(mut self) -> Self {
         self.uptime = Some(self.compute_uptime());
-        self.updates_available = false;
+        self.updates_available = self.updates_available; // keep DB value
         self
     }
 }
@@ -112,6 +110,8 @@ impl NewDevice {
             ping_latency: info.system_info.ping_latency,
             device_type: info.device_type.clone().unwrap_or_default(),
             device_model: info.device_model.clone().unwrap_or_default(),
+            uptime: Some("0h 0m".to_string()), // default when registering
+            updates_available: false,
         }
     }
 }
