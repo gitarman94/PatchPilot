@@ -111,6 +111,55 @@ mod windows {
         log::info!("Retrieved memory info: {:?}", memory_info);
         Ok(memory_info)
     }
+
+    pub fn get_device_type() -> String {
+        // Simple Windows heuristic: portable vs desktop
+        let output = Command::new("wmic")
+            .arg("computersystem")
+            .arg("get")
+            .arg("PCSystemType")
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => {
+                let val = String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .filter(|line| !line.trim().is_empty() && !line.contains("PCSystemType"))
+                    .last()
+                    .unwrap_or("1") // default to Desktop
+                    .trim()
+                    .to_string();
+
+                match val.as_str() {
+                    "2" => "Laptop".to_string(),
+                    "1" => "Desktop".to_string(),
+                    _ => "Unknown".to_string(),
+                }
+            }
+            _ => "Unknown".to_string(),
+        }
+    }
+
+    pub fn get_device_model() -> String {
+        let output = Command::new("wmic")
+            .arg("computersystem")
+            .arg("get")
+            .arg("model")
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => {
+                String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .filter(|line| !line.trim().is_empty() && !line.contains("Model"))
+                    .last()
+                    .unwrap_or("Unknown Model")
+                    .trim()
+                    .to_string()
+            }
+            _ => "Unknown Model".to_string(),
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -161,7 +210,7 @@ mod unix {
         log::info!("Retrieving CPU load for Unix device...");
         let cpu_load = Command::new("sh")
             .arg("-c")
-            .arg("top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'")
+            .arg("top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'")
             .output()
             .map_err(|e| anyhow!("Failed to execute top command for CPU load: {}", e))?;
 
@@ -169,10 +218,7 @@ mod unix {
             return Err(anyhow!("Failed to retrieve CPU load"));
         }
 
-        let cpu_load_str = String::from_utf8_lossy(&cpu_load.stdout)
-            .trim()
-            .to_string();
-
+        let cpu_load_str = String::from_utf8_lossy(&cpu_load.stdout).trim().to_string();
         let cpu_load: f32 = cpu_load_str.parse().unwrap_or(0.0);
         log::info!("Retrieved CPU load: {}%", cpu_load);
         Ok(cpu_load)
@@ -202,6 +248,28 @@ mod unix {
         log::info!("Retrieved memory info: {:?}", memory_info);
         Ok(memory_info)
     }
+
+    pub fn get_device_type() -> String {
+        // Attempt simple check for laptops (if battery exists)
+        if std::path::Path::new("/sys/class/power_supply/BAT0").exists() {
+            "Laptop".to_string()
+        } else {
+            "Desktop".to_string()
+        }
+    }
+
+    pub fn get_device_model() -> String {
+        let output = Command::new("cat")
+            .arg("/sys/class/dmi/id/product_name")
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .to_string(),
+            _ => "Unknown Model".to_string(),
+        }
+    }
 }
 
 // Unified function
@@ -213,12 +281,16 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         let os_info = windows::get_os_info()?;
         let cpu_info = windows::get_cpu_info()?;
         let memory_info = windows::get_memory_info()?;
+        let device_type = windows::get_device_type();
+        let device_model = windows::get_device_model();
 
         let system_info = json!({
             "serial_number": serial_number,
             "os_info": os_info,
             "cpu": cpu_info,
             "memory": memory_info,
+            "device_type": device_type,
+            "device_model": device_model,
         });
 
         log::info!("Retrieved system info: {:?}", system_info);
@@ -232,19 +304,19 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         let os_info = unix::get_os_info()?;
         let cpu_info = unix::get_cpu_info()?;
         let memory_info = unix::get_memory_info()?;
+        let device_type = unix::get_device_type();
+        let device_model = unix::get_device_model();
 
         let system_info = json!({
             "serial_number": serial_number,
             "os_info": os_info,
             "cpu": cpu_info,
             "memory": memory_info,
+            "device_type": device_type,
+            "device_model": device_model,
         });
 
         log::info!("Retrieved system info: {:?}", system_info);
         Ok(system_info)
     }
 }
-
-// Optional helpers
-pub fn get_device_type() -> &'static str { "Laptop" } 
-pub fn get_device_model() -> &'static str { "XPS 13" }  
