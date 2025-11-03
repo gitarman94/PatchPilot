@@ -131,6 +131,33 @@ async fn dashboard(pool: &State<DbPool>) -> Template {
     })
 }
 
+/// --- NEW FUNCTION: Automatically initialize database schema ---
+fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
+    diesel::sql_query(r#"
+        CREATE TABLE IF NOT EXISTS devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_name TEXT NOT NULL UNIQUE,
+            hostname TEXT NOT NULL,
+            os_name TEXT NOT NULL,
+            architecture TEXT NOT NULL,
+            last_checkin TIMESTAMP NOT NULL,
+            approved BOOLEAN NOT NULL,
+            cpu FLOAT NOT NULL,
+            ram_total BIGINT NOT NULL,
+            ram_used BIGINT NOT NULL,
+            ram_free BIGINT NOT NULL,
+            disk_total BIGINT NOT NULL,
+            disk_free BIGINT NOT NULL,
+            disk_health TEXT NOT NULL,
+            network_throughput BIGINT NOT NULL,
+            ping_latency FLOAT,
+            device_type TEXT NOT NULL,
+            device_model TEXT NOT NULL
+        )
+    "#).execute(conn)?;
+    Ok(())
+}
+
 #[launch]
 fn rocket() -> _ {
     use std::env;
@@ -142,6 +169,13 @@ fn rocket() -> _ {
     let pool = Pool::builder()
         .build(manager)
         .expect("Failed to create DB pool");
+
+    // --- Initialize DB schema automatically ---
+    {
+        let mut conn = pool.get().expect("Failed to get DB connection for initialization");
+        initialize_db(&mut conn).expect("Failed to initialize database schema");
+        info!("✅ Database schema initialized or already exists");
+    }
 
     rocket::build()
         .manage(pool)
