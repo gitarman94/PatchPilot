@@ -5,6 +5,7 @@ use rocket::serde::{Serialize, Deserialize};
 use crate::schema::devices;
 
 #[derive(Queryable, Serialize, Deserialize, Debug)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Device {
     pub id: i32,
     pub device_name: String,
@@ -21,7 +22,7 @@ pub struct Device {
     pub disk_free: i64,
     pub disk_health: String,
     pub network_throughput: i64,
-    pub ping_latency: Option<f32>,  
+    pub ping_latency: Option<f32>,
     pub device_type: String,
     pub device_model: String,
 
@@ -32,7 +33,7 @@ pub struct Device {
     pub updates_available: bool,
 }
 
-#[derive(Insertable)]
+#[derive(Insertable, AsChangeset)]
 #[diesel(table_name = devices)]
 pub struct NewDevice {
     pub device_name: String,
@@ -49,13 +50,12 @@ pub struct NewDevice {
     pub disk_free: i64,
     pub disk_health: String,
     pub network_throughput: i64,
-    pub ping_latency: Option<f32>,  
+    pub ping_latency: Option<f32>,
     pub device_type: String,
     pub device_model: String,
 }
 
-// Define DeviceInfo here so models.rs doesn’t reference main.rs
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemInfo {
     pub os_name: String,
     pub architecture: String,
@@ -70,7 +70,7 @@ pub struct SystemInfo {
     pub ping_latency: Option<f32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
     pub system_info: SystemInfo,
     pub device_type: Option<String>,
