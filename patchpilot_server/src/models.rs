@@ -85,7 +85,6 @@ impl Device {
 
     pub fn enrich_for_dashboard(mut self) -> Self {
         self.uptime = Some(self.compute_uptime());
-        self.updates_available = self.updates_available; // keep DB value
         self
     }
 }
@@ -115,3 +114,4 @@ impl NewDevice {
         }
     }
 }
+
