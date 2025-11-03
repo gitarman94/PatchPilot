@@ -111,6 +111,12 @@ else
     export RUSTUP_HOME="${APP_DIR}/.rustup"
     export PATH="$CARGO_HOME/bin:$PATH"
 fi
+# Permissions
+chown -R patchpilot:patchpilot ${APP_DIR}
+find /opt/patchpilot_server -type d -exec chmod 755 {} \;
+find /opt/patchpilot_server -type f -exec chmod 755 {} \;
+chmod +x /opt/patchpilot_server/target/release/patchpilot_server
+chmod 600 /opt/patchpilot_server/patchpilot.db
 
 # SQLite database setup
 SQLITE_DB="${APP_DIR}/patchpilot.db"
