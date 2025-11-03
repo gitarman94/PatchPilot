@@ -3,6 +3,7 @@ use diesel::r2d2::{ConnectionManager, PooledConnection};
 use r2d2::Pool;
 use rocket::{get, post, routes, launch, State};
 use rocket::serde::json::Json;
+use chrono::Utc;
 use rocket::fs::{FileServer, NamedFile};
 use log::{info, error};
 use std::path::{Path, PathBuf};
@@ -148,6 +149,14 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
         )
     "#).execute(conn)?;
     Ok(())
+}
+
+#[get("/status")]
+fn status() -> Json<serde_json::Value> {
+    Json(json!({
+        "server_time": Utc::now().to_rfc3339(),
+        "status": "ok"
+    }))
 }
 
 #[launch]
