@@ -21,7 +21,7 @@ for arg in "$@"; do
     esac
 done
 
-# Check if the OS is supported (Debian-based systems)
+# Check OS
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
@@ -33,90 +33,57 @@ else
     exit 1
 fi
 
-# Cleanup old install if --force is used
+# Cleanup if --force
 if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Cleaning up old installation..."
-    if systemctl list-units --full -all | grep -q "^${SERVICE_NAME}"; then
-        echo "🛑 Stopping systemd service ${SERVICE_NAME}..."
-        systemctl stop "${SERVICE_NAME}" || true
-        systemctl disable "${SERVICE_NAME}" || true
-    fi
+    systemctl stop "${SERVICE_NAME}" || true
+    systemctl disable "${SERVICE_NAME}" || true
 
     sed -i '/CARGO_HOME/d' /etc/environment
     sed -i '/RUSTUP_HOME/d' /etc/environment
     sed -i '/PATH=.*\/opt\/patchpilot_server\/.cargo\/bin/d' /etc/environment
-    
-    pids=$(pgrep -f "^${APP_DIR}/target/release/patchpilot_server$" || true)
-    if [[ -n "$pids" ]]; then
-        for pid in $pids; do
-            echo "🛑 Terminating running process $pid..."
-            kill -15 "$pid" 2>/dev/null || true
-            sleep 2
-            kill -9 "$pid" 2>/dev/null || true
-        done
-    fi
 
-    rm -rf /opt/patchpilot_server
-    rm -rf /opt/patchpilot_install*
+    pkill -f "^${APP_DIR}/target/release/patchpilot_server$" || true
+
+    rm -rf "${APP_DIR}" /opt/patchpilot_install*
     rm -rf "$HOME/.cargo" "$HOME/.rustup"
     rm -f /usr/local/bin/cargo /usr/local/bin/rustup
 fi
 
-# Create required directories
 mkdir -p /opt/patchpilot_install
-mkdir -p /opt/patchpilot_server
+mkdir -p "$APP_DIR"
 
 # Download latest release
 cd /opt/patchpilot_install
 curl -L "$ZIP_URL" -o latest.zip
-if [[ ! -f latest.zip ]]; then
-    echo "❌ Download failed! Please check the URL."
-    exit 1
-fi
-
 unzip -o latest.zip
-cd "${APP_DIR}"
-mv /opt/patchpilot_install/PatchPilot-main/patchpilot_server/* ${APP_DIR}
-mv /opt/patchpilot_install/PatchPilot-main/templates ${APP_DIR}
-mv /opt/patchpilot_install/PatchPilot-main/server_test.sh ${APP_DIR}
-chmod +x ${APP_DIR}/server_test.sh
-rm -rf "/opt/patchpilot_install"
 
-# Install system packages
-echo "📦 Installing required packages..."
+cd "${APP_DIR}"
+mv /opt/patchpilot_install/PatchPilot-main/patchpilot_server/* "$APP_DIR"
+mv /opt/patchpilot_install/PatchPilot-main/templates "$APP_DIR"
+mv /opt/patchpilot_install/PatchPilot-main/server_test.sh "$APP_DIR"
+chmod +x "$APP_DIR/server_test.sh"
+rm -rf /opt/patchpilot_install
+
+# Install required packages
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlite3-dev
 
-# Install Rust if not installed
+# Install Rust if needed
 if ! command -v cargo >/dev/null 2>&1; then
-    echo "🛠️ Setting up system-wide environment variables..."
-    echo "CARGO_HOME=/opt/patchpilot_server/.cargo" >> /etc/environment
-    echo "RUSTUP_HOME=/opt/patchpilot_server/.rustup" >> /etc/environment
-    echo "PATH=\$CARGO_HOME/bin:\$PATH" >> /etc/environment
-    
-    echo "⚙️ Installing Rust..."
+    echo "🛠️ Installing Rust..."
     mkdir -p "${APP_DIR}/.cargo" "${APP_DIR}/.rustup"
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
-
-    export CARGO_HOME="${APP_DIR}/.cargo"
-    export RUSTUP_HOME="${APP_DIR}/.rustup"
-    export PATH="$CARGO_HOME/bin:$PATH"
-
-    "${CARGO_HOME}/bin/rustup" default stable
-    "${CARGO_HOME}/bin/cargo" --version
-else
-    echo "✅ Rust is already installed."
-    export CARGO_HOME="${APP_DIR}/.cargo"
-    export RUSTUP_HOME="${APP_DIR}/.rustup"
-    export PATH="$CARGO_HOME/bin:$PATH"
 fi
-# Permissions
-chown -R patchpilot:patchpilot ${APP_DIR}
-find /opt/patchpilot_server -type d -exec chmod 755 {} \;
-find /opt/patchpilot_server -type f -exec chmod 755 {} \;
-chmod +x /opt/patchpilot_server/target/release/patchpilot_server
-chmod 600 /opt/patchpilot_server/patchpilot.db
+
+# Export Rust environment for this shell
+export CARGO_HOME="${APP_DIR}/.cargo"
+export RUSTUP_HOME="${APP_DIR}/.rustup"
+export PATH="$CARGO_HOME/bin:$PATH"
+
+"${CARGO_HOME}/bin/rustup" default stable
+"${CARGO_HOME}/bin/cargo" --version
 
 # SQLite database setup
 SQLITE_DB="${APP_DIR}/patchpilot.db"
@@ -124,33 +91,12 @@ touch "$SQLITE_DB"
 chown patchpilot:patchpilot "$SQLITE_DB"
 chmod 600 "$SQLITE_DB"
 
-# Log file
-touch /opt/patchpilot_server/server.log
-
-# Admin token
-TOKEN_FILE="${APP_DIR}/admin_token.txt"
-ENV_FILE="${APP_DIR}/admin_token.env"
-if [[ ! -f "$TOKEN_FILE" ]]; then
-    ADMIN_TOKEN=$(openssl rand -base64 32 | tr -d '=+/')
-    echo "$ADMIN_TOKEN" > "$TOKEN_FILE"
-    chmod 600 "$TOKEN_FILE"
-else
-    ADMIN_TOKEN=$(cat "$TOKEN_FILE")
-fi
-printf "ADMIN_TOKEN=%s\n" "$ADMIN_TOKEN" > "$ENV_FILE"
-chmod 600 "$ENV_FILE"
-
-# Ensure patchpilot user exists
-if ! id -u patchpilot >/dev/null 2>&1; then
-    useradd -r -s /usr/sbin/nologin patchpilot
-fi
-
 # Build Rust app
-cd "${APP_DIR}"
+cd "$APP_DIR"
 echo "🔨 Building the Rust application..."
-/opt/patchpilot_server/.cargo/bin/cargo build --release
+"${CARGO_HOME}/bin/cargo" build --release
 
-# Create Rocket.toml
+# Rocket configuration
 cat > "${APP_DIR}/Rocket.toml" <<EOF
 [default]
 address = "0.0.0.0"
@@ -161,21 +107,38 @@ log = "normal"
 log = "critical"
 EOF
 
-# Create .env for systemd
+# Environment for systemd
 APP_ENV_FILE="${APP_DIR}/.env"
 cat > "${APP_ENV_FILE}" <<EOF
 DATABASE_URL=sqlite://${APP_DIR}/patchpilot.db
 RUST_LOG=info
 EOF
+chmod 600 "$APP_ENV_FILE"
+
+# Admin token
+TOKEN_FILE="${APP_DIR}/admin_token.txt"
+if [[ ! -f "$TOKEN_FILE" ]]; then
+    ADMIN_TOKEN=$(openssl rand -base64 32 | tr -d '=+/')
+    echo "$ADMIN_TOKEN" > "$TOKEN_FILE"
+    chmod 600 "$TOKEN_FILE"
+else
+    ADMIN_TOKEN=$(cat "$TOKEN_FILE")
+fi
+printf "ADMIN_TOKEN=%s\n" "$ADMIN_TOKEN" > "${APP_DIR}/admin_token.env"
+chmod 600 "${APP_DIR}/admin_token.env"
+
+# Ensure patchpilot user exists
+if ! id -u patchpilot >/dev/null 2>&1; then
+    useradd -r -s /usr/sbin/nologin patchpilot
+fi
+chown -R patchpilot:patchpilot "$APP_DIR"
 
 # Permissions
-chown -R patchpilot:patchpilot ${APP_DIR}
-find /opt/patchpilot_server -type d -exec chmod 755 {} \;
-find /opt/patchpilot_server -type f -exec chmod 755 {} \;
-chmod +x /opt/patchpilot_server/target/release/patchpilot_server
-chmod 600 /opt/patchpilot_server/patchpilot.db
+find "$APP_DIR" -type d -exec chmod 755 {} \;
+find "$APP_DIR" -type f -exec chmod 755 {} \;
+chmod +x "$APP_DIR/target/release/patchpilot_server"
 
-# Setup systemd service (simplified)
+# Setup systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server
@@ -196,9 +159,8 @@ StandardError=append:${APP_DIR}/server.log
 WantedBy=multi-user.target
 EOF
 
-# Reload and start service
 systemctl daemon-reload
-systemctl enable --now "${SERVICE_NAME}"
+systemctl enable --now "$SERVICE_NAME"
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete!"
