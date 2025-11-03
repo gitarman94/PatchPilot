@@ -147,12 +147,6 @@ cd "${APP_DIR}"
 echo "🔨 Building the Rust application..."
 /opt/patchpilot_server/.cargo/bin/cargo build --release
 
-# Permissions
-chown -R patchpilot:patchpilot /opt/patchpilot_server
-find /opt/patchpilot_server -type d -exec chmod 755 {} \;
-find /opt/patchpilot_server -type f -exec chmod 644 {} \;
-chmod +x /opt/patchpilot_server/target/release/patchpilot_server
-
 # Create Rocket.toml
 cat > "${APP_DIR}/Rocket.toml" <<EOF
 [default]
@@ -163,7 +157,6 @@ log = "normal"
 [release]
 log = "critical"
 EOF
-chown patchpilot:patchpilot "${APP_DIR}/Rocket.toml"
 
 # Create .env for systemd
 APP_ENV_FILE="${APP_DIR}/.env"
@@ -171,8 +164,12 @@ cat > "${APP_ENV_FILE}" <<EOF
 DATABASE_URL=sqlite://${APP_DIR}/patchpilot.db
 RUST_LOG=info
 EOF
-chown patchpilot:patchpilot "${APP_ENV_FILE}"
-chmod 600 "${APP_ENV_FILE}"
+
+# Permissions
+chown -R patchpilot:patchpilot ${APP_DIR}
+find /opt/patchpilot_server -type d -exec chmod 755 {} \;
+find /opt/patchpilot_server -type f -exec chmod 644 {} \;
+chmod +x /opt/patchpilot_server/target/release/patchpilot_server
 
 # Setup systemd service (simplified)
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
