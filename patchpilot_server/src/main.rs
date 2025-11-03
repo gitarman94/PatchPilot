@@ -63,17 +63,7 @@ fn insert_or_update_device(conn: &mut SqliteConnection, device_id: &str, info: &
         .values(&new_device)
         .on_conflict(device_name)
         .do_update()
-        .set((
-            cpu.eq(new_device.cpu),
-            ram_total.eq(new_device.ram_total),
-            ram_used.eq(new_device.ram_used),
-            ram_free.eq(new_device.ram_free),
-            disk_total.eq(new_device.disk_total),
-            disk_free.eq(new_device.disk_free),
-            network_throughput.eq(new_device.network_throughput),
-            ping_latency.eq(new_device.ping_latency),
-            last_checkin.eq(new_device.last_checkin),
-        ))
+        .set(&new_device)
         .execute(conn)?;
 
     let updated_device = devices
