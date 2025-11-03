@@ -9,6 +9,8 @@ use simplelog::{Config, LevelFilter, SimpleLogger};
 use std::thread;
 use std::time::Duration;
 use reqwest::blocking::Client;
+use serde_json::json;
+use system_info::SystemInfo; // Make sure this struct matches server's expectations
 
 // Main loop for Linux or non-Windows devices
 #[cfg(not(windows))]
@@ -16,12 +18,12 @@ fn run_device_loop() -> Result<()> {
     info!("Patch Device starting...");
 
     let client = Client::new();
-    let server_url = "http://127.0.0.1:8080"; // Replace with actual server URL
-    let device_id = "unique-device-id";      // Replace with unique device ID
+    let server_url = "http://127.0.0.1:8080"; // Update to your server URL
+    let device_id = "unique-device-id";      // Replace with a unique device ID
 
     loop {
         // Fetch system info
-        let system_info = match system_info::get_system_info() {
+        let system_info: SystemInfo = match system_info::get_system_info() {
             Ok(info) => info,
             Err(e) => {
                 error!("Failed to get system info: {:?}", e);
@@ -30,9 +32,15 @@ fn run_device_loop() -> Result<()> {
             }
         };
 
+        // Wrap system_info in DeviceInfo format expected by server
+        let payload = json!({
+            "system_info": system_info
+        });
+
         // Send system info to server
-        let response = client.post(format!("{}/api/devices/{}", server_url, device_id))
-            .json(&system_info)
+        let response = client
+            .post(format!("{}/api/devices/{}", server_url, device_id))
+            .json(&payload)
             .send();
 
         match response {
@@ -87,5 +95,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-
-
