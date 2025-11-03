@@ -31,7 +31,7 @@ fn run_device_loop() -> Result<()> {
         };
 
         // Send system info to server
-        let response = client.post(format!("{}/api/device/{}", server_url, device_id))
+        let response = client.post(format!("{}/api/devices/{}", server_url, device_id))
             .json(&system_info)
             .send();
 
@@ -87,4 +87,5 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
 
