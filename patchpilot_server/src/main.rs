@@ -3,10 +3,11 @@ use diesel::r2d2::{ConnectionManager, PooledConnection};
 use r2d2::Pool;
 use rocket::{get, post, routes, launch, State};
 use rocket::serde::json::Json;
-use chrono::Utc;
 use rocket::fs::{FileServer, NamedFile};
 use log::{info, error};
 use std::path::{Path, PathBuf};
+use serde_json::json; // ✅ Import this for the `json!` macro
+use chrono::Utc;      // ✅ Used in `/status`
 
 mod schema;
 mod models;
@@ -112,13 +113,11 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
 
 // --- Serve static web UI ---
 
-/// Serve the main dashboard page (index)
 #[get("/")]
 async fn dashboard() -> Option<NamedFile> {
     NamedFile::open("/opt/patchpilot_server/templates/dashboard.html").await.ok()
 }
 
-/// Serve any other static files (CSS, JS, images, other HTMLs)
 #[get("/<file..>")]
 async fn static_files(file: PathBuf) -> Option<NamedFile> {
     NamedFile::open(Path::new("/opt/patchpilot_server/templates/").join(file)).await.ok()
@@ -179,11 +178,7 @@ fn rocket() -> _ {
 
     rocket::build()
         .manage(pool)
-        // API routes
-        .mount("/api", routes![register_or_update_device, get_devices])
-        // Static HTML dashboard and assets
+        .mount("/api", routes![register_or_update_device, get_devices, status])
         .mount("/", routes![dashboard, static_files])
-        // Optional: Serve /static path for CSS/JS/images (redundant if templates contain them)
         .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))
 }
-
