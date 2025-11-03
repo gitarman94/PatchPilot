@@ -1,182 +1,129 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-set -e
-
-INSTALL_DIR="/opt/patchpilot_client"
+# --- Configuration ---
+APP_DIR="/opt/patchpilot_client"
 SRC_DIR="/tmp/patchpilot_client_src"
 RUST_REPO="https://github.com/gitarman94/PatchPilot.git"
-CLIENT_PATH="$INSTALL_DIR/patchpilot_client"  # Updated path
-UPDATER_PATH="$INSTALL_DIR/patchpilot_updater"
-CONFIG_PATH="$INSTALL_DIR/config.json"
-SERVER_URL_FILE="$INSTALL_DIR/server_url.txt"
-SERVICE_FILE="/etc/systemd/system/patchpilot_client.service"
+CLIENT_BINARY="$APP_DIR/patchpilot_client"
+SERVICE_NAME="patchpilot_client.service"
+SYSTEMD_DIR="/etc/systemd/system"
 
-detect_server() {
-  read -rp "Enter the PatchPilot server IP (e.g., 192.168.1.100): " input_ip
-  input_ip="${input_ip#http://}"
-  input_ip="${input_ip#https://}"
-  input_ip="${input_ip%%/*}"
-  final_url="http://${input_ip}:8080/api"
+FORCE_INSTALL=false
+UPDATE=false
 
-  echo "[+] Using server at $final_url"
-  echo "$final_url" > "$SERVER_URL_FILE"
-}
+# --- Parse arguments ---
+for arg in "$@"; do
+    case "$arg" in
+        --force) FORCE_INSTALL=true ;;
+        --update) UPDATE=true ;;
+        *) echo "Usage: $0 [--force] [--update]"; exit 1 ;;
+    esac
+done
 
-# --- Load Rust environment ---
-load_rust_env() {
-  # Check if the Rust environment file exists for the current user
-  if [ -f "$HOME/.cargo/env" ]; then
-    source "$HOME/.cargo/env"
-  elif [ -f "/root/.cargo/env" ]; then
-    source "/root/.cargo/env"
-  else
-    echo "Warning: Rust environment file not found"
-  fi
-}
+# --- OS check ---
+if [[ -f /etc/os-release ]]; then
+    . /etc/os-release
+    case "$ID" in
+        debian|ubuntu|linuxmint|pop|raspbian) ;;
+        *) echo "❌ This installer works only on Debian-based systems."; exit 1 ;;
+    esac
+else
+    echo "❌ Cannot determine OS – /etc/os-release missing."
+    exit 1
+fi
 
-show_usage() {
-  echo "Usage: $0 [--uninstall] [--update] [--reinstall]"
-  exit 1
-}
+# --- Cleanup for force install ---
+if [[ "$FORCE_INSTALL" = true ]]; then
+    echo "🧹 Cleaning up old installation..."
+    systemctl stop "$SERVICE_NAME" || true
+    systemctl disable "$SERVICE_NAME" || true
+    rm -f "${SYSTEMD_DIR}/${SERVICE_NAME}"
+    systemctl daemon-reload
 
-uninstall() {
-  echo "Uninstalling PatchPilot client..."
-  systemctl stop patchpilot_client.service 2>/dev/null || true
-  systemctl disable patchpilot_client.service 2>/dev/null || true
-  rm -f "$SERVICE_FILE"
-  systemctl daemon-reload
-  crontab -l | grep -v 'patchpilot_client' | crontab - || true
-  rm -rf "$INSTALL_DIR"
-  echo "Uninstalled."
-}
+    # Remove Rust and Cargo installed under APP_DIR
+    rm -rf "$APP_DIR" "$HOME/.cargo" "$HOME/.rustup"
 
-common_install_update() {
-  echo "[*] Installing dependencies..."
-  apt-get update -y
-  apt-get install -y curl git build-essential pkg-config libssl-dev
+    # Remove /etc/environment entries
+    sed -i '/CARGO_HOME/d' /etc/environment || true
+    sed -i '/RUSTUP_HOME/d' /etc/environment || true
+    sed -i "/PATH=.*\/opt\/patchpilot_client\/.cargo\/bin/d" /etc/environment || true
+fi
 
-  echo "[*] Installing Rust toolchain if missing..."
-  if ! command -v rustc >/dev/null 2>&1; then
-    curl https://sh.rustup.rs -sSf | sh -s -- -y
-  fi
+mkdir -p "$APP_DIR"
 
-  # Load Rust environment for the current user
-  load_rust_env
+# --- Install dependencies ---
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq curl git build-essential pkg-config libssl-dev
 
-  echo "[*] Cloning client source..."
-  if [ -d "$SRC_DIR" ]; then
-    rm -rf "$SRC_DIR"
-  fi
-  mkdir -p "$SRC_DIR"
-  git clone "$RUST_REPO" "$SRC_DIR"
-  cd "$SRC_DIR/patchpilot_client"  # Updated directory name
+# --- Install Rust locally ---
+CARGO_HOME="$APP_DIR/.cargo"
+RUSTUP_HOME="$APP_DIR/.rustup"
+mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
+export CARGO_HOME RUSTUP_HOME PATH="$CARGO_HOME/bin:$PATH"
 
-  export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
-  export OPENSSL_INCLUDE_DIR=/usr/include
-  export OPENSSL_DIR=/usr
-  export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig"
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "🛠️ Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
+fi
 
-  echo "[*] Building PatchPilot client..."
-  cargo build --release
-}
+"$CARGO_HOME/bin/rustup" default stable
+"$CARGO_HOME/bin/cargo" --version
 
-install() {
-  echo "Installing PatchPilot client..."
+# --- Clone and build client ---
+if [[ -d "$SRC_DIR" ]]; then rm -rf "$SRC_DIR"; fi
+mkdir -p "$SRC_DIR"
+git clone "$RUST_REPO" "$SRC_DIR"
 
-  # Call common steps for install and update
-  common_install_update
+cd "$SRC_DIR/patchpilot_client"
 
-  # Install the client binary
-  echo "[*] Installing client to $CLIENT_PATH..."
-  mkdir -p "$INSTALL_DIR"
-  cp target/release/patchpilot_client "$CLIENT_PATH"  # Updated binary name
+export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+export OPENSSL_INCLUDE_DIR=/usr/include
+export OPENSSL_DIR=/usr
+export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig"
 
-  # Prompt for the server IP manually
-  detect_server
+echo "🔨 Building PatchPilot client..."
+"$CARGO_HOME/bin/cargo" build --release
 
-  # Setup systemd service
-  echo "[*] Setting up systemd service..."
-  cat > "$SERVICE_FILE" <<EOF
+# --- Copy binary ---
+cp target/release/rust_patch_client "$CLIENT_BINARY"
+chmod +x "$CLIENT_BINARY"
+
+# --- Optional: patchpilot user ---
+if ! id -u patchpilot >/dev/null 2>&1; then
+    useradd -r -s /usr/sbin/nologin patchpilot
+fi
+chown -R patchpilot:patchpilot "$APP_DIR"
+chmod -R 755 "$APP_DIR"
+find "$APP_DIR" -type f -exec chmod 755 {} \;
+
+# --- Prompt for server URL ---
+read -rp "Enter the PatchPilot server IP (e.g., 192.168.1.100): " input_ip
+input_ip="${input_ip#http://}"
+input_ip="${input_ip#https://}"
+input_ip="${input_ip%%/*}"
+echo "http://${input_ip}:8080/api" > "$APP_DIR/server_url.txt"
+
+# --- Setup systemd service ---
+cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Client
 After=network.target
 
 [Service]
-ExecStart=$CLIENT_PATH
-WorkingDirectory=$INSTALL_DIR
+User=patchpilot
+Group=patchpilot
+ExecStart=${CLIENT_BINARY}
+WorkingDirectory=${APP_DIR}
 Restart=always
-User=root
 Environment=RUST_LOG=info
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-  systemctl daemon-reload
-  systemctl enable patchpilot_client.service
-  systemctl start patchpilot_client.service
+systemctl daemon-reload
+systemctl enable --now "$SERVICE_NAME"
 
-  echo "[+] Installation complete!"
-}
-
-update() {
-  echo "Updating PatchPilot client..."
-
-  if [[ ! -d "$INSTALL_DIR" ]]; then
-    echo "Error: Installation not found at $INSTALL_DIR"
-    echo "Attempting to install PatchPilot client..."
-    install
-    return
-  fi
-
-  # Call common steps for install and update
-  common_install_update
-
-  # Install the client binary
-  echo "[*] Installing client to $CLIENT_PATH..."
-  cp target/release/patchpilot_client "$CLIENT_PATH"  # Updated binary name
-
-  # Prompt for the server IP manually
-  detect_server
-
-  # Setup systemd service (same as install)
-  echo "[*] Setting up systemd service..."
-  cat > "$SERVICE_FILE" <<EOF
-[Unit]
-Description=PatchPilot Client
-After=network.target
-
-[Service]
-ExecStart=$CLIENT_PATH
-WorkingDirectory=$INSTALL_DIR
-Restart=always
-User=root
-Environment=RUST_LOG=info
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-  systemctl daemon-reload
-  systemctl enable patchpilot_client.service
-  systemctl start patchpilot_client.service
-
-  echo "[+] Update complete!"
-}
-
-# Main script logic
-case "$1" in
-  --uninstall)
-    uninstall
-    ;;
-  --update)
-    update
-    ;;
-  --reinstall)
-    uninstall
-    install
-    ;;
-  *)
-    show_usage
-    ;;
-esac
+echo "✅ Installation complete!"
