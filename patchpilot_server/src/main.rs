@@ -3,9 +3,10 @@ use diesel::r2d2::{ConnectionManager, PooledConnection};
 use r2d2::Pool;
 use rocket::{get, post, routes, launch, State};
 use rocket::serde::json::Json;
-use rocket_dyn_templates::{Template, context};
+use rocket::fs::{FileServer, NamedFile};
 use chrono::Utc;
 use log::{info, error};
+use std::path::{Path, PathBuf};
 
 mod schema;
 mod models;
@@ -109,29 +110,21 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
     Ok(Json(results))
 }
 
-// Separate data-fetching function for dashboard
-fn fetch_all_devices(conn: &mut SqliteConnection) -> Vec<Device> {
-    use crate::schema::devices::dsl::*;
-    devices
-        .load::<Device>(conn)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|d| d.enrich_for_dashboard())
-        .collect()
-}
+// --- Serve static web UI ---
 
+/// Serve the main dashboard page (index)
 #[get("/")]
-async fn dashboard(pool: &State<DbPool>) -> Template {
-    let mut conn = establish_connection(pool).expect("DB connection failed for dashboard");
-    let all_devices = fetch_all_devices(&mut conn);
-
-    Template::render("dashboard", context! {
-        devices: all_devices,
-        now: Utc::now().naive_utc(),
-    })
+async fn dashboard() -> Option<NamedFile> {
+    NamedFile::open("/opt/patchpilot_server/templates/dashboard.html").await.ok()
 }
 
-/// --- NEW FUNCTION: Automatically initialize database schema ---
+/// Serve any other static files (CSS, JS, images, other HTMLs)
+#[get("/<file..>")]
+async fn static_files(file: PathBuf) -> Option<NamedFile> {
+    NamedFile::open(Path::new("/opt/patchpilot_server/templates/").join(file)).await.ok()
+}
+
+// --- Automatically initialize database schema ---
 fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS devices (
@@ -170,7 +163,6 @@ fn rocket() -> _ {
         .build(manager)
         .expect("Failed to create DB pool");
 
-    // --- Initialize DB schema automatically ---
     {
         let mut conn = pool.get().expect("Failed to get DB connection for initialization");
         initialize_db(&mut conn).expect("Failed to initialize database schema");
@@ -179,8 +171,10 @@ fn rocket() -> _ {
 
     rocket::build()
         .manage(pool)
+        // API routes
         .mount("/api", routes![register_or_update_device, get_devices])
-        .mount("/", routes![dashboard])
-        .attach(Template::fairing())
+        // Static HTML dashboard and assets
+        .mount("/", routes![dashboard, static_files])
+        // Optional: Serve /static path for CSS/JS/images (redundant if templates contain them)
+        .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))
 }
-
