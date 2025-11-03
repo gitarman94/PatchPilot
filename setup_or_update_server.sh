@@ -139,9 +139,6 @@ if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -s /usr/sbin/nologin patchpilot
 fi
 
-# Ownership
-chown -R patchpilot:patchpilot "${APP_DIR}"
-
 # Build Rust app
 cd "${APP_DIR}"
 echo "🔨 Building the Rust application..."
@@ -168,8 +165,9 @@ EOF
 # Permissions
 chown -R patchpilot:patchpilot ${APP_DIR}
 find /opt/patchpilot_server -type d -exec chmod 755 {} \;
-find /opt/patchpilot_server -type f -exec chmod 644 {} \;
+find /opt/patchpilot_server -type f -exec chmod 755 {} \;
 chmod +x /opt/patchpilot_server/target/release/patchpilot_server
+chmod 600 /opt/patchpilot_server/patchpilot.db
 
 # Setup systemd service (simplified)
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
