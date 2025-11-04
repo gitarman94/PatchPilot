@@ -148,7 +148,6 @@ fn status() -> Json<serde_json::Value> {
 }
 
 // --- Serve web UI ---
-
 #[get("/")]
 async fn dashboard() -> Option<NamedFile> {
     NamedFile::open("/opt/patchpilot_server/templates/dashboard.html").await.ok()
@@ -182,7 +181,10 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
             device_type TEXT NOT NULL,
             device_model TEXT NOT NULL,
             uptime TEXT,
-            updates_available BOOLEAN NOT NULL DEFAULT 0
+            updates_available BOOLEAN NOT NULL DEFAULT 0,
+            -- Adding new fields for network interfaces and IP addresses
+            network_interfaces TEXT,
+            ip_address TEXT
         )
     "#).execute(conn)?;  // Create table if not exists
     Ok(())
