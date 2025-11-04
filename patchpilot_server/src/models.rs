@@ -27,6 +27,9 @@ pub struct Device {
     pub device_model: String,
     pub uptime: Option<String>,
     pub updates_available: bool,
+    // Adding new fields for network interfaces and IP addresses
+    pub network_interfaces: Option<String>, // JSON or string representation of network interfaces
+    pub ip_address: Option<String>, // Storing IP address
 }
 
 #[derive(Insertable, AsChangeset)]
@@ -51,6 +54,9 @@ pub struct NewDevice {
     pub device_model: String,
     pub uptime: Option<String>,
     pub updates_available: bool,
+    // Adding new fields for network interfaces and IP addresses
+    pub network_interfaces: Option<String>, // JSON or string representation of network interfaces
+    pub ip_address: Option<String>, // Storing IP address
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,6 +72,9 @@ pub struct SystemInfo {
     pub disk_health: String,
     pub network_throughput: i64,
     pub ping_latency: Option<f32>,
+    // Adding new fields for network interfaces and IP addresses
+    pub network_interfaces: Option<String>, // Network interfaces as a string (e.g., JSON)
+    pub ip_address: Option<String>, // IP address of the device
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,7 +120,9 @@ impl NewDevice {
             device_model: info.device_model.clone().unwrap_or_default(),
             uptime: Some("0h 0m".to_string()), // default when registering
             updates_available: false,
+            // Add new network fields
+            network_interfaces: info.system_info.network_interfaces.clone(),
+            ip_address: info.system_info.ip_address.clone(),
         }
     }
 }
-
