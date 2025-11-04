@@ -8,6 +8,7 @@ use log::{info, error};
 use std::path::{Path, PathBuf};
 use serde_json::json; // ✅ Import this for the `json!` macro
 use chrono::Utc;      // ✅ Used in `/status`
+use local_ip_address::local_ip; // For automatic IP detection
 
 mod schema;
 mod models;
@@ -112,7 +113,6 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
 }
 
 // --- Serve static web UI ---
-
 #[get("/")]
 async fn dashboard() -> Option<NamedFile> {
     NamedFile::open("/opt/patchpilot_server/templates/dashboard.html").await.ok()
@@ -160,6 +160,14 @@ fn status() -> Json<serde_json::Value> {
     }))
 }
 
+// --- Utility function to get local LAN IP ---
+fn get_server_ip() -> String {
+    match local_ip() {
+        Ok(ip) => ip.to_string(),
+        Err(_) => "127.0.0.1".to_string(),
+    }
+}
+
 #[launch]
 fn rocket() -> _ {
     use std::env;
@@ -178,10 +186,14 @@ fn rocket() -> _ {
         info!("✅ Database schema initialized or already exists");
     }
 
+    // --- Detect LAN IP at startup ---
+    let ip = get_server_ip();
+    let port = 8080;
+    info!("Server will bind to 0.0.0.0, accessible on LAN at: http://{}:{}/", ip, port);
+
     rocket::build()
         .manage(pool)
         .mount("/api", routes![register_or_update_device, get_devices, status])
         .mount("/", routes![dashboard, static_files])
         .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))
 }
-
