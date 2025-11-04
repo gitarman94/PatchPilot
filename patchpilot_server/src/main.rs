@@ -144,7 +144,9 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
             network_throughput BIGINT NOT NULL,
             ping_latency FLOAT,
             device_type TEXT NOT NULL,
-            device_model TEXT NOT NULL
+            device_model TEXT NOT NULL,
+            uptime TEXT,
+            updates_available BOOLEAN NOT NULL DEFAULT 0
         )
     "#).execute(conn)?;
     Ok(())
@@ -182,3 +184,4 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard, static_files])
         .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))
 }
+
