@@ -6,9 +6,9 @@ use rocket::serde::json::Json;
 use rocket::fs::{FileServer, NamedFile};
 use log::{info, error};
 use std::path::{Path, PathBuf};
-use serde_json::json; // ✅ Import this for the `json!` macro
-use chrono::Utc;      // ✅ Used in `/status`
-use local_ip_address::local_ip; // For automatic IP detection
+use serde_json::json;
+use chrono::Utc;
+use local_ip_address::local_ip;
 
 mod schema;
 mod models;
@@ -45,7 +45,7 @@ fn establish_connection(pool: &DbPool) -> Result<PooledConnection<ConnectionMana
     pool.get().map_err(|e| ApiError::ValidationError(format!("Failed to get DB connection: {}", e)))
 }
 
-// Basic validation example
+// Basic validation
 fn validate_device_info(info: &DeviceInfo) -> Result<(), ApiError> {
     if info.system_info.cpu < 0.0 {
         return Err(ApiError::ValidationError("CPU usage cannot be negative".into()));
@@ -56,7 +56,7 @@ fn validate_device_info(info: &DeviceInfo) -> Result<(), ApiError> {
     Ok(())
 }
 
-// Separate registration function
+// Insert or update a device
 fn insert_or_update_device(conn: &mut SqliteConnection, device_id: &str, info: &DeviceInfo) -> Result<Device, ApiError> {
     use crate::schema::devices::dsl::*;
 
@@ -75,6 +75,8 @@ fn insert_or_update_device(conn: &mut SqliteConnection, device_id: &str, info: &
 
     Ok(updated_device.enrich_for_dashboard())
 }
+
+// --- REST API endpoints ---
 
 #[post("/devices/<device_id>", format = "json", data = "<device_info>")]
 async fn register_or_update_device(
@@ -97,6 +99,36 @@ async fn register_or_update_device(
     }
 }
 
+#[post("/devices/heartbeat", format = "json", data = "<payload>")]
+async fn heartbeat(
+    pool: &State<DbPool>,
+    payload: Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    use crate::schema::devices::dsl::*;
+
+    let mut conn = pool.get().expect("Failed to get DB connection");
+
+    let device_id = payload.get("device_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("unknown");
+
+    // Insert or update with approved=true by default
+    let _ = diesel::insert_into(devices)
+        .values((
+            device_name.eq(device_id),
+            device_type.eq(device_type_val),
+            device_model.eq(device_model_val),
+            approved.eq(true),
+            last_checkin.eq(Utc::now().naive_utc()),
+        ))
+        .on_conflict(device_name)
+        .do_update()
+        .set(last_checkin.eq(Utc::now().naive_utc()))
+        .execute(&mut conn);
+
+    Json(json!({"adopted": true}))
+}
+
 #[get("/devices")]
 async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> {
     use crate::schema::devices::dsl::*;
@@ -112,7 +144,15 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
     Ok(Json(results))
 }
 
-// --- Serve static web UI ---
+#[get("/status")]
+fn status() -> Json<serde_json::Value> {
+    Json(json!({
+        "server_time": Utc::now().to_rfc3339(),
+        "status": "ok"
+    }))
+}
+
+// --- Serve web UI ---
 #[get("/")]
 async fn dashboard() -> Option<NamedFile> {
     NamedFile::open("/opt/patchpilot_server/templates/dashboard.html").await.ok()
@@ -123,7 +163,7 @@ async fn static_files(file: PathBuf) -> Option<NamedFile> {
     NamedFile::open(Path::new("/opt/patchpilot_server/templates/").join(file)).await.ok()
 }
 
-// --- Automatically initialize database schema ---
+// --- DB initialization ---
 fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS devices (
@@ -152,15 +192,7 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
     Ok(())
 }
 
-#[get("/status")]
-fn status() -> Json<serde_json::Value> {
-    Json(json!({
-        "server_time": Utc::now().to_rfc3339(),
-        "status": "ok"
-    }))
-}
-
-// --- Utility function to get local LAN IP ---
+// --- Utility function ---
 fn get_server_ip() -> String {
     match local_ip() {
         Ok(ip) => ip.to_string(),
@@ -186,14 +218,18 @@ fn rocket() -> _ {
         info!("✅ Database schema initialized or already exists");
     }
 
-    // --- Detect LAN IP at startup ---
     let ip = get_server_ip();
     let port = 8080;
-    info!("Server will bind to 0.0.0.0, accessible on LAN at: http://{}:{}/", ip, port);
+    info!("Server listening on 0.0.0.0, accessible on LAN at http://{}:{}/", ip, port);
 
     rocket::build()
         .manage(pool)
-        .mount("/api", routes![register_or_update_device, get_devices, status])
+        .mount("/api", routes![
+            register_or_update_device,
+            get_devices,
+            status,
+            heartbeat
+        ])
         .mount("/", routes![dashboard, static_files])
         .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))
 }
