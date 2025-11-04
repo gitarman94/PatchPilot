@@ -20,5 +20,7 @@ diesel::table! {
         device_model -> Text,
         uptime -> Nullable<Text>,
         updates_available -> Bool,
+        network_interfaces -> Nullable<Text>,
+        ip_address -> Nullable<Text>,
     }
 }
