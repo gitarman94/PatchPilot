@@ -8,20 +8,33 @@ use log::{info, error};
 use simplelog::{Config, LevelFilter, SimpleLogger};
 use std::thread;
 use std::time::Duration;
+use std::fs;
 use reqwest::blocking::Client;
 use serde_json::{json, Value};
-use system_info::get_system_info; // function that returns serde_json::Value
+use system_info::get_system_info;
+
+/// Reads the server URL from file written by installer
+fn read_server_url() -> Result<String> {
+    let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")?;
+    Ok(url.trim().to_string())
+}
 
 #[cfg(not(windows))]
 fn run_device_loop() -> Result<()> {
     info!("Patch Device starting...");
 
     let client = Client::new();
-    let server_url = "http://127.0.0.1:8080"; // Update to your server URL
-    let device_id = "unique-device-id";      // Replace with a unique device ID
+    let server_url = read_server_url()?;
+    
+    // Use serial number as device ID
+    let system_info = get_system_info()?;
+    let device_id = system_info["serial_number"]
+        .as_str()
+        .unwrap_or("unknown-device")
+        .to_string();
 
     loop {
-        // Fetch system info
+        // Refresh system info each iteration
         let system_info: Value = match get_system_info() {
             Ok(info) => info,
             Err(e) => {
@@ -31,12 +44,10 @@ fn run_device_loop() -> Result<()> {
             }
         };
 
-        // Wrap system_info in DeviceInfo format expected by server
         let payload = json!({
             "system_info": system_info
         });
 
-        // Send system info to server
         let response = client
             .post(format!("{}/api/devices/{}", server_url, device_id))
             .json(&payload)
