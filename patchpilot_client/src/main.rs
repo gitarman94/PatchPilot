@@ -99,12 +99,14 @@ mod windows_service {
         // Heartbeat / update loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
             let sys_info_update = system_info::get_system_info().unwrap_or(json!({}));
+            let network_info = system_info::get_network_info().unwrap_or(json!({}));
             log::info!("Sending update: {}", sys_info_update);
 
             let _ = client.post(format!("{}/api/devices/{}/heartbeat", server_url, device_id))
                 .json(&json!({
                     "device_id": device_id,
-                    "system_info": sys_info_update["system_info"]
+                    "system_info": sys_info_update["system_info"],
+                    "network_info": network_info
                 }))
                 .send();
 
@@ -153,12 +155,14 @@ mod unix_service {
         // Heartbeat / update loop
         loop {
             let sys_info_update = system_info::get_system_info().unwrap_or(json!({}));
+            let network_info = system_info::get_network_info().unwrap_or(json!({}));
             log::info!("Sending update: {}", sys_info_update);
 
             let _ = client.post(format!("{}/api/devices/{}/heartbeat", server_url, device_id))
                 .json(&json!({
                     "device_id": device_id,
-                    "system_info": sys_info_update["system_info"]
+                    "system_info": sys_info_update["system_info"],
+                    "network_info": network_info
                 }))
                 .send();
 
