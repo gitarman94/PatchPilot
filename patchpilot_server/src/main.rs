@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 use chrono::Utc;
 use local_ip_address::local_ip;
+use sysinfo::{System, SystemExt, DiskExt, NetworkExt};
 
 mod schema;
 mod models;
@@ -67,13 +68,13 @@ fn insert_or_update_device(conn: &mut SqliteConnection, device_id: &str, info: &
         .on_conflict(device_name)
         .do_update()
         .set(&new_device)
-        .execute(conn)?;
+        .execute(conn)?;  // Ensure that insert/update is handled properly
 
     let updated_device = devices
         .filter(device_name.eq(device_id))
-        .first::<Device>(conn)?;
+        .first::<Device>(conn)?;  // Fetch the updated device
 
-    Ok(updated_device.enrich_for_dashboard())
+    Ok(updated_device.enrich_for_dashboard())  // Enrich device info for dashboard if needed
 }
 
 // --- REST API endpoints ---
@@ -114,13 +115,7 @@ async fn heartbeat(
 
     // Insert or update with approved=true by default
     let _ = diesel::insert_into(devices)
-        .values((
-            device_name.eq(device_id),
-            device_type.eq(device_type_val),
-            device_model.eq(device_model_val),
-            approved.eq(true),
-            last_checkin.eq(Utc::now().naive_utc()),
-        ))
+        .values((device_name.eq(device_id), device_type.eq(device_type_val), device_model.eq(device_model_val), approved.eq(true), last_checkin.eq(Utc::now().naive_utc())))
         .on_conflict(device_name)
         .do_update()
         .set(last_checkin.eq(Utc::now().naive_utc()))
@@ -138,7 +133,7 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
         .load::<Device>(&mut conn)
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|d| d.enrich_for_dashboard())
+        .map(|d| d.enrich_for_dashboard())  // Enrich device info for dashboard if needed
         .collect::<Vec<Device>>();
 
     Ok(Json(results))
@@ -153,6 +148,7 @@ fn status() -> Json<serde_json::Value> {
 }
 
 // --- Serve web UI ---
+
 #[get("/")]
 async fn dashboard() -> Option<NamedFile> {
     NamedFile::open("/opt/patchpilot_server/templates/dashboard.html").await.ok()
@@ -188,11 +184,12 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
             uptime TEXT,
             updates_available BOOLEAN NOT NULL DEFAULT 0
         )
-    "#).execute(conn)?;
+    "#).execute(conn)?;  // Create table if not exists
     Ok(())
 }
 
 // --- Utility function ---
+// Returns the local IP of the server
 fn get_server_ip() -> String {
     match local_ip() {
         Ok(ip) => ip.to_string(),
@@ -224,12 +221,7 @@ fn rocket() -> _ {
 
     rocket::build()
         .manage(pool)
-        .mount("/api", routes![
-            register_or_update_device,
-            get_devices,
-            status,
-            heartbeat
-        ])
+        .mount("/api", routes![register_or_update_device, get_devices, status, heartbeat])
         .mount("/", routes![dashboard, static_files])
         .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))
 }
