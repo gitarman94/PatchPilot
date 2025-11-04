@@ -66,35 +66,34 @@ mod windows {
     }
 
     pub fn get_memory_info() -> Result<serde_json::Value> {
-        let output = Command::new("systeminfo")
-            .args(["/fo", "CSV"])
+        let output = Command::new("free")
+            .arg("-b")
             .output()
-            .map_err(|e| anyhow!("Failed to execute systeminfo: {}", e))?;
-
+            .map_err(|e| anyhow!("Failed to execute free command: {}", e))?;
+    
         if !output.status.success() {
             return Err(anyhow!("Failed to retrieve memory info"));
         }
-
-        let csv = String::from_utf8_lossy(&output.stdout);
-        let total_memory = csv.lines()
-            .find(|line| line.contains("Total Physical Memory"))
-            .and_then(|line| line.split(':').nth(1))
-            .unwrap_or("0")
-            .trim()
-            .replace(",", "")
-            .parse::<u64>()
-            .unwrap_or(0);
-
-        let free_memory = csv.lines()
-            .find(|line| line.contains("Available Physical Memory"))
-            .and_then(|line| line.split(':').nth(1))
-            .unwrap_or("0")
-            .trim()
-            .replace(",", "")
-            .parse::<u64>()
-            .unwrap_or(0);
-
-        Ok(json!({ "total": total_memory, "free": free_memory, "used": total_memory - free_memory }))
+    
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        let mut total = 0u64;
+        let mut free = 0u64;
+    
+        for line in output_str.lines() {
+            if line.to_lowercase().starts_with("mem:") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                // Column positions may vary: standard free output is "total used free shared buff/cache available"
+                total = parts.get(1).unwrap_or(&"0").parse::<u64>().unwrap_or(0);
+                free = parts.get(6)  // 'available' column is index 6
+                    .or_else(|| parts.get(3)) // fallback to 'free' column if 'available' not present
+                    .unwrap_or(&"0")
+                    .parse::<u64>()
+                    .unwrap_or(0);
+                break;
+            }
+        }
+    
+        Ok(json!({ "total": total, "free": free, "used": total - free }))
     }
 
     pub fn get_device_type() -> String {
@@ -294,3 +293,4 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         Ok(build_system_info(serial_number, os_info, cpu, &memory, device_type, device_model))
     }
 }
+
