@@ -19,7 +19,6 @@ env_logger = "^0.10"
 [features]
 default = []
 windows = ["windows-service"]
-unix = ["sysinfo"]
 
 [[bin]]
 name = "rust_patch_client"
@@ -28,4 +27,3 @@ path = "src/main.rs"
 [[bin]]
 name = "patchpilot_updater"
 path = "src/patchpilot_updater.rs"
-
