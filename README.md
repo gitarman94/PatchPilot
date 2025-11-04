@@ -31,8 +31,6 @@ PatchPilot/
 │           main.rs                   # Entry point for the Rust server application.
 │           models.rs                 # Defines data models and structures used by the server.
 │           schema.rs                 # Defines the database schema for the server.
-│           server.rs                 # Core server logic, including routes and API handling.
-│           patch_management.rs       # Logic for managing patching tasks, updates, and registrations.
 │
 ├───patchpilot_client                # Rust client code (shared across Windows & Linux) for handling communication and updates.
 │   │   Cargo.toml                   # Rust configuration file, managing dependencies and project settings.
@@ -47,7 +45,6 @@ PatchPilot/
 │           updater.rs                # Manages the update process, including checking for available updates and applying them.
 │
 └───templates                        # HTML templates used by the Rust server for the web UI.
-│       client.html                   # Template displaying the list of all registered clients in the admin dashboard.
 │       client_detail.html            # Template for showing detailed information about a specific client (e.g., status, updates, system info).
 │       dashboard.html                # Main dashboard template that aggregates information about all clients and allows admin actions.
 
