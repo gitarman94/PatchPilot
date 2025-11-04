@@ -6,13 +6,25 @@ mod windows_service {
     use std::sync::{Arc, Mutex};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::{thread, time::Duration};
+    use std::fs;
 
     use crate::system_info;
+
+    use windows_service::{
+        define_windows_service, service_dispatcher,
+        service_control_handler::{self, ServiceControl, ServiceControlHandlerResult},
+        service::{ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType},
+    };
 
     define_windows_service!(ffi_service_main, my_service_main);
 
     lazy_static::lazy_static! {
         static ref SERVICE_RUNNING: Arc<Mutex<AtomicBool>> = Arc::new(Mutex::new(AtomicBool::new(true)));
+    }
+
+    fn read_server_url() -> Result<String> {
+        let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")?;
+        Ok(url.trim().to_string())
     }
 
     pub fn run_service() -> Result<()> {
@@ -28,16 +40,17 @@ mod windows_service {
     }
 
     fn run() -> Result<()> {
-        let status_handle = service_control_handler::register("RustPatchDeviceService", move |control_event| {
-            match control_event {
+        let status_handle = service_control_handler::register(
+            "RustPatchDeviceService",
+            move |control_event| match control_event {
                 ServiceControl::Stop | ServiceControl::Shutdown => {
                     log::info!("Service stopping...");
                     SERVICE_RUNNING.lock().unwrap().store(false, Ordering::SeqCst);
                     ServiceControlHandlerResult::NoError
                 }
                 _ => ServiceControlHandlerResult::NotImplemented,
-            }
-        })?;
+            },
+        )?;
 
         let mut status = ServiceStatus {
             service_type: ServiceType::OWN_PROCESS,
@@ -52,14 +65,14 @@ mod windows_service {
         status_handle.set_service_status(status)?;
 
         let client = Client::new();
-        let server_url = "http://127.0.0.1:8080"; // Replace with actual server URL
+        let server_url = read_server_url()?;
 
-        // Gather dynamic device info once
-        let device_id = system_info::get_system_info()?.get("serial_number").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+        let device_info = system_info::get_system_info()?;
+        let device_id = device_info.get("serial_number").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
         let device_type = system_info::get_device_type();
         let device_model = system_info::get_device_model();
 
-        // Heartbeat and adoption check loop
+        // Adoption check loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
             log::info!("Checking adoption status for device...");
 
@@ -73,8 +86,8 @@ mod windows_service {
 
             match response {
                 Ok(resp) if resp.status().is_success() => {
-                    let status: serde_json::Value = resp.json()?;
-                    if status["adopted"].as_bool() == Some(true) {
+                    let status_json: serde_json::Value = resp.json()?;
+                    if status_json["adopted"].as_bool() == Some(true) {
                         log::info!("Device approved. Starting regular updates...");
                         break;
                     } else {
@@ -90,9 +103,6 @@ mod windows_service {
 
         // Regular system update loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
-            log::info!("Sending system update for device...");
-
-            // Gather dynamic system info
             let sys_info = match system_info::get_system_info() {
                 Ok(info) => info,
                 Err(e) => {
@@ -100,6 +110,8 @@ mod windows_service {
                     json!({})
                 }
             };
+
+            log::info!("Sending system update: {}", sys_info);
 
             let response = client.post(format!("{}/api/devices/update_status", server_url))
                 .json(&json!({
@@ -129,21 +141,27 @@ mod unix_service {
     use anyhow::Result;
     use reqwest::blocking::Client;
     use serde_json::json;
-    use std::{thread, time::Duration};
+    use std::{thread, time::Duration, fs};
 
     use crate::system_info;
+
+    fn read_server_url() -> Result<String> {
+        let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")?;
+        Ok(url.trim().to_string())
+    }
 
     pub fn run_unix_service() -> Result<()> {
         log::info!("Starting Unix service...");
 
         let client = Client::new();
-        let server_url = "http://127.0.0.1:8080"; 
+        let server_url = read_server_url()?;
 
-        let system_info_json = system_info::get_system_info()?;
-        let device_id = system_info_json.get("serial_number").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+        let device_info = system_info::get_system_info()?;
+        let device_id = device_info.get("serial_number").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
         let device_type = system_info::get_device_type();
         let device_model = system_info::get_device_model();
 
+        // Adoption check loop
         loop {
             log::info!("Checking adoption status for device...");
 
@@ -157,8 +175,8 @@ mod unix_service {
 
             match response {
                 Ok(resp) if resp.status().is_success() => {
-                    let status: serde_json::Value = resp.json()?;
-                    if status["adopted"].as_bool() == Some(true) {
+                    let status_json: serde_json::Value = resp.json()?;
+                    if status_json["adopted"].as_bool() == Some(true) {
                         log::info!("Device approved. Starting system updates...");
                         break;
                     } else {
@@ -172,9 +190,8 @@ mod unix_service {
             thread::sleep(Duration::from_secs(30));
         }
 
+        // Regular system update loop
         loop {
-            log::info!("Sending system update for device...");
-
             let sys_info = match system_info::get_system_info() {
                 Ok(info) => info,
                 Err(e) => {
@@ -182,6 +199,8 @@ mod unix_service {
                     json!({})
                 }
             };
+
+            log::info!("Sending system update: {}", sys_info);
 
             let response = client.post(format!("{}/api/devices/update_status", server_url))
                 .json(&json!({
