@@ -3,11 +3,13 @@ use serde_json::json;
 use std::process::Command;
 use std::env;
 use sysinfo::{System, NetworkData};
+use local_ip_address::local_ip;
 
 #[cfg(windows)]
 #[allow(dead_code)]
 mod windows {
     use super::*;
+    use std::process::Command;
 
     pub fn get_serial_number() -> Result<String> {
         let output = Command::new("wmic")
@@ -68,7 +70,6 @@ mod windows {
     }
 
     pub fn get_memory_info() -> Result<serde_json::Value> {
-        // Use sysinfo below for better accuracy; this Windows fallback is kept.
         let output = Command::new("systeminfo")
             .args(["/fo", "CSV"])
             .output()
@@ -141,6 +142,23 @@ mod windows {
             _ => "Unknown Model".to_string(),
         }
     }
+
+    pub fn get_network_info() -> Result<serde_json::Value> {
+        let mut sys = System::new_all();
+        sys.refresh_networks();
+
+        let interfaces: Vec<String> = sys.networks()
+            .iter()
+            .map(|(name, data)| format!("{}: {} bytes received, {} bytes transmitted", name, data.received(), data.transmitted()))
+            .collect();
+
+        let ip_address = local_ip().unwrap_or_else(|_| "127.0.0.1".to_string());
+
+        Ok(json!({
+            "network_interfaces": interfaces,
+            "ip_address": ip_address
+        }))
+    }
 }
 
 #[cfg(unix)]
@@ -163,7 +181,7 @@ mod unix {
             .lines()
             .filter(|line| !line.trim().is_empty())
             .next()
-            .unwrap_or("")
+            .unwrap_or("unknown")
             .trim()
             .to_string();
 
@@ -205,7 +223,6 @@ mod unix {
     }
 
     pub fn get_memory_info() -> Result<serde_json::Value> {
-        // Use sysinfo instead of parsing free manually
         let mut sys = System::new_all();
         sys.refresh_memory();
 
@@ -234,6 +251,23 @@ mod unix {
             _ => "Unknown Model".to_string(),
         }
     }
+
+    pub fn get_network_info() -> Result<serde_json::Value> {
+        let mut sys = System::new_all();
+        sys.refresh_networks();
+
+        let interfaces: Vec<String> = sys.networks()
+            .iter()
+            .map(|(name, data)| format!("{}: {} bytes received, {} bytes transmitted", name, data.received(), data.transmitted()))
+            .collect();
+
+        let ip_address = local_ip().unwrap_or_else(|_| "127.0.0.1".to_string());
+
+        Ok(json!({
+            "network_interfaces": interfaces,
+            "ip_address": ip_address
+        }))
+    }
 }
 
 // --- Top-level forwarders ---
@@ -247,111 +281,27 @@ pub fn get_device_model() -> String {
     #[cfg(unix)] { unix::get_device_model() }
 }
 
-// --- Helper to build JSON ---
-fn build_system_info(
-    serial_number: String,
-    os_info: String,
-    architecture: String,
-    cpu: f32,
-    memory: &serde_json::Value,
-    disk_total: i64,
-    disk_free: i64,
-    disk_health: String,
-    network_throughput: i64,
-    ping_latency: Option<f32>,
-    device_type: String,
-    device_model: String,
-) -> serde_json::Value {
-    json!({
-        "system_info": {
-            "os_name": os_info,
-            "architecture": architecture,
-            "cpu": cpu,
-            "ram_total": memory["total"],
-            "ram_used": memory["used"],
-            "ram_free": memory["free"],
-            "disk_total": disk_total,
-            "disk_free": disk_free,
-            "disk_health": disk_health,
-            "network_throughput": network_throughput,
-            "ping_latency": ping_latency
-        },
-        "device_type": device_type,
-        "device_model": device_model
-    })
+pub fn get_serial_number() -> Result<String> {
+    #[cfg(windows)] { windows::get_serial_number() }
+    #[cfg(unix)] { unix::get_serial_number() }
 }
 
-// --- Main entry ---
-pub fn get_system_info() -> Result<serde_json::Value> {
-    // Create sysinfo early for disk + network
-    let mut sys = System::new_all();
-    sys.refresh_all();
+pub fn get_cpu_info() -> Result<f32> {
+    #[cfg(windows)] { windows::get_cpu_info() }
+    #[cfg(unix)] { unix::get_cpu_info() }
+}
 
-    // Architecture
-    let architecture = env::consts::ARCH.to_string();
+pub fn get_memory_info() -> Result<serde_json::Value> {
+    #[cfg(windows)] { windows::get_memory_info() }
+    #[cfg(unix)] { unix::get_memory_info() }
+}
 
-    // Disk total & free
-    let disk = sys.disks().first();
-    let (disk_total, disk_free, disk_health) = if let Some(d) = disk {
-        (d.total_space() as i64,
-         d.available_space() as i64,
-         "Healthy".to_string())
-    } else {
-        (0, 0, "Unknown".to_string())
-    };
+pub fn get_os_info() -> Result<String> {
+    #[cfg(windows)] { windows::get_os_info() }
+    #[cfg(unix)] { unix::get_os_info() }
+}
 
-    let network_throughput = sys.networks()
-        .iter()
-        .map(|(_, data)| data.received() + data.transmitted())
-        .sum::<u64>() as i64;
-
-    let ping_latency: Option<f32> = None; // Optionally implement ping
-
-    #[cfg(windows)] {
-        let serial_number = windows::get_serial_number()?;
-        let os_info = windows::get_os_info()?;
-        let cpu = windows::get_cpu_info()?;
-        let memory = windows::get_memory_info()?;
-        let device_type = windows::get_device_type();
-        let device_model = windows::get_device_model();
-
-        Ok(build_system_info(
-            serial_number,
-            os_info,
-            architecture,
-            cpu,
-            &memory,
-            disk_total,
-            disk_free,
-            disk_health,
-            network_throughput,
-            ping_latency,
-            device_type,
-            device_model,
-        ))
-    }
-
-    #[cfg(unix)] {
-        let serial_number = unix::get_serial_number()?;
-        let os_info = unix::get_os_info()?;
-        let cpu = unix::get_cpu_info()?;
-        let memory = unix::get_memory_info()?;
-        let device_type = unix::get_device_type();
-        let device_model = unix::get_device_model();
-
-        Ok(build_system_info(
-            serial_number,
-            os_info,
-            architecture,
-            cpu,
-            &memory,
-            disk_total,
-            disk_free,
-            disk_health,
-            network_throughput,
-            ping_latency,
-            device_type,
-            device_model,
-        ))
-    }
+pub fn get_network_info() -> Result<serde_json::Value> {
+    #[cfg(windows)] { windows::get_network_info() }
+    #[cfg(unix)] { unix::get_network_info() }
 }
