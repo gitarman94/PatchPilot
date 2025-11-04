@@ -11,9 +11,13 @@ mod windows {
         let output = Command::new("wmic")
             .args(["bios", "get", "serialnumber"])
             .output()
-            .map_err(|e| anyhow!("Failed to execute WMIC: {}", e))?;
+            .map_err(|e| {
+                log::error!("Failed to execute WMIC for serial number: {}", e);
+                anyhow!("Failed to execute WMIC: {}", e)
+            })?;
 
         if !output.status.success() {
+            log::error!("WMIC command failed to retrieve serial number");
             return Err(anyhow!("Failed to retrieve serial number"));
         }
 
@@ -26,8 +30,10 @@ mod windows {
             .to_string();
 
         if serial.is_empty() {
+            log::warn!("Serial number not found on Windows system");
             Err(anyhow!("Serial number not found"))
         } else {
+            log::info!("Serial number retrieved successfully");
             Ok(serial)
         }
     }
@@ -37,13 +43,18 @@ mod windows {
         let output = Command::new("systeminfo")
             .args(["/fo", "CSV"])
             .output()
-            .map_err(|e| anyhow!("Failed to execute systeminfo: {}", e))?;
+            .map_err(|e| {
+                log::error!("Failed to execute systeminfo: {}", e);
+                anyhow!("Failed to execute systeminfo: {}", e)
+            })?;
 
         if !output.status.success() {
+            log::error!("systeminfo command failed");
             return Err(anyhow!("Failed to retrieve OS info"));
         }
 
         let info = String::from_utf8_lossy(&output.stdout).to_string();
+        log::info!("OS info retrieved successfully");
         Ok(info)
     }
 
@@ -52,9 +63,13 @@ mod windows {
         let output = Command::new("wmic")
             .args(["cpu", "get", "loadpercentage"])
             .output()
-            .map_err(|e| anyhow!("Failed to execute WMIC CPU: {}", e))?;
+            .map_err(|e| {
+                log::error!("Failed to execute WMIC CPU: {}", e);
+                anyhow!("Failed to execute WMIC CPU: {}", e)
+            })?;
 
         if !output.status.success() {
+            log::error!("WMIC CPU command failed");
             return Err(anyhow!("Failed to retrieve CPU load"));
         }
 
@@ -66,7 +81,13 @@ mod windows {
             .trim()
             .to_string();
 
-        Ok(cpu_str.parse::<f32>().unwrap_or(0.0))
+        let cpu_value = cpu_str.parse::<f32>().unwrap_or_else(|_| {
+            log::warn!("Failed to parse CPU load, defaulting to 0.0");
+            0.0
+        });
+
+        log::info!("CPU load retrieved successfully: {}%", cpu_value);
+        Ok(cpu_value)
     }
 
     pub fn get_memory_info() -> Result<serde_json::Value> {
@@ -74,9 +95,13 @@ mod windows {
         let output = Command::new("systeminfo")
             .args(["/fo", "CSV"])
             .output()
-            .map_err(|e| anyhow!("Failed to execute systeminfo for memory: {}", e))?;
+            .map_err(|e| {
+                log::error!("Failed to execute systeminfo for memory: {}", e);
+                anyhow!("Failed to execute systeminfo for memory: {}", e)
+            })?;
 
         if !output.status.success() {
+            log::error!("systeminfo CSV command failed for memory info");
             return Err(anyhow!("Failed to retrieve memory info"));
         }
 
@@ -88,7 +113,10 @@ mod windows {
             .trim()
             .replace(",", "")
             .parse::<u64>()
-            .unwrap_or(0);
+            .unwrap_or_else(|_| {
+                log::warn!("Failed to parse total memory, defaulting to 0");
+                0
+            });
 
         let free_memory = csv.lines()
             .find(|line| line.contains("Available Physical Memory"))
@@ -97,17 +125,22 @@ mod windows {
             .trim()
             .replace(",", "")
             .parse::<u64>()
-            .unwrap_or(0);
+            .unwrap_or_else(|_| {
+                log::warn!("Failed to parse free memory, defaulting to 0");
+                0
+            });
 
+        log::info!("Memory info retrieved: total={} free={}", total_memory, free_memory);
         Ok(json!({ "total_memory": total_memory, "free_memory": free_memory }))
     }
 
     pub fn get_device_type() -> String {
+        log::info!("Retrieving device type...");
         let output = Command::new("wmic")
             .args(["computersystem", "get", "PCSystemType"])
             .output();
 
-        match output {
+        let device_type = match output {
             Ok(out) if out.status.success() => {
                 let val = String::from_utf8_lossy(&out.stdout)
                     .lines()
@@ -123,15 +156,19 @@ mod windows {
                 }
             }
             _ => "Unknown".to_string(),
-        }
+        };
+
+        log::info!("Device type detected: {}", device_type);
+        device_type
     }
 
     pub fn get_device_model() -> String {
+        log::info!("Retrieving device model...");
         let output = Command::new("wmic")
             .args(["computersystem", "get", "model"])
             .output();
 
-        match output {
+        let model = match output {
             Ok(out) if out.status.success() => {
                 String::from_utf8_lossy(&out.stdout)
                     .lines()
@@ -142,7 +179,10 @@ mod windows {
                     .to_string()
             }
             _ => "Unknown Model".to_string(),
-        }
+        };
+
+        log::info!("Device model detected: {}", model);
+        model
     }
 }
 
@@ -155,9 +195,13 @@ mod unix {
         let output = Command::new("dmidecode")
             .args(["-s", "system-serial-number"])
             .output()
-            .map_err(|e| anyhow!("Failed to execute dmidecode: {}", e))?;
+            .map_err(|e| {
+                log::error!("Failed to execute dmidecode: {}", e);
+                anyhow!("Failed to execute dmidecode: {}", e)
+            })?;
 
         if !output.status.success() {
+            log::error!("dmidecode command failed");
             return Err(anyhow!("Failed to retrieve serial number"));
         }
 
@@ -170,8 +214,10 @@ mod unix {
             .to_string();
 
         if serial.is_empty() {
+            log::warn!("Serial number not found on Unix system");
             Err(anyhow!("Serial number not found"))
         } else {
+            log::info!("Serial number retrieved successfully");
             Ok(serial)
         }
     }
@@ -181,13 +227,19 @@ mod unix {
         let output = Command::new("uname")
             .arg("-a")
             .output()
-            .map_err(|e| anyhow!("Failed to execute uname: {}", e))?;
+            .map_err(|e| {
+                log::error!("Failed to execute uname: {}", e);
+                anyhow!("Failed to execute uname: {}", e)
+            })?;
 
         if !output.status.success() {
+            log::error!("uname command failed");
             return Err(anyhow!("Failed to retrieve OS info"));
         }
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        let os_info = String::from_utf8_lossy(&output.stdout).to_string();
+        log::info!("OS info retrieved successfully");
+        Ok(os_info)
     }
 
     pub fn get_cpu_info() -> Result<f32> {
@@ -196,16 +248,26 @@ mod unix {
             .arg("-c")
             .arg("top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'")
             .output()
-            .map_err(|e| anyhow!("Failed to execute top for CPU: {}", e))?;
+            .map_err(|e| {
+                log::error!("Failed to execute top for CPU: {}", e);
+                anyhow!("Failed to execute top for CPU: {}", e)
+            })?;
 
         if !output.status.success() {
+            log::error!("top command failed to retrieve CPU load");
             return Err(anyhow!("Failed to retrieve CPU load"));
         }
 
-        Ok(String::from_utf8_lossy(&output.stdout)
+        let cpu_value = String::from_utf8_lossy(&output.stdout)
             .trim()
             .parse::<f32>()
-            .unwrap_or(0.0))
+            .unwrap_or_else(|_| {
+                log::warn!("Failed to parse CPU load, defaulting to 0.0");
+                0.0
+            });
+
+        log::info!("CPU load retrieved successfully: {}%", cpu_value);
+        Ok(cpu_value)
     }
 
     pub fn get_memory_info() -> Result<serde_json::Value> {
@@ -213,9 +275,13 @@ mod unix {
         let output = Command::new("free")
             .arg("-b")
             .output()
-            .map_err(|e| anyhow!("Failed to execute free command: {}", e))?;
+            .map_err(|e| {
+                log::error!("Failed to execute free command: {}", e);
+                anyhow!("Failed to execute free command: {}", e)
+            })?;
 
         if !output.status.success() {
+            log::error!("free command failed");
             return Err(anyhow!("Failed to retrieve memory info"));
         }
 
@@ -223,31 +289,45 @@ mod unix {
             .split_whitespace()
             .collect();
 
-        let total = parts.get(1).unwrap_or(&"0").parse::<u64>().unwrap_or(0);
-        let free = parts.get(3).unwrap_or(&"0").parse::<u64>().unwrap_or(0);
+        let total = parts.get(1).unwrap_or(&"0").parse::<u64>().unwrap_or_else(|_| {
+            log::warn!("Failed to parse total memory, defaulting to 0");
+            0
+        });
+        let free = parts.get(3).unwrap_or(&"0").parse::<u64>().unwrap_or_else(|_| {
+            log::warn!("Failed to parse free memory, defaulting to 0");
+            0
+        });
 
+        log::info!("Memory info retrieved: total={} free={}", total, free);
         Ok(json!({ "total_memory": total, "free_memory": free }))
     }
 
     pub fn get_device_type() -> String {
-        if std::path::Path::new("/sys/class/power_supply/BAT0").exists() {
+        log::info!("Retrieving device type...");
+        let device_type = if std::path::Path::new("/sys/class/power_supply/BAT0").exists() {
             "Laptop".to_string()
         } else {
             "Desktop".to_string()
-        }
+        };
+        log::info!("Device type detected: {}", device_type);
+        device_type
     }
 
     pub fn get_device_model() -> String {
+        log::info!("Retrieving device model...");
         let output = Command::new("cat")
             .arg("/sys/class/dmi/id/product_name")
             .output();
 
-        match output {
+        let model = match output {
             Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
                 .trim()
                 .to_string(),
             _ => "Unknown Model".to_string(),
-        }
+        };
+
+        log::info!("Device model detected: {}", model);
+        model
     }
 }
 
