@@ -25,7 +25,7 @@ fn run_device_loop() -> Result<()> {
 
     let client = Client::new();
     let server_url = read_server_url()?;
-    
+
     // Use serial number as device ID
     let system_info = get_system_info()?;
     let device_id = system_info["serial_number"]
@@ -34,7 +34,6 @@ fn run_device_loop() -> Result<()> {
         .to_string();
 
     loop {
-        // Refresh system info each iteration
         let system_info: Value = match get_system_info() {
             Ok(info) => info,
             Err(e) => {
@@ -44,13 +43,9 @@ fn run_device_loop() -> Result<()> {
             }
         };
 
-        let payload = json!({
-            "system_info": system_info
-        });
-
         let response = client
             .post(format!("{}/api/devices/{}", server_url, device_id))
-            .json(&payload)
+            .json(&system_info) // ⚡ send raw DeviceInfo without wrapper
             .send();
 
         match response {
