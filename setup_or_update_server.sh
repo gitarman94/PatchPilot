@@ -70,11 +70,17 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlite3-dev
 
-# Install Rust if needed
-if ! command -v cargo >/dev/null 2>&1; then
+# Set variables for current session
+export CARGO_HOME="${APP_DIR}/.cargo"
+export RUSTUP_HOME="${APP_DIR}/.rustup"
+export PATH="${CARGO_HOME}/bin:$PATH"
+mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
+
+# Install Rust if needed (to /opt/patchpilot_server/.cargo)
+if [[ ! -x "${CARGO_HOME}/bin/cargo" ]]; then
     echo "🛠️ Installing Rust..."
-    mkdir -p "${APP_DIR}/.cargo" "${APP_DIR}/.rustup"
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
 # Persist Rust environment for all users
@@ -90,13 +96,10 @@ if ! grep -q "${APP_DIR}/.cargo/bin" /etc/environment; then
     echo "PATH=\$PATH:${APP_DIR}/.cargo/bin" >> /etc/environment
 fi
 
-# Export Rust environment for this shell
-export CARGO_HOME="${APP_DIR}/.cargo"
-export RUSTUP_HOME="${APP_DIR}/.rustup"
-export PATH="$CARGO_HOME/bin:$PATH"
-
+# Verify Rust install
 "${CARGO_HOME}/bin/rustup" default stable
 "${CARGO_HOME}/bin/cargo" --version
+# --- END FIXED SECTION ---
 
 # SQLite database setup
 SQLITE_DB="${APP_DIR}/patchpilot.db"
