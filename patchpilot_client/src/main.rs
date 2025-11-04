@@ -1,101 +1,226 @@
-mod system_info;
-mod self_update;
 #[cfg(windows)]
-mod windows_service;
+mod windows_service {
+    use anyhow::Result;
+    use reqwest::blocking::Client;
+    use serde_json::json;
+    use std::sync::{Arc, Mutex};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::{thread, time::Duration};
+    use std::fs;
 
-use anyhow::Result;
-use log::{info, error};
-use simplelog::{Config, LevelFilter, SimpleLogger};
-use std::thread;
-use std::time::Duration;
-use std::fs;
-use reqwest::blocking::Client;
-use serde_json::{json, Value};
-use system_info::get_system_info;
+    use crate::system_info;
 
-/// Reads the server URL from file written by installer
-fn read_server_url() -> Result<String> {
-    let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")?;
-    Ok(url.trim().to_string())
-}
+    use windows_service::{
+        define_windows_service, service_dispatcher,
+        service_control_handler::{self, ServiceControl, ServiceControlHandlerResult},
+        service::{ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType},
+    };
 
-#[cfg(not(windows))]
-fn run_device_loop() -> Result<()> {
-    info!("Patch Device starting...");
+    define_windows_service!(ffi_service_main, my_service_main);
 
-    let client = Client::new();
-    let server_url = read_server_url()?;
+    lazy_static::lazy_static! {
+        static ref SERVICE_RUNNING: Arc<Mutex<AtomicBool>> = Arc::new(Mutex::new(AtomicBool::new(true)));
+    }
 
-    // Use serial number as device ID
-    let system_info = get_system_info()?;
-    let device_id = system_info["serial_number"]
-        .as_str()
-        .unwrap_or("unknown-device")
-        .to_string();
+    fn read_server_url() -> Result<String> {
+        let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")?;
+        Ok(url.trim().to_string())
+    }
 
-    loop {
-        let system_info: Value = match get_system_info() {
-            Ok(info) => info,
-            Err(e) => {
-                error!("Failed to get system info: {:?}", e);
-                thread::sleep(Duration::from_secs(60));
-                continue;
-            }
+    pub fn run_service() -> Result<()> {
+        log::info!("Starting Windows service...");
+        service_dispatcher::start("RustPatchDeviceService", ffi_service_main)?;
+        Ok(())
+    }
+
+    fn my_service_main(_argc: u32, _argv: *mut *mut u16) {
+        if let Err(e) = run() {
+            log::error!("Service error: {:?}", e);
+        }
+    }
+
+    fn run() -> Result<()> {
+        let status_handle = service_control_handler::register(
+            "RustPatchDeviceService",
+            move |control_event| match control_event {
+                ServiceControl::Stop | ServiceControl::Shutdown => {
+                    log::info!("Service stopping...");
+                    SERVICE_RUNNING.lock().unwrap().store(false, Ordering::SeqCst);
+                    ServiceControlHandlerResult::NoError
+                }
+                _ => ServiceControlHandlerResult::NotImplemented,
+            },
+        )?;
+
+        let mut status = ServiceStatus {
+            service_type: ServiceType::OWN_PROCESS,
+            current_state: ServiceState::Running,
+            controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
+            exit_code: ServiceExitCode::Win32(0),
+            checkpoint: 0,
+            wait_hint: Duration::from_secs(0),
+            process_id: None,
         };
 
-        let response = client
-            .post(format!("{}/api/devices/{}", server_url, device_id))
-            .json(&system_info) // ⚡ send raw DeviceInfo without wrapper
-            .send();
+        status_handle.set_service_status(status)?;
 
-        match response {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    info!("System info successfully sent to server.");
-                } else if resp.status().as_u16() == 403 {
-                    error!("Device not approved by server. Reporting skipped.");
-                } else {
-                    error!("Unexpected server response: {:?}", resp.status());
+        let client = Client::new();
+        let server_url = read_server_url()?;
+
+        let device_info = system_info::get_system_info()?;
+        let device_id = device_info.get("serial_number").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+        let device_type = system_info::get_device_type();
+        let device_model = system_info::get_device_model();
+
+        // Adoption check loop
+        while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
+            log::info!("Checking adoption status for device...");
+
+            let response = client.post(format!("{}/api/devices/heartbeat", server_url))
+                .json(&json!({
+                    "device_id": device_id,
+                    "device_type": device_type,
+                    "device_model": device_model,
+                }))
+                .send();
+
+            match response {
+                Ok(resp) if resp.status().is_success() => {
+                    let status_json: serde_json::Value = resp.json()?;
+                    if status_json["adopted"].as_bool() == Some(true) {
+                        log::info!("Device approved. Starting regular updates...");
+                        break;
+                    } else {
+                        log::info!("Waiting for approval...");
+                    }
+                },
+                Ok(_) => log::error!("Unexpected response received while checking adoption status."),
+                Err(e) => log::error!("Error checking adoption status: {:?}", e),
+            }
+
+            thread::sleep(Duration::from_secs(30));
+        }
+
+        // Regular system update loop
+        while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
+            let sys_info = match system_info::get_system_info() {
+                Ok(info) => info,
+                Err(e) => {
+                    log::error!("Failed to gather system info: {:?}", e);
+                    json!({})
                 }
-            },
-            Err(e) => {
-                error!("Failed to send system info: {:?}", e);
+            };
+
+            log::info!("Sending system update: {}", sys_info);
+
+            let response = client.post(format!("{}/api/devices/update_status", server_url))
+                .json(&json!({
+                    "device_id": device_id,
+                    "status": "active",
+                    "system_info": sys_info,
+                }))
+                .send();
+
+            if let Err(e) = response {
+                log::error!("Failed to send system update: {:?}", e);
             }
+
+            thread::sleep(Duration::from_secs(600));
         }
 
-        thread::sleep(Duration::from_secs(600)); // 10-minute interval
+        log::info!("Service stopping...");
+        status.current_state = ServiceState::Stopped;
+        status_handle.set_service_status(status)?;
+
+        Ok(())
     }
 }
 
-fn main() -> Result<()> {
-    // Initialize logging
-    SimpleLogger::init(LevelFilter::Info, Config::default()).unwrap();
-    info!("Rust Patch Device starting...");
+#[cfg(unix)]
+mod unix_service {
+    use anyhow::Result;
+    use reqwest::blocking::Client;
+    use serde_json::json;
+    use std::{thread, time::Duration, fs};
 
-    // Start self-update thread
-    thread::spawn(|| {
+    use crate::system_info;
+
+    fn read_server_url() -> Result<String> {
+        let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")?;
+        Ok(url.trim().to_string())
+    }
+
+    pub fn run_unix_service() -> Result<()> {
+        log::info!("Starting Unix service...");
+
+        let client = Client::new();
+        let server_url = read_server_url()?;
+
+        let device_info = system_info::get_system_info()?;
+        let device_id = device_info.get("serial_number").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+        let device_type = system_info::get_device_type();
+        let device_model = system_info::get_device_model();
+
+        // Adoption check loop
         loop {
-            if let Err(e) = self_update::check_and_update() {
-                error!("Self-update failed: {:?}", e);
+            log::info!("Checking adoption status for device...");
+
+            let response = client.post(format!("{}/api/devices/heartbeat", server_url))
+                .json(&json!({
+                    "device_id": device_id,
+                    "device_type": device_type,
+                    "device_model": device_model,
+                }))
+                .send();
+
+            match response {
+                Ok(resp) if resp.status().is_success() => {
+                    let status_json: serde_json::Value = resp.json()?;
+                    if status_json["adopted"].as_bool() == Some(true) {
+                        log::info!("Device approved. Starting system updates...");
+                        break;
+                    } else {
+                        log::info!("Waiting for approval...");
+                    }
+                },
+                Ok(_) => log::error!("Unexpected response received while checking adoption status."),
+                Err(e) => log::error!("Error checking adoption status: {:?}", e),
             }
-            thread::sleep(Duration::from_secs(3600)); // hourly self-update check
-        }
-    });
 
-    // Platform-specific main loop
-    #[cfg(windows)]
-    {
-        if let Err(e) = windows_service::run_service() {
-            error!("Failed to run Windows service: {:?}", e);
+            thread::sleep(Duration::from_secs(30));
+        }
+
+        // Regular system update loop
+        loop {
+            let sys_info = match system_info::get_system_info() {
+                Ok(info) => info,
+                Err(e) => {
+                    log::error!("Failed to gather system info: {:?}", e);
+                    json!({})
+                }
+            };
+
+            log::info!("Sending system update: {}", sys_info);
+
+            let response = client.post(format!("{}/api/devices/update_status", server_url))
+                .json(&json!({
+                    "device_id": device_id,
+                    "status": "active",
+                    "system_info": sys_info,
+                }))
+                .send();
+
+            if let Err(e) = response {
+                log::error!("Failed to send system update: {:?}", e);
+            }
+
+            thread::sleep(Duration::from_secs(600));
         }
     }
-
-    #[cfg(not(windows))]
-    {
-        if let Err(e) = run_device_loop() {
-            error!("Device loop failed: {:?}", e);
-        }
-    }
-
-    Ok(())
 }
+
+#[cfg(windows)]
+pub use windows_service::run_service;
+
+#[cfg(unix)]
+pub use unix_service::run_unix_service;
