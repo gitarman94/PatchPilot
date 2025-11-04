@@ -107,131 +107,26 @@ mod windows_service {
             let sys_info = match system_info::get_system_info() {
                 Ok(info) => info,
                 Err(e) => {
-                    log::error!("Failed to gather system info: {:?}", e);
-                    json!({})
+                    log::error!("Failed to get system info: {:?}", e);
+                    thread::sleep(Duration::from_secs(60));
+                    continue;
                 }
             };
 
-            log::info!("Sending system update: {}", sys_info);
-
-            let response = client.post(format!("{}/api/devices/update_status", server_url))
-                .json(&json!({
-                    "device_id": device_id,
-                    "status": "active",
-                    "system_info": sys_info,
-                }))
+            let _ = client.post(format!("{}/api/devices/{}", server_url, device_id))
+                .json(&sys_info)
                 .send();
 
-            if let Err(e) = response {
-                log::error!("Failed to send system update: {:?}", e);
-            }
-
-            thread::sleep(Duration::from_secs(600));
+            thread::sleep(Duration::from_secs(60));
         }
 
-        log::info!("Service stopping...");
         status.current_state = ServiceState::Stopped;
-        status_handle.set_service_status(status)?;
-
+        status_handle.set_service_status(status).unwrap();
         Ok(())
     }
 }
 
-#[cfg(unix)]
-mod unix_service {
-    use anyhow::Result;
-    use reqwest::blocking::Client;
-    use serde_json::json;
-    use std::{thread, time::Duration, fs};
-
-    use crate::system_info;
-
-    fn read_server_url() -> Result<String> {
-        let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")?;
-        Ok(url.trim().to_string())
-    }
-
-    pub fn run_unix_service() -> Result<()> {
-        log::info!("Starting Unix service...");
-
-        let client = Client::new();
-        let server_url = read_server_url()?;
-
-        let device_info = system_info::get_system_info()?;
-        let device_id = device_info.get("serial_number").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-        let device_type = system_info::get_device_type();
-        let device_model = system_info::get_device_model();
-
-        // Adoption check loop
-        loop {
-            log::info!("Checking adoption status for device...");
-
-            let response = client.post(format!("{}/api/devices/heartbeat", server_url))
-                .json(&json!({
-                    "device_id": device_id,
-                    "device_type": device_type,
-                    "device_model": device_model,
-                }))
-                .send();
-
-            match response {
-                Ok(resp) if resp.status().is_success() => {
-                    let status_json: serde_json::Value = resp.json()?;
-                    if status_json["adopted"].as_bool() == Some(true) {
-                        log::info!("Device approved. Starting system updates...");
-                        break;
-                    } else {
-                        log::info!("Waiting for approval...");
-                    }
-                },
-                Ok(_) => log::error!("Unexpected response received while checking adoption status."),
-                Err(e) => log::error!("Error checking adoption status: {:?}", e),
-            }
-
-            thread::sleep(Duration::from_secs(30));
-        }
-
-        // Regular system update loop
-        loop {
-            let sys_info = match system_info::get_system_info() {
-                Ok(info) => info,
-                Err(e) => {
-                    log::error!("Failed to gather system info: {:?}", e);
-                    json!({})
-                }
-            };
-
-            log::info!("Sending system update: {}", sys_info);
-
-            let response = client.post(format!("{}/api/devices/update_status", server_url))
-                .json(&json!({
-                    "device_id": device_id,
-                    "status": "active",
-                    "system_info": sys_info,
-                }))
-                .send();
-
-            if let Err(e) = response {
-                log::error!("Failed to send system update: {:?}", e);
-            }
-
-            thread::sleep(Duration::from_secs(600));
-        }
-    }
-}
-
-#[cfg(windows)]
-pub use windows_service::run_service;
-
-#[cfg(unix)]
-pub use unix_service::run_unix_service;
-
 fn main() {
-    env_logger::init();
-
     #[cfg(windows)]
-    run_service().unwrap();
-
-    #[cfg(unix)]
-    run_unix_service().unwrap();
+    windows_service::run_service().unwrap();
 }
