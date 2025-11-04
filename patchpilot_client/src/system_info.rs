@@ -3,7 +3,7 @@ use serde_json::json;
 use std::process::Command;
 
 #[cfg(windows)]
-#[allow(dead_code)] // Suppress warnings for functions only used conditionally
+#[allow(dead_code)]
 mod windows {
     use super::*;
 
@@ -141,7 +141,7 @@ mod windows {
 }
 
 #[cfg(unix)]
-#[allow(dead_code)] // Suppress warnings for platform-specific functions
+#[allow(dead_code)]
 mod unix {
     use super::*;
     use std::path::Path;
@@ -251,6 +251,28 @@ pub fn get_device_model() -> String {
     #[cfg(unix)] { unix::get_device_model() }
 }
 
+// --- Helper to build JSON ---
+fn build_system_info(
+    serial_number: String,
+    os_info: String,
+    cpu: f32,
+    memory: &serde_json::Value,
+    device_type: String,
+    device_model: String,
+) -> serde_json::Value {
+    json!({
+        "serial_number": serial_number,
+        "os_name": os_info,
+        "cpu": cpu,
+        "ram_total": memory["total"],
+        "ram_used": memory["used"],
+        "ram_free": memory["free"],
+        "device_type": device_type,
+        "device_model": device_model,
+    })
+}
+
+// --- Main entry ---
 pub fn get_system_info() -> Result<serde_json::Value> {
     #[cfg(windows)] {
         let serial_number = windows::get_serial_number()?;
@@ -259,17 +281,7 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         let memory = windows::get_memory_info()?;
         let device_type = windows::get_device_type();
         let device_model = windows::get_device_model();
-
-        Ok(json!({
-            "serial_number": serial_number,
-            "os_name": os_info,
-            "cpu": cpu,
-            "ram_total": memory["total"],
-            "ram_used": memory["used"],
-            "ram_free": memory["free"],
-            "device_type": device_type,
-            "device_model": device_model,
-        }))
+        Ok(build_system_info(serial_number, os_info, cpu, &memory, device_type, device_model))
     }
 
     #[cfg(unix)] {
@@ -279,16 +291,6 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         let memory = unix::get_memory_info()?;
         let device_type = unix::get_device_type();
         let device_model = unix::get_device_model();
-
-        Ok(json!({
-            "serial_number": serial_number,
-            "os_name": os_info,
-            "cpu": cpu,
-            "ram_total": memory["total"],
-            "ram_used": memory["used"],
-            "ram_free": memory["free"],
-            "device_type": device_type,
-            "device_model": device_model,
-        }))
+        Ok(build_system_info(serial_number, os_info, cpu, &memory, device_type, device_model))
     }
 }
