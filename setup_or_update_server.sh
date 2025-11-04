@@ -68,7 +68,20 @@ rm -rf /opt/patchpilot_install
 # Install required packages
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlite3-dev
+apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlite3-dev logrotate
+
+# Create logrotate configuration for PatchPilot server
+cat <<EOF >/etc/logrotate.d/patchpilot_server
+${APP_DIR}/server.log {
+    size 5M
+    rotate 3
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
 
 # Set variables for current session
 export CARGO_HOME="${APP_DIR}/.cargo"
