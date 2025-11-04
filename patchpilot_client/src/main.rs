@@ -34,7 +34,9 @@ fn run_device_loop() -> Result<()> {
 
         // Wrap system_info in DeviceInfo format expected by server
         let payload = json!({
-            "system_info": system_info
+            "system_info": system_info,
+            "device_type": "server",    // or "workstation", "laptop", etc.
+            "device_model": "generic"   // can be filled dynamically later
         });
 
         // Send system info to server
@@ -95,3 +97,4 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
