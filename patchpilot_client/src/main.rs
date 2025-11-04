@@ -5,9 +5,9 @@ mod windows_service {
     use anyhow::Result;
     use reqwest::blocking::Client;
     use serde_json::json;
+    use std::{thread, time::Duration, fs};
     use std::sync::{Arc, Mutex};
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::{thread, time::Duration, fs};
     use lazy_static::lazy_static;
 
     use crate::system_info;
@@ -30,20 +30,20 @@ mod windows_service {
     }
 
     pub fn run_service() -> Result<()> {
-        log::info!("Starting Windows service...");
-        service_dispatcher::start("RustPatchDeviceService", ffi_service_main)?;
+        log::info!("Starting Windows PatchPilot client service...");
+        service_dispatcher::start("PatchPilotClientService", ffi_service_main)?;
         Ok(())
     }
 
     fn my_service_main(_argc: u32, _argv: *mut *mut u16) {
-        if let Err(e) = run() {
+        if let Err(e) = run_loop() {
             log::error!("Service error: {:?}", e);
         }
     }
 
-    fn run() -> Result<()> {
+    fn run_loop() -> Result<()> {
         let status_handle = windows_service::service_control_handler::register(
-            "RustPatchDeviceService",
+            "PatchPilotClientService",
             move |control_event| match control_event {
                 ServiceControl::Stop | ServiceControl::Shutdown => {
                     log::info!("Service stopping...");
@@ -69,64 +69,110 @@ mod windows_service {
         let client = Client::new();
         let server_url = read_server_url()?;
 
-        let device_info = system_info::get_system_info()?;
-        let device_id = device_info.get("serial_number").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-        let device_type = system_info::get_device_type();
-        let device_model = system_info::get_device_model();
+        // Device ID logic: maybe from file or generated
+        let device_info_json = system_info::get_system_info()?;
+        let device_id = device_info_json.get("system_info")
+            .and_then(|si| si.get("serial_number"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
 
         // Adoption check loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
-            log::info!("Checking adoption status for device...");
-            let response = client.post(format!("{}/api/devices/heartbeat", server_url))
-                .json(&json!({
-                    "device_id": device_id,
-                    "device_type": device_type,
-                    "device_model": device_model,
-                }))
+            log::info!("Checking adoption status...");
+            let resp = client.post(format!("{}/api/devices/{}", server_url, device_id))
+                .json(&device_info_json)
                 .send();
 
-            match response {
-                Ok(resp) if resp.status().is_success() => {
-                    let status_json: serde_json::Value = resp.json()?;
-                    if status_json["adopted"].as_bool() == Some(true) {
-                        log::info!("Device approved. Starting regular updates...");
-                        break;
-                    } else {
-                        log::info!("Waiting for approval...");
-                    }
-                },
-                Ok(_) => log::error!("Unexpected response received while checking adoption status."),
-                Err(e) => log::error!("Error checking adoption status: {:?}", e),
+            match resp {
+                Ok(r) if r.status().is_success() => {
+                    log::info!("Registered/updated device: {}", device_id);
+                    break;
+                }
+                Ok(r) => log::error!("Unexpected registration response status: {}", r.status()),
+                Err(e) => log::error!("Error during registration: {:?}", e),
             }
 
             thread::sleep(Duration::from_secs(30));
         }
 
-        // Regular system update loop
+        // Heartbeat / update loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
-            let sys_info = match system_info::get_system_info() {
-                Ok(info) => info,
-                Err(e) => {
-                    log::error!("Failed to get system info: {:?}", e);
-                    thread::sleep(Duration::from_secs(60));
-                    continue;
-                }
-            };
+            let sys_info_update = system_info::get_system_info().unwrap_or(json!({}));
+            log::info!("Sending update: {}", sys_info_update);
 
-            let _ = client.post(format!("{}/api/devices/{}", server_url, device_id))
-                .json(&sys_info)
+            let _ = client.post(format!("{}/api/devices/{}/heartbeat", server_url, device_id))
+                .json(&json!({
+                    "device_id": device_id,
+                    "system_info": sys_info_update["system_info"]
+                }))
                 .send();
 
-            thread::sleep(Duration::from_secs(60));
+            thread::sleep(Duration::from_secs(600));
         }
 
         status.current_state = ServiceState::Stopped;
-        status_handle.set_service_status(status).unwrap();
+        status_handle.set_service_status(status)?;
         Ok(())
     }
 }
 
+#[cfg(unix)]
+mod unix_service {
+    use anyhow::Result;
+    use reqwest::blocking::Client;
+    use serde_json::json;
+    use std::{thread, time::Duration, fs};
+
+    use crate::system_info;
+
+    pub fn run_unix_service() -> Result<()> {
+        log::info!("Starting Unix PatchPilot client service...");
+
+        let client = Client::new();
+        let server_url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")?.trim().to_string();
+
+        let device_info_json = system_info::get_system_info()?;
+        let device_id = device_info_json.get("system_info")
+            .and_then(|si| si.get("serial_number"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        // Register/update once
+        {
+            let resp = client.post(format!("{}/api/devices/{}", server_url, device_id))
+                .json(&device_info_json)
+                .send();
+
+            if let Err(e) = resp {
+                log::error!("Error during registration: {:?}", e);
+            }
+        }
+
+        // Heartbeat / update loop
+        loop {
+            let sys_info_update = system_info::get_system_info().unwrap_or(json!({}));
+            log::info!("Sending update: {}", sys_info_update);
+
+            let _ = client.post(format!("{}/api/devices/{}/heartbeat", server_url, device_id))
+                .json(&json!({
+                    "device_id": device_id,
+                    "system_info": sys_info_update["system_info"]
+                }))
+                .send();
+
+            thread::sleep(Duration::from_secs(600));
+        }
+    }
+}
+
 fn main() {
+    env_logger::init();
+
     #[cfg(windows)]
     windows_service::run_service().unwrap();
+
+    #[cfg(unix)]
+    unix_service::run_unix_service().unwrap();
 }
