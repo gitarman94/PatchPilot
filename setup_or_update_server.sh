@@ -77,6 +77,19 @@ if ! command -v cargo >/dev/null 2>&1; then
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
+# Persist Rust environment for all users
+if ! grep -q "CARGO_HOME=${APP_DIR}/.cargo" /etc/environment; then
+    echo "CARGO_HOME=${APP_DIR}/.cargo" >> /etc/environment
+fi
+
+if ! grep -q "RUSTUP_HOME=${APP_DIR}/.rustup" /etc/environment; then
+    echo "RUSTUP_HOME=${APP_DIR}/.rustup" >> /etc/environment
+fi
+
+if ! grep -q "${APP_DIR}/.cargo/bin" /etc/environment; then
+    echo "PATH=\$PATH:${APP_DIR}/.cargo/bin" >> /etc/environment
+fi
+
 # Export Rust environment for this shell
 export CARGO_HOME="${APP_DIR}/.cargo"
 export RUSTUP_HOME="${APP_DIR}/.rustup"
