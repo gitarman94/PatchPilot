@@ -3,6 +3,7 @@ use serde_json::json;
 use std::process::Command;
 
 #[cfg(windows)]
+#[allow(dead_code)] // Suppress warnings for functions only used conditionally
 mod windows {
     use super::*;
 
@@ -140,6 +141,7 @@ mod windows {
 }
 
 #[cfg(unix)]
+#[allow(dead_code)] // Suppress warnings for platform-specific functions
 mod unix {
     use super::*;
     use std::path::Path;
