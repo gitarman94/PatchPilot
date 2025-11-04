@@ -2,7 +2,6 @@ use anyhow::{Result, anyhow};
 use serde_json::json;
 use std::process::Command;
 use std::env;
-
 use sysinfo::{System, Disk, NetworkData};
 
 #[cfg(windows)]
@@ -301,7 +300,7 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         (0, 0, "Unknown".to_string())
     };
 
-    let network_throughput = sys.networks()
+    let network_throughput = sys.network_interfaces()
         .iter()
         .map(|(_, data)| data.received() + data.transmitted())
         .sum::<u64>() as i64;
@@ -356,4 +355,3 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         ))
     }
 }
-
