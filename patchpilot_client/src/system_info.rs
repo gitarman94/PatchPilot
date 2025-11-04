@@ -3,7 +3,7 @@ use serde_json::json;
 use std::process::Command;
 use std::env;
 
-use sysinfo::{System, SystemExt, DiskExt, NetworkExt};
+use sysinfo::{System, Disk, NetworkData};
 
 #[cfg(windows)]
 #[allow(dead_code)]
@@ -356,3 +356,4 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         ))
     }
 }
+
