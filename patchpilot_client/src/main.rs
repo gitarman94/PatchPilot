@@ -1,3 +1,5 @@
+mod system_info;
+
 #[cfg(windows)]
 mod windows_service {
     use anyhow::Result;
@@ -5,20 +7,20 @@ mod windows_service {
     use serde_json::json;
     use std::sync::{Arc, Mutex};
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::{thread, time::Duration};
-    use std::fs;
+    use std::{thread, time::Duration, fs};
+    use lazy_static::lazy_static;
 
     use crate::system_info;
 
     use windows_service::{
         define_windows_service, service_dispatcher,
-        service_control_handler::{self, ServiceControl, ServiceControlHandlerResult},
+        service_control_handler::{ServiceControl, ServiceControlHandlerResult},
         service::{ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType},
     };
 
     define_windows_service!(ffi_service_main, my_service_main);
 
-    lazy_static::lazy_static! {
+    lazy_static! {
         static ref SERVICE_RUNNING: Arc<Mutex<AtomicBool>> = Arc::new(Mutex::new(AtomicBool::new(true)));
     }
 
@@ -40,7 +42,7 @@ mod windows_service {
     }
 
     fn run() -> Result<()> {
-        let status_handle = service_control_handler::register(
+        let status_handle = windows_service::service_control_handler::register(
             "RustPatchDeviceService",
             move |control_event| match control_event {
                 ServiceControl::Stop | ServiceControl::Shutdown => {
@@ -75,7 +77,6 @@ mod windows_service {
         // Adoption check loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
             log::info!("Checking adoption status for device...");
-
             let response = client.post(format!("{}/api/devices/heartbeat", server_url))
                 .json(&json!({
                     "device_id": device_id,
@@ -224,3 +225,13 @@ pub use windows_service::run_service;
 
 #[cfg(unix)]
 pub use unix_service::run_unix_service;
+
+fn main() {
+    env_logger::init();
+
+    #[cfg(windows)]
+    run_service().unwrap();
+
+    #[cfg(unix)]
+    run_unix_service().unwrap();
+}
