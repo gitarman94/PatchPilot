@@ -9,10 +9,9 @@ use simplelog::{Config, LevelFilter, SimpleLogger};
 use std::thread;
 use std::time::Duration;
 use reqwest::blocking::Client;
-use serde_json::json;
-use system_info::SystemInfo; // Make sure this struct matches server's expectations
+use serde_json::{json, Value};
+use system_info::get_system_info; // function that returns serde_json::Value
 
-// Main loop for Linux or non-Windows devices
 #[cfg(not(windows))]
 fn run_device_loop() -> Result<()> {
     info!("Patch Device starting...");
@@ -23,7 +22,7 @@ fn run_device_loop() -> Result<()> {
 
     loop {
         // Fetch system info
-        let system_info: SystemInfo = match system_info::get_system_info() {
+        let system_info: Value = match get_system_info() {
             Ok(info) => info,
             Err(e) => {
                 error!("Failed to get system info: {:?}", e);
@@ -34,9 +33,7 @@ fn run_device_loop() -> Result<()> {
 
         // Wrap system_info in DeviceInfo format expected by server
         let payload = json!({
-            "system_info": system_info,
-            "device_type": "server",    // or "workstation", "laptop", etc.
-            "device_model": "generic"   // can be filled dynamically later
+            "system_info": system_info
         });
 
         // Send system info to server
@@ -60,7 +57,6 @@ fn run_device_loop() -> Result<()> {
             }
         }
 
-        // Wait before next update
         thread::sleep(Duration::from_secs(600)); // 10-minute interval
     }
 }
@@ -97,4 +93,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-
