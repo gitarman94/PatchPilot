@@ -189,6 +189,7 @@ mod windows {
 #[cfg(unix)]
 mod unix {
     use super::*;
+    use std::path::Path;
 
     pub fn get_serial_number() -> Result<String> {
         log::info!("Retrieving serial number for Unix device...");
@@ -285,9 +286,9 @@ mod unix {
             return Err(anyhow!("Failed to retrieve memory info"));
         }
 
-        let parts: Vec<&str> = String::from_utf8_lossy(&output.stdout)
-            .split_whitespace()
-            .collect();
+        // FIX: bind temporary to a variable to extend lifetime
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        let parts: Vec<&str> = output_str.split_whitespace().collect();
 
         let total = parts.get(1).unwrap_or(&"0").parse::<u64>().unwrap_or_else(|_| {
             log::warn!("Failed to parse total memory, defaulting to 0");
@@ -304,7 +305,7 @@ mod unix {
 
     pub fn get_device_type() -> String {
         log::info!("Retrieving device type...");
-        let device_type = if std::path::Path::new("/sys/class/power_supply/BAT0").exists() {
+        let device_type = if Path::new("/sys/class/power_supply/BAT0").exists() {
             "Laptop".to_string()
         } else {
             "Desktop".to_string()
@@ -331,9 +332,19 @@ mod unix {
     }
 }
 
+// --- Top-level forwarders for main.rs ---
+pub fn get_device_type() -> String {
+    #[cfg(windows)] { windows::get_device_type() }
+    #[cfg(unix)] { unix::get_device_type() }
+}
+
+pub fn get_device_model() -> String {
+    #[cfg(windows)] { windows::get_device_model() }
+    #[cfg(unix)] { unix::get_device_model() }
+}
+
 pub fn get_system_info() -> Result<serde_json::Value> {
-    #[cfg(windows)]
-    {
+    #[cfg(windows)] {
         let serial_number = windows::get_serial_number()?;
         let os_info = windows::get_os_info()?;
         let cpu = windows::get_cpu_info()?;
@@ -351,8 +362,7 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         }))
     }
 
-    #[cfg(unix)]
-    {
+    #[cfg(unix)] {
         let serial_number = unix::get_serial_number()?;
         let os_info = unix::get_os_info()?;
         let cpu = unix::get_cpu_info()?;
