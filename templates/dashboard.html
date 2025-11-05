@@ -81,12 +81,12 @@
                 <th>Device ID</th>
                 <th>Hostname</th>
                 <th>OS</th>
-                <th>CPU</th>
+                <th>CPU %</th>
                 <th>RAM</th>
                 <th>Disk</th>
                 <th>Disk Health</th>
-                <th>Network Throughput</th>
-                <th>Ping Latency</th>
+                <th>Network</th>
+                <th>Ping</th>
                 <th>Uptime</th>
                 <th>Status</th>
                 <th>Updates</th>
@@ -156,12 +156,12 @@
                 { data: 'id', render: d => `<a href="#" class="device-link text-primary">${d}</a>` },
                 { data: 'device_name', defaultContent: '—' },
                 { data: 'os_name', defaultContent: '—' },
-                { data: 'cpu', render: d => d ? `${d.toFixed(1)}%` : '—' },
+                { data: 'cpu', render: d => d != null ? `${d.toFixed(1)}%` : '—' },
                 { data: null, render: d => d.ram_total ? `${(d.ram_used / d.ram_total * 100).toFixed(1)}%` : '—' },
-                { data: null, render: d => d.disk_total ? `${(d.disk_total / 1024 ** 3).toFixed(1)} GB` : '—' },
+                { data: null, render: d => d.disk_total ? `${((d.disk_total - d.disk_free) / d.disk_total * 100).toFixed(1)}%` : '—' },
                 { data: 'disk_health', defaultContent: '—' },
                 { data: 'network_throughput', defaultContent: '—' },
-                { data: 'ping_latency', render: d => d ? `${d} ms` : '—' },
+                { data: 'ping_latency', render: d => d != null ? `${d} ms` : '—' },
                 { data: 'uptime', render: d => d ? `${d} sec` : '—' },
                 {
                     data: 'last_checkin',
@@ -190,7 +190,6 @@
             ]
         });
 
-        // Load devices from API
         async function loadDevices() {
             try {
                 const res = await fetch('/api/devices');
@@ -203,7 +202,7 @@
         }
 
         loadDevices();
-        setInterval(loadDevices, 30000); // refresh every 30s
+        setInterval(loadDevices, 30000);
 
         $('body').on('click', '.approve-btn', async function () {
             const row = table.row($(this).closest('tr')).data();
@@ -214,10 +213,8 @@
                     body: JSON.stringify({ hostname: row.device_name })
                 });
                 const json = await resp.json();
-                if (json.success) {
-                    showToast('Device approved successfully.');
-                    loadDevices();
-                } else showToast('Failed to approve device.', 'danger');
+                showToast(json.success ? 'Device approved successfully.' : 'Failed to approve device.', json.success ? 'success' : 'danger');
+                loadDevices();
             } catch {
                 showToast('Error approving device.', 'danger');
             }
@@ -234,18 +231,6 @@
             }
             showToast('Selected devices approved.');
             loadDevices();
-        });
-
-        $('body').on('click', '.device-link', function () {
-            const row = table.row($(this).closest('tr')).data();
-            $('#deviceDetailModal').modal('show');
-            $('#deviceDetailBody').html('<div class="text-center py-5"><div class="spinner-border" role="status"></div></div>');
-            fetch(`/api/devices/${row.id}`)
-                .then(res => res.json())
-                .then(data => {
-                    $('#deviceDetailBody').html(`<pre>${JSON.stringify(data, null, 2)}</pre>`);
-                })
-                .catch(() => $('#deviceDetailBody').html('<p>Error loading details.</p>'));
         });
     });
 </script>
