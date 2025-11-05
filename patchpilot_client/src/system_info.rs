@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use serde_json::json;
 use std::process::Command;
 use local_ip_address::local_ip;
-use sysinfo::{System, SystemExt};  // Ensure we are using `SystemExt` for system functions
+use sysinfo::{System, Cpu, ProcessExt, NetworkExt};  // Only import what we need from sysinfo
 
 #[cfg(windows)]
 #[allow(dead_code)]
@@ -10,7 +10,6 @@ mod windows {
     use super::*;
 
     pub fn get_wifi_info() -> Result<serde_json::Value> {
-        // List all Wi-Fi networks
         let output = Command::new("netsh")
             .args(["wlan", "show", "networks", "mode=Bssid"])
             .output()
@@ -48,7 +47,6 @@ mod windows {
             networks.push(json!(current));
         }
 
-        // Check currently connected SSID
         let connected_output = Command::new("netsh")
             .args(["wlan", "show", "interfaces"])
             .output()
@@ -64,14 +62,14 @@ mod windows {
             String::new()
         };
 
-        Ok(json!( {
+        Ok(json!({
             "connected_ssid": connected_ssid,
             "networks": networks
         }))
     }
 
     pub fn get_network_info() -> Result<serde_json::Value> {
-        let ip_address = local_ip().unwrap_or_else(|| "0.0.0.0".parse().unwrap()).to_string();
+        let ip_address = local_ip().unwrap_or_else(|_| "0.0.0.0".parse().unwrap()).to_string();
         let wifi_info = get_wifi_info().unwrap_or(json!({}));
         Ok(json!({
             "ip_address": ip_address,
@@ -84,10 +82,10 @@ mod windows {
         sys.refresh_all();
 
         // Handle missing or undefined values
-        let hostname = sys.host_name().unwrap_or_else(|| "undefined".to_string());
-        let os_name = sys.name().unwrap_or_else(|| "undefined".to_string());
-        let os_version = sys.os_version().unwrap_or_else(|| "undefined".to_string());
-        let kernel_version = sys.kernel_version().unwrap_or_else(|| "undefined".to_string());
+        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "undefined".to_string());
+        let os_name = sysinfo::System::name().unwrap_or_else(|| "undefined".to_string());
+        let os_version = sysinfo::System::os_version().unwrap_or_else(|| "undefined".to_string());
+        let kernel_version = sysinfo::System::kernel_version().unwrap_or_else(|| "undefined".to_string());
 
         let cpu_count = sys.cpus().len();
         let cpu_brand = sys
@@ -99,7 +97,7 @@ mod windows {
         let total_memory = sys.total_memory();
         let used_memory = sys.used_memory();
 
-        Ok(json!( {
+        Ok(json!({
             "system_info": {
                 "hostname": hostname,
                 "os_name": os_name,
@@ -112,7 +110,7 @@ mod windows {
                 "device_type": "windows",
                 "device_model": "generic",
                 "serial_number": "undefined",
-                "architecture": "undefined"  // Architecture may not be available in some VMs or environments
+                "architecture": "undefined"
             }
         }))
     }
@@ -124,7 +122,6 @@ mod unix {
     use super::*;
 
     pub fn get_wifi_info() -> Result<serde_json::Value> {
-        // Using `nmcli` for Linux
         let output = Command::new("nmcli")
             .args(["-t", "-f", "SSID,SIGNAL,ACTIVE", "dev", "wifi"])
             .output()
@@ -152,23 +149,23 @@ mod unix {
                 connected_ssid = ssid.clone();
             }
 
-            networks.push(json!( {
+            networks.push(json!({
                 "ssid": ssid,
                 "signal": signal,
                 "connected": active
             }));
         }
 
-        Ok(json!( {
+        Ok(json!({
             "connected_ssid": connected_ssid,
             "networks": networks
         }))
     }
 
     pub fn get_network_info() -> Result<serde_json::Value> {
-        let ip_address = local_ip().unwrap_or_else(|| "0.0.0.0".parse().unwrap()).to_string();
+        let ip_address = local_ip().unwrap_or_else(|_| "0.0.0.0".parse().unwrap()).to_string();
         let wifi_info = get_wifi_info().unwrap_or(json!({}));
-        Ok(json!( {
+        Ok(json!({
             "ip_address": ip_address,
             "wifi": wifi_info
         }))
@@ -179,10 +176,10 @@ mod unix {
         sys.refresh_all();
 
         // Handle missing or undefined values
-        let hostname = sys.host_name().unwrap_or_else(|| "undefined".to_string());
-        let os_name = sys.name().unwrap_or_else(|| "undefined".to_string());
-        let os_version = sys.os_version().unwrap_or_else(|| "undefined".to_string());
-        let kernel_version = sys.kernel_version().unwrap_or_else(|| "undefined".to_string());
+        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "undefined".to_string());
+        let os_name = sysinfo::System::name().unwrap_or_else(|| "undefined".to_string());
+        let os_version = sysinfo::System::os_version().unwrap_or_else(|| "undefined".to_string());
+        let kernel_version = sysinfo::System::kernel_version().unwrap_or_else(|| "undefined".to_string());
 
         let cpu_count = sys.cpus().len();
         let cpu_brand = sys
@@ -194,7 +191,7 @@ mod unix {
         let total_memory = sys.total_memory();
         let used_memory = sys.used_memory();
 
-        Ok(json!( {
+        Ok(json!({
             "system_info": {
                 "hostname": hostname,
                 "os_name": os_name,
@@ -207,7 +204,7 @@ mod unix {
                 "device_type": "unix",
                 "device_model": "generic",
                 "serial_number": "undefined",
-                "architecture": "undefined" // Architecture might be unavailable in some environments
+                "architecture": "undefined"
             }
         }))
     }
