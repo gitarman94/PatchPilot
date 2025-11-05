@@ -80,11 +80,11 @@ mod windows {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        // Fix for incorrect method calls. Using associated function syntax instead.
-        let hostname = sysinfo::System::host_name(&sys).unwrap_or_else(|| "undefined".to_string());
-        let os_name = sysinfo::System::name(&sys).unwrap_or_else(|| "undefined".to_string());
-        let os_version = sysinfo::System::os_version(&sys).unwrap_or_else(|| "undefined".to_string());
-        let kernel_version = sysinfo::System::kernel_version(&sys).unwrap_or_else(|| "undefined".to_string());
+        // Fixed function calls
+        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "undefined".to_string());
+        let os_name = sysinfo::System::name().unwrap_or_else(|| "undefined".to_string());
+        let os_version = sysinfo::System::os_version().unwrap_or_else(|| "undefined".to_string());
+        let kernel_version = sysinfo::System::kernel_version().unwrap_or_else(|| "undefined".to_string());
 
         let cpu_count = sys.cpus().len();
         let cpu_brand = sys
@@ -173,10 +173,11 @@ mod unix {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        let hostname = sysinfo::System::host_name(&sys).unwrap_or_else(|| "undefined".to_string());
-        let os_name = sysinfo::System::name(&sys).unwrap_or_else(|| "undefined".to_string());
-        let os_version = sysinfo::System::os_version(&sys).unwrap_or_else(|| "undefined".to_string());
-        let kernel_version = sysinfo::System::kernel_version(&sys).unwrap_or_else(|| "undefined".to_string());
+        // Fixed function calls
+        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "undefined".to_string());
+        let os_name = sysinfo::System::name().unwrap_or_else(|| "undefined".to_string());
+        let os_version = sysinfo::System::os_version().unwrap_or_else(|| "undefined".to_string());
+        let kernel_version = sysinfo::System::kernel_version().unwrap_or_else(|| "undefined".to_string());
 
         let cpu_count = sys.cpus().len();
         let cpu_brand = sys
