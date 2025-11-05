@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 use chrono::Utc;
 use local_ip_address::local_ip;
-use sysinfo::{System, SystemExt, DiskExt, NetworkExt};
+use sysinfo::{System, NetworkData};
 
 mod schema;
 mod models;
@@ -227,4 +227,5 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard])  // Serve the dashboard HTML at the root
         .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))  // Serve static files from the templates folder
 }
+
 
