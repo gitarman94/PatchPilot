@@ -1,28 +1,24 @@
 mod system_info;
 
+use anyhow::Result;
+use std::{fs, thread, time::Duration};
+
 #[cfg(windows)]
 mod windows_service {
-    use anyhow::Result;
-    use reqwest::blocking::Client;
-    use serde_json::json;
-    use std::{thread, time::Duration, fs};
-    use std::sync::{Arc, Mutex};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use super::*;
     use lazy_static::lazy_static;
-
-    use crate::system_info;
-
+    use std::sync::atomic::{AtomicBool, Ordering};
     use windows_service::{
         define_windows_service, service_dispatcher,
         service_control_handler::{ServiceControl, ServiceControlHandlerResult},
         service::{ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType},
     };
 
-    define_windows_service!(ffi_service_main, my_service_main);
-
     lazy_static! {
-        static ref SERVICE_RUNNING: Arc<Mutex<AtomicBool>> = Arc::new(Mutex::new(AtomicBool::new(true)));
+        static ref SERVICE_RUNNING: AtomicBool = AtomicBool::new(true);
     }
+
+    define_windows_service!(ffi_service_main, my_service_main);
 
     fn read_server_url() -> Result<String> {
         let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")?;
@@ -47,7 +43,7 @@ mod windows_service {
             move |control_event| match control_event {
                 ServiceControl::Stop | ServiceControl::Shutdown => {
                     log::info!("Service stopping...");
-                    SERVICE_RUNNING.lock().unwrap().store(false, Ordering::SeqCst);
+                    SERVICE_RUNNING.store(false, Ordering::SeqCst);
                     ServiceControlHandlerResult::NoError
                 }
                 _ => ServiceControlHandlerResult::NotImplemented,
@@ -63,67 +59,9 @@ mod windows_service {
             wait_hint: Duration::from_secs(0),
             process_id: None,
         };
-
         status_handle.set_service_status(status)?;
 
-        let client = Client::new();
-        let server_url = read_server_url()?;
-
-        // Device ID
-        let device_info_json = system_info::get_system_info()?;
-        let device_id = device_info_json.get("system_info")
-            .and_then(|si| si.get("serial_number"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-
-        // Device type/model (if available in system_info)
-        let device_type_val = device_info_json.get("system_info")
-            .and_then(|si| si.get("device_type"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let device_model_val = device_info_json.get("system_info")
-            .and_then(|si| si.get("device_model"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-
-        // --- Registration ---
-        loop {
-            log::info!("Registering device {}...", device_id);
-            let resp = client.post(format!("{}/api/devices/{}", server_url, device_id))
-                .json(&device_info_json)
-                .send();
-
-            match resp {
-                Ok(r) if r.status().is_success() => {
-                    log::info!("Device registered successfully");
-                    break;
-                }
-                Ok(r) => log::error!("Registration failed, status: {}", r.status()),
-                Err(e) => log::error!("Registration error: {:?}", e),
-            }
-            thread::sleep(Duration::from_secs(30));
-        }
-
-        // --- Heartbeat loop ---
-        while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
-            let sys_info_update = system_info::get_system_info().unwrap_or(json!({}));
-            let network_info = system_info::get_network_info().unwrap_or(json!({}));
-
-            log::info!("Sending heartbeat for device {}", device_id);
-
-            let _ = client.post(format!("{}/api/devices/heartbeat", server_url))
-                .json(&json!({
-                    "device_id": device_id,
-                    "device_type": device_type_val,
-                    "device_model": device_model_val,
-                    "system_info": sys_info_update["system_info"],
-                    "network_info": network_info
-                }))
-                .send();
-
-            thread::sleep(Duration::from_secs(600));
-        }
+        super::run_client_loop(|| SERVICE_RUNNING.load(Ordering::SeqCst), read_server_url)?;
 
         status.current_state = ServiceState::Stopped;
         status_handle.set_service_status(status)?;
@@ -133,73 +71,85 @@ mod windows_service {
 
 #[cfg(unix)]
 mod unix_service {
-    use anyhow::Result;
-    use reqwest::blocking::Client;
-    use serde_json::json;
-    use std::{thread, time::Duration, fs};
-    use crate::system_info;
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     pub fn run_unix_service() -> Result<()> {
         log::info!("Starting Unix PatchPilot client service...");
+        static SERVICE_RUNNING: AtomicBool = AtomicBool::new(true);
 
-        let client = Client::new();
-        let server_url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")?.trim().to_string();
-
-        // Device ID
-        let device_info_json = system_info::get_system_info()?;
-        let device_id = device_info_json.get("system_info")
-            .and_then(|si| si.get("serial_number"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-
-        let device_type_val = device_info_json.get("system_info")
-            .and_then(|si| si.get("device_type"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let device_model_val = device_info_json.get("system_info")
-            .and_then(|si| si.get("device_model"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-
-        // --- Registration ---
-        loop {
-            log::info!("Registering device {}...", device_id);
-            let resp = client.post(format!("{}/api/devices/{}", server_url, device_id))
-                .json(&device_info_json)
-                .send();
-
-            match resp {
-                Ok(r) if r.status().is_success() => {
-                    log::info!("Device registered successfully");
-                    break;
-                }
-                Ok(r) => log::error!("Registration failed, status: {}", r.status()),
-                Err(e) => log::error!("Registration error: {:?}", e),
-            }
-            thread::sleep(Duration::from_secs(30));
-        }
-
-        // --- Heartbeat loop ---
-        loop {
-            let sys_info_update = system_info::get_system_info().unwrap_or(json!({}));
-            let network_info = system_info::get_network_info().unwrap_or(json!({}));
-
-            log::info!("Sending heartbeat for device {}", device_id);
-
-            let _ = client.post(format!("{}/api/devices/heartbeat", server_url))
-                .json(&json!({
-                    "device_id": device_id,
-                    "device_type": device_type_val,
-                    "device_model": device_model_val,
-                    "system_info": sys_info_update["system_info"],
-                    "network_info": network_info
-                }))
-                .send();
-
-            thread::sleep(Duration::from_secs(600));
-        }
+        run_client_loop(|| SERVICE_RUNNING.load(Ordering::SeqCst), || {
+            let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")?;
+            Ok(url.trim().to_string())
+        })
     }
+}
+
+// Shared client loop for both platforms
+fn run_client_loop<F>(is_running: F, read_server_url: impl Fn() -> Result<String>) -> Result<()>
+where
+    F: Fn() -> bool,
+{
+    use reqwest::blocking::Client;
+    use serde_json::json;
+
+    let client = Client::new();
+    let server_url = read_server_url()?;
+
+    // Device ID & system info
+    let device_info_json = system_info::get_system_info()?;
+    let device_id = device_info_json.get("system_info")
+        .and_then(|si| si.get("serial_number"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let device_type_val = device_info_json.get("system_info")
+        .and_then(|si| si.get("device_type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let device_model_val = device_info_json.get("system_info")
+        .and_then(|si| si.get("device_model"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+
+    // --- Registration ---
+    loop {
+        log::info!("Registering device {}...", device_id);
+        match client.post(format!("{}/api/devices/{}", server_url, device_id))
+            .json(&device_info_json)
+            .send() {
+            Ok(r) if r.status().is_success() => {
+                log::info!("Device registered successfully");
+                break;
+            }
+            Ok(r) => log::error!("Registration failed, status: {}", r.status()),
+            Err(e) => log::error!("Registration error: {:?}", e),
+        }
+        thread::sleep(Duration::from_secs(30));
+    }
+
+    // --- Heartbeat loop ---
+    while is_running() {
+        let sys_info_update = system_info::get_system_info().unwrap_or(json!({}));
+        let network_info = system_info::get_network_info().unwrap_or(json!({}));
+
+        log::info!("Sending heartbeat for device {}", device_id);
+
+        let _ = client.post(format!("{}/api/devices/heartbeat", server_url))
+            .json(&json!({
+                "device_id": device_id,
+                "device_type": device_type_val,
+                "device_model": device_model_val,
+                "system_info": sys_info_update["system_info"],
+                "network_info": network_info
+            }))
+            .send();
+
+        thread::sleep(Duration::from_secs(600));
+    }
+
+    Ok(())
 }
 
 fn main() {
