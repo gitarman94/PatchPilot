@@ -107,10 +107,10 @@ mod windows {
                 "cpu_count": cpu_count,
                 "total_memory": total_memory,
                 "used_memory": used_memory,
-                "device_type": "windows",  // Example of platform-specific static data
-                "device_model": "generic",  // Example of platform-specific static data
-                "serial_number": "undefined",  // Example of platform-specific static data
-                "architecture": "undefined"  // Example of platform-specific static data
+                "device_type": "windows",
+                "device_model": "generic",
+                "serial_number": "undefined",
+                "architecture": "undefined"
             }
         }))
     }
@@ -233,3 +233,4 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         unix::get_system_info()
     }
 }
+
