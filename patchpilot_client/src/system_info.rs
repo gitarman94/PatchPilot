@@ -2,14 +2,12 @@ use anyhow::{Result, anyhow};
 use serde_json::json;
 use std::process::Command;
 use local_ip_address::local_ip;
-use sysinfo::{System, SystemExt}; // Import sysinfo
 
 #[cfg(windows)]
 #[allow(dead_code)]
 mod windows {
     use super::*;
-    use std::process::Command;
-    use sysinfo::{System, SystemExt}; // Import sysinfo for Windows
+    use sysinfo::System;
 
     pub fn get_serial_number() -> Result<String> {
         let output = Command::new("wmic")
@@ -47,26 +45,6 @@ mod windows {
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    }
-
-    pub fn get_system_info() -> Result<serde_json::Value> {
-        let serial_number = get_serial_number()?;
-        let device_type = get_device_type();
-        let device_model = get_device_model();
-        let os_info = get_os_info()?;
-        let cpu_info = get_cpu_info()?;
-        let memory_info = get_memory_info()?;
-        let network_info = get_network_info()?;
-    
-        Ok(json!({
-            "serial_number": serial_number,
-            "device_type": device_type,
-            "device_model": device_model,
-            "os_info": os_info,
-            "cpu_info": cpu_info,
-            "memory_info": memory_info,
-            "network_info": network_info
-        }))
     }
 
     pub fn get_cpu_info() -> Result<f32> {
@@ -118,7 +96,11 @@ mod windows {
             .parse::<u64>()
             .unwrap_or(0);
 
-        Ok(json!({ "total": total_memory, "free": free_memory, "used": total_memory.saturating_sub(free_memory) }))
+        Ok(json!({
+            "total": total_memory,
+            "free": free_memory,
+            "used": total_memory.saturating_sub(free_memory)
+        }))
     }
 
     pub fn get_device_type() -> String {
@@ -164,20 +146,9 @@ mod windows {
     }
 
     pub fn get_network_info() -> Result<serde_json::Value> {
-        let mut sys = System::new_all();
-        sys.refresh_all(); // Refresh all info
-    
-        let interfaces: Vec<String> = sys.get_networks()
-            .iter()
-            .map(|(name, data)| format!("{}: {} bytes received, {} bytes transmitted", name, data.received(), data.transmitted()))
-            .collect();
-    
-        let ip_address = local_ip().unwrap_or_else(|_| "127.0.0.1".parse().unwrap()).to_string();
-    
-        Ok(json!({
-            "network_interfaces": interfaces,
-            "ip_address": ip_address
-        }))
+        // Only get local IP address (sysinfo removed network APIs)
+        let ip_address = local_ip()?.to_string();
+        Ok(json!({ "ip_address": ip_address }))
     }
 }
 
@@ -186,7 +157,7 @@ mod windows {
 mod unix {
     use super::*;
     use std::path::Path;
-    use sysinfo::{System, SystemExt}; // Import sysinfo for Unix
+    use sysinfo::System;
 
     pub fn get_serial_number() -> Result<String> {
         let output = Command::new("dmidecode")
@@ -274,20 +245,8 @@ mod unix {
     }
 
     pub fn get_network_info() -> Result<serde_json::Value> {
-        let mut sys = System::new_all();
-        sys.refresh_networks();
-
-        let interfaces: Vec<String> = sys.networks()
-            .iter()
-            .map(|(name, data)| format!("{}: {} bytes received, {} bytes transmitted", name, data.received(), data.transmitted()))
-            .collect();
-
-        let ip_address = local_ip().unwrap_or_else(|_| "127.0.0.1".to_string());
-
-        Ok(json!({
-            "network_interfaces": interfaces,
-            "ip_address": ip_address
-        }))
+        let ip_address = local_ip()?.to_string();
+        Ok(json!({ "ip_address": ip_address }))
     }
 }
 
@@ -325,4 +284,17 @@ pub fn get_os_info() -> Result<String> {
 pub fn get_network_info() -> Result<serde_json::Value> {
     #[cfg(windows)] { windows::get_network_info() }
     #[cfg(unix)] { unix::get_network_info() }
+}
+
+// --- Aggregator ---
+pub fn get_system_info() -> Result<serde_json::Value> {
+    Ok(json!({
+        "serial_number": get_serial_number()?,
+        "device_type": get_device_type(),
+        "device_model": get_device_model(),
+        "os_info": get_os_info()?,
+        "cpu_info": get_cpu_info()?,
+        "memory_info": get_memory_info()?,
+        "network_info": get_network_info()?
+    }))
 }
