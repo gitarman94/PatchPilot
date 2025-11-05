@@ -50,6 +50,7 @@ mod windows {
             .args(["wlan", "show", "interfaces"])
             .output()
             .map_err(|e| anyhow!("Failed to execute netsh wlan show interfaces: {}", e))?;
+
         let connected_ssid = if connected_output.status.success() {
             String::from_utf8_lossy(&connected_output.stdout)
                 .lines()
@@ -61,7 +62,7 @@ mod windows {
             String::new()
         };
 
-        Ok(json!( {
+        Ok(json!({
             "connected_ssid": connected_ssid,
             "networks": networks
         }))
@@ -70,7 +71,7 @@ mod windows {
     pub fn get_network_info() -> Result<serde_json::Value> {
         let ip_address = local_ip().unwrap_or_else(|_| "0.0.0.0".parse().unwrap()).to_string();
         let wifi_info = get_wifi_info().unwrap_or(json!({}));
-        Ok(json!( {
+        Ok(json!({
             "ip_address": ip_address,
             "wifi": wifi_info
         }))
@@ -80,11 +81,13 @@ mod windows {
         let mut sys = System::new_all();
         sys.refresh_all();
 
+        // Collect system data
         let hostname = sys.host_name().unwrap_or_else(|| "undefined".to_string());
         let os_name = sys.name().unwrap_or_else(|| "undefined".to_string());
         let os_version = sys.os_version().unwrap_or_else(|| "undefined".to_string());
         let kernel_version = sys.kernel_version().unwrap_or_else(|| "undefined".to_string());
 
+        // CPU info
         let cpu_count = sys.cpus().len();
         let cpu_brand = sys
             .cpus()
@@ -92,10 +95,12 @@ mod windows {
             .map(|c| c.brand().to_string())
             .unwrap_or_else(|| "undefined".to_string());
 
+        // Memory info
         let total_memory = sys.total_memory();
         let used_memory = sys.used_memory();
 
-        Ok(json!( {
+        // Assemble all system info in JSON format
+        Ok(json!({
             "system_info": {
                 "hostname": hostname,
                 "os_name": os_name,
@@ -146,14 +151,14 @@ mod unix {
                 connected_ssid = ssid.clone();
             }
 
-            networks.push(json!( {
+            networks.push(json!({
                 "ssid": ssid,
                 "signal": signal,
                 "connected": active
             }));
         }
 
-        Ok(json!( {
+        Ok(json!({
             "connected_ssid": connected_ssid,
             "networks": networks
         }))
@@ -162,7 +167,7 @@ mod unix {
     pub fn get_network_info() -> Result<serde_json::Value> {
         let ip_address = local_ip().unwrap_or_else(|_| "0.0.0.0".parse().unwrap()).to_string();
         let wifi_info = get_wifi_info().unwrap_or(json!({}));
-        Ok(json!( {
+        Ok(json!({
             "ip_address": ip_address,
             "wifi": wifi_info
         }))
@@ -172,11 +177,13 @@ mod unix {
         let mut sys = System::new_all();
         sys.refresh_all();
 
+        // Collect system data
         let hostname = sys.host_name().unwrap_or_else(|| "undefined".to_string());
         let os_name = sys.name().unwrap_or_else(|| "undefined".to_string());
         let os_version = sys.os_version().unwrap_or_else(|| "undefined".to_string());
         let kernel_version = sys.kernel_version().unwrap_or_else(|| "undefined".to_string());
 
+        // CPU info
         let cpu_count = sys.cpus().len();
         let cpu_brand = sys
             .cpus()
@@ -184,10 +191,12 @@ mod unix {
             .map(|c| c.brand().to_string())
             .unwrap_or_else(|| "undefined".to_string());
 
+        // Memory info
         let total_memory = sys.total_memory();
         let used_memory = sys.used_memory();
 
-        Ok(json!( {
+        // Assemble all system info in JSON format
+        Ok(json!({
             "system_info": {
                 "hostname": hostname,
                 "os_name": os_name,
