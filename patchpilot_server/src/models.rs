@@ -115,12 +115,10 @@ impl NewDevice {
             ping_latency: info.system_info.ping_latency,
             device_type: info.device_type.clone().unwrap_or_default(),
             device_model: info.device_model.clone().unwrap_or_default(),
-            uptime: Some("0h 0m".to_string()), // default when registering
+            uptime: Some("0h 0m".to_string()),
             updates_available: false,
-            // Add new network fields
             network_interfaces: info.system_info.network_interfaces.clone(),
             ip_address: info.system_info.ip_address.clone(),
         }
     }
 }
-
