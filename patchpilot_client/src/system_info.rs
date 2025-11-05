@@ -69,11 +69,33 @@ mod windows {
         }))
     }
 
-    // Add to top-level network_info
     pub fn get_network_info() -> Result<serde_json::Value> {
         let ip_address = local_ip()?.to_string();
         let wifi_info = get_wifi_info().unwrap_or(json!({}));
         Ok(json!({ "ip_address": ip_address, "wifi": wifi_info }))
+    }
+
+    pub fn get_system_info() -> Result<serde_json::Value> {
+        use sysinfo::{System, SystemExt, CpuExt};
+
+        let mut sys = System::new_all();
+        sys.refresh_all();
+
+        Ok(json!({
+            "system_info": {
+                "hostname": sys.host_name().unwrap_or_else(|| "unknown".to_string()),
+                "os_name": sys.name().unwrap_or_else(|| "unknown".to_string()),
+                "os_version": sys.os_version().unwrap_or_else(|| "unknown".to_string()),
+                "kernel_version": sys.kernel_version().unwrap_or_else(|| "unknown".to_string()),
+                "cpu_brand": sys.cpus().get(0).map(|c| c.brand().to_string()).unwrap_or_default(),
+                "cpu_count": sys.cpus().len(),
+                "total_memory": sys.total_memory(),
+                "used_memory": sys.used_memory(),
+                "device_type": "windows",
+                "device_model": "generic",
+                "serial_number": "unknown"
+            }
+        }))
     }
 }
 
@@ -82,7 +104,7 @@ mod windows {
 mod unix {
     use super::*;
     use std::process::Command;
-    use sysinfo::System;
+    use sysinfo::{System, SystemExt, CpuExt};
     use std::path::Path;
 
     pub fn get_wifi_info() -> Result<serde_json::Value> {
@@ -130,10 +152,38 @@ mod unix {
         let wifi_info = get_wifi_info().unwrap_or(json!({}));
         Ok(json!({ "ip_address": ip_address, "wifi": wifi_info }))
     }
+
+    pub fn get_system_info() -> Result<serde_json::Value> {
+        use sysinfo::{System, SystemExt, CpuExt};
+
+        let mut sys = System::new_all();
+        sys.refresh_all();
+
+        Ok(json!({
+            "system_info": {
+                "hostname": sys.host_name().unwrap_or_else(|| "unknown".to_string()),
+                "os_name": sys.name().unwrap_or_else(|| "unknown".to_string()),
+                "os_version": sys.os_version().unwrap_or_else(|| "unknown".to_string()),
+                "kernel_version": sys.kernel_version().unwrap_or_else(|| "unknown".to_string()),
+                "cpu_brand": sys.cpus().get(0).map(|c| c.brand().to_string()).unwrap_or_default(),
+                "cpu_count": sys.cpus().len(),
+                "total_memory": sys.total_memory(),
+                "used_memory": sys.used_memory(),
+                "device_type": "unix",
+                "device_model": "generic",
+                "serial_number": "unknown"
+            }
+        }))
+    }
 }
 
 // --- Top-level forwarders ---
 pub fn get_network_info() -> Result<serde_json::Value> {
     #[cfg(windows)] { windows::get_network_info() }
     #[cfg(unix)] { unix::get_network_info() }
+}
+
+pub fn get_system_info() -> Result<serde_json::Value> {
+    #[cfg(windows)] { windows::get_system_info() }
+    #[cfg(unix)] { unix::get_system_info() }
 }
