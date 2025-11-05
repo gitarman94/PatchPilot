@@ -49,6 +49,24 @@ mod windows {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
+    pub fn get_system_info() -> Result<serde_json::Value> {
+        let serial_number = get_serial_number()?;
+        let device_type = get_device_type();
+        let device_model = get_device_model();
+        let os_info = get_os_info()?;
+        let cpu_info = get_cpu_info()?;
+        let memory_info = get_memory_info()?;
+    
+        Ok(json!({
+            "serial_number": serial_number,
+            "device_type": device_type,
+            "device_model": device_model,
+            "os_info": os_info,
+            "cpu_info": cpu_info,
+            "memory_info": memory_info,
+        }))
+    }
+
     pub fn get_cpu_info() -> Result<f32> {
         let output = Command::new("wmic")
             .args(["cpu", "get", "loadpercentage"])
@@ -305,3 +323,4 @@ pub fn get_network_info() -> Result<serde_json::Value> {
     #[cfg(windows)] { windows::get_network_info() }
     #[cfg(unix)] { unix::get_network_info() }
 }
+
