@@ -15,6 +15,7 @@ lazy_static = "^1.4"
 termcolor = "^1.4"
 windows-service = { version = "^0.8", optional = true }
 env_logger = "^0.10"
+local-ip-address = "0.4"
 
 [features]
 default = []
@@ -27,3 +28,4 @@ path = "src/main.rs"
 [[bin]]
 name = "patchpilot_updater"
 path = "src/patchpilot_updater.rs"
+
