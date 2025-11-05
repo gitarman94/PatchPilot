@@ -7,7 +7,6 @@ use local_ip_address::local_ip;
 #[allow(dead_code)]
 mod windows {
     use super::*;
-    use sysinfo::System;
 
     pub fn get_serial_number() -> Result<String> {
         let output = Command::new("wmic")
@@ -146,7 +145,6 @@ mod windows {
     }
 
     pub fn get_network_info() -> Result<serde_json::Value> {
-        // Only get local IP address (sysinfo removed network APIs)
         let ip_address = local_ip()?.to_string();
         Ok(json!({ "ip_address": ip_address }))
     }
