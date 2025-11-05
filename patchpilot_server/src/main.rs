@@ -153,7 +153,7 @@ async fn dashboard() -> Option<NamedFile> {
     NamedFile::open("/opt/patchpilot_server/templates/dashboard.html").await.ok()
 }
 
-#[get("/<file..>")]
+#[get("/static/<file..>")]
 async fn static_files(file: PathBuf) -> Option<NamedFile> {
     NamedFile::open(Path::new("/opt/patchpilot_server/templates/").join(file)).await.ok()
 }
@@ -224,6 +224,7 @@ fn rocket() -> _ {
     rocket::build()
         .manage(pool)
         .mount("/api", routes![register_or_update_device, get_devices, status, heartbeat])
-        .mount("/", routes![dashboard, static_files])
-        .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))
+        .mount("/", routes![dashboard])  // Serve the dashboard HTML at the root
+        .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))  // Serve static files from the templates folder
 }
+
