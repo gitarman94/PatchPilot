@@ -152,11 +152,6 @@ async fn dashboard() -> Option<NamedFile> {
     NamedFile::open("/opt/patchpilot_server/templates/dashboard.html").await.ok()
 }
 
-#[get("/static/<file..>")]
-async fn static_files(file: PathBuf) -> Option<NamedFile> {
-    NamedFile::open(Path::new("/opt/patchpilot_server/templates/").join(file)).await.ok()
-}
-
 // --- DB initialization ---
 fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
     diesel::sql_query(r#"
@@ -226,6 +221,7 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard])  // Serve the dashboard HTML at the root
         .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))  // Serve static files from the templates folder
 }
+
 
 
 
