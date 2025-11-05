@@ -1,140 +1,67 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Device Detail</title>
-    <!-- Add your CSS stylesheets here -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
-    <div class="container mt-4">
-        <!-- Device Information -->
-        <h2>Device: <span id="device-name">Loading...</span></h2>
-        <p>OS: <span id="os-name">Loading...</span></p>
-        <p>Last Check-in: <span id="last-checkin">Loading...</span></p>
-
-        <!-- System Stats -->
-        <div class="card mt-4">
-            <div class="card-header">System Information</div>
-            <div class="card-body">
-                <div id="system-info">
-                    <!-- Dynamic system data will be displayed here -->
-                </div>
-            </div>
+<div class="container py-3">
+    <h3 id="deviceName"></h3>
+    <div class="row mt-3">
+        <div class="col-md-6">
+            <p><strong>Device ID:</strong> <span id="deviceId"></span></p>
+            <p><strong>Hostname:</strong> <span id="deviceHostname"></span></p>
+            <p><strong>OS Name:</strong> <span id="deviceOS"></span></p>
+            <p><strong>OS Version:</strong> <span id="deviceOSVersion"></span></p>
+            <p><strong>CPU Usage:</strong> <span id="deviceCPU"></span></p>
+            <p><strong>RAM:</strong> <span id="deviceRAM"></span></p>
+            <p><strong>Disk:</strong> <span id="deviceDisk"></span></p>
+            <p><strong>Disk Health:</strong> <span id="deviceDiskHealth"></span></p>
+            <p><strong>Patch Status:</strong> <span id="devicePatchStatus"></span></p>
+            <p><strong>Last Patch Date:</strong> <span id="deviceLastPatch"></span></p>
         </div>
-
-        <!-- CPU Usage Chart -->
-        <div class="card mt-4">
-            <div class="card-header">CPU Usage</div>
-            <div class="card-body">
-                <canvas id="cpuUsageChart"></canvas>
-            </div>
-        </div>
-
-        <!-- RAM Usage Chart -->
-        <div class="card mt-4">
-            <div class="card-header">RAM Usage</div>
-            <div class="card-body">
-                <canvas id="ramUsageChart"></canvas>
-            </div>
-        </div>
-
-        <!-- Disk Usage Chart -->
-        <div class="card mt-4">
-            <div class="card-header">Disk Usage</div>
-            <div class="card-body">
-                <canvas id="diskUsageChart"></canvas>
-            </div>
-        </div>
-
-        <!-- Network Stats -->
-        <div class="card mt-4">
-            <div class="card-header">Network Throughput</div>
-            <div class="card-body">
-                <p><strong>Network Throughput:</strong> <span id="network-throughput">Loading...</span> bytes</p>
-                <p><strong>Ping Latency:</strong> <span id="ping-latency">Loading...</span> ms</p>
-            </div>
+        <div class="col-md-6">
+            <p><strong>Network Throughput:</strong> <span id="deviceNetwork"></span></p>
+            <p><strong>Ping Latency:</strong> <span id="devicePing"></span></p>
+            <p><strong>Uptime:</strong> <span id="deviceUptime"></span></p>
+            <p><strong>Last Check-in:</strong> <span id="deviceCheckin"></span></p>
+            <p><strong>Updates Available:</strong> <span id="deviceUpdates"></span></p>
+            <p><strong>Approved:</strong> <span id="deviceApproved"></span></p>
+            <p><strong>Serial Number:</strong> <span id="deviceSerial"></span></p>
+            <p><strong>Model:</strong> <span id="deviceModel"></span></p>
+            <p><strong>Manufacturer:</strong> <span id="deviceManufacturer"></span></p>
+            <p><strong>Additional Notes:</strong> <span id="deviceNotes"></span></p>
         </div>
     </div>
+</div>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const deviceId = window.location.pathname.split('/').pop(); // Get the device ID from the URL
-            
-            // Fetch device data from the server
-            fetch(`/api/devices/${deviceId}`)
-                .then(response => response.json())
-                .then(data => {
-                    const device = data;
+<script>
+async function loadDeviceDetails(deviceId) {
+    const body = $('#deviceDetailBody');
+    body.html('<div class="text-center py-5"><div class="spinner-border" role="status"></div></div>');
 
-                    // Populate device info
-                    document.getElementById('device-name').textContent = device.device_name;
-                    document.getElementById('os-name').textContent = device.os_name;
-                    document.getElementById('last-checkin').textContent = new Date(device.last_checkin).toLocaleString();
+    try {
+        const res = await fetch(`/api/devices/${deviceId}`);
+        const d = await res.json();
 
-                    // Populate system stats
-                    document.getElementById('system-info').innerHTML = ` 
-                        <p><strong>CPU Usage:</strong> ${device.cpu}%</p>
-                        <p><strong>Total RAM:</strong> ${(device.ram_total / 1024 / 1024 / 1024).toFixed(2)} GB</p>
-                        <p><strong>Used RAM:</strong> ${(device.ram_used / 1024 / 1024 / 1024).toFixed(2)} GB</p>
-                        <p><strong>Free RAM:</strong> ${(device.ram_free / 1024 / 1024 / 1024).toFixed(2)} GB</p>
-                        <p><strong>Disk Health:</strong> ${device.disk_health}</p>
-                        <p><strong>Total Disk:</strong> ${(device.disk_total / 1024 / 1024 / 1024).toFixed(2)} GB</p>
-                        <p><strong>Free Disk:</strong> ${(device.disk_free / 1024 / 1024 / 1024).toFixed(2)} GB</p>
-                    `;
+        $('#deviceName').text(d.device_name || '—');
+        $('#deviceId').text(d.id || '—');
+        $('#deviceHostname').text(d.hostname || '—');
+        $('#deviceOS').text(d.os_name || '—');
+        $('#deviceOSVersion').text(d.os_version || '—');
+        $('#deviceCPU').text(d.cpu != null ? d.cpu.toFixed(1) + '%' : '—');
+        $('#deviceRAM').text(d.ram_total ? `${d.ram_used} / ${d.ram_total} MB` : '—');
+        $('#deviceDisk').text(d.disk_total ? `${d.disk_total - d.disk_free} / ${d.disk_total} GB` : '—');
+        $('#deviceDiskHealth').text(d.disk_health || '—');
+        $('#devicePatchStatus').text(d.patch_status || '—');
+        $('#deviceLastPatch').text(d.last_patch_date || '—');
 
-                    // Network Stats
-                    document.getElementById('network-throughput').textContent = device.network_throughput;
-                    document.getElementById('ping-latency').textContent = device.ping_latency;
-
-                    // Initialize CPU, RAM, and Disk usage charts
-                    const cpuCtx = document.getElementById('cpuUsageChart').getContext('2d');
-                    new Chart(cpuCtx, {
-                        type: 'doughnut',
-                        data: {
-                            labels: ['CPU Usage', 'Idle'],
-                            datasets: [{
-                                data: [device.cpu, 100 - device.cpu],
-                                backgroundColor: ['#f56c42', '#42f56c'],
-                                borderColor: '#ffffff',
-                                borderWidth: 1
-                            }]
-                        }
-                    });
-
-                    const ramCtx = document.getElementById('ramUsageChart').getContext('2d');
-                    new Chart(ramCtx, {
-                        type: 'doughnut',
-                        data: {
-                            labels: ['Used RAM', 'Free RAM'],
-                            datasets: [{
-                                data: [device.ram_used, device.ram_free],
-                                backgroundColor: ['#f56c42', '#42f56c'],
-                                borderColor: '#ffffff',
-                                borderWidth: 1
-                            }]
-                        }
-                    });
-
-                    const diskCtx = document.getElementById('diskUsageChart').getContext('2d');
-                    new Chart(diskCtx, {
-                        type: 'doughnut',
-                        data: {
-                            labels: ['Used Disk', 'Free Disk'],
-                            datasets: [{
-                                data: [device.disk_total - device.disk_free, device.disk_free],
-                                backgroundColor: ['#f56c42', '#42f56c'],
-                                borderColor: '#ffffff',
-                                borderWidth: 1
-                            }]
-                        }
-                    });
-                })
-                .catch(error => console.error('Error fetching device data:', error));
-        });
-    </script>
-</body>
-</html>
+        $('#deviceNetwork').text(d.network_throughput || '—');
+        $('#devicePing').text(d.ping_latency != null ? d.ping_latency + ' ms' : '—');
+        $('#deviceUptime').text(d.uptime ? `${d.uptime} sec` : '—');
+        $('#deviceCheckin').text(d.last_checkin || '—');
+        $('#deviceUpdates').text(d.updates_available ? 'Yes' : 'No');
+        $('#deviceApproved').text(d.approved ? 'Yes' : 'No');
+        $('#deviceSerial').text(d.serial_number || '—');
+        $('#deviceModel').text(d.model || '—');
+        $('#deviceManufacturer').text(d.manufacturer || '—');
+        $('#deviceNotes').text(d.notes || '—');
+    } catch (err) {
+        body.html('<p class="text-danger">Failed to load device details.</p>');
+        console.error(err);
+    }
+}
+</script>
