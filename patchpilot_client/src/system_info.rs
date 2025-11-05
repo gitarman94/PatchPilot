@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use serde_json::json;
 use std::process::Command;
 use local_ip_address::local_ip;
-use sysinfo::{System, Cpu, ProcessExt, NetworkExt};  // Only import what we need from sysinfo
+use sysinfo::{System, Cpu, ProcessExt, NetworkExt};  // Import necessary traits and structs from sysinfo
 
 #[cfg(windows)]
 #[allow(dead_code)]
