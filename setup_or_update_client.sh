@@ -109,7 +109,7 @@ read -rp "Enter the PatchPilot server IP (e.g., 192.168.1.100): " input_ip
 input_ip="${input_ip#http://}"
 input_ip="${input_ip#https://}"
 input_ip="${input_ip%%/*}"
-echo "http://${input_ip}:8080/api" > "$APP_DIR/server_url.txt"
+echo "http://${input_ip}:8080" > "$APP_DIR/server_url.txt"
 
 # --- Setup systemd service ---
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
