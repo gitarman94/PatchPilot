@@ -13,9 +13,11 @@ anyhow = "^1.0"
 sysinfo = "^0.37"
 lazy_static = "^1.4"
 termcolor = "^1.4"
-windows-service = { version = "^0.8", optional = true }
 env_logger = "^0.11.8"
 local-ip-address = "^0.6.5"
+
+# Optional Windows dependency, only included when the "windows" feature is enabled
+windows-service = { version = "^0.8", optional = true }
 
 [features]
 default = []
@@ -28,5 +30,3 @@ path = "src/main.rs"
 [[bin]]
 name = "patchpilot_updater"
 path = "src/patchpilot_updater.rs"
-
-
