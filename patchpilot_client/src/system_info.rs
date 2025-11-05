@@ -163,15 +163,15 @@ mod windows {
 
     pub fn get_network_info() -> Result<serde_json::Value> {
         let mut sys = System::new_all();
-        sys.refresh_networks();
-
-        let interfaces: Vec<String> = sys.networks()
+        sys.refresh_all(); // Refresh all info
+    
+        let interfaces: Vec<String> = sys.get_networks()
             .iter()
             .map(|(name, data)| format!("{}: {} bytes received, {} bytes transmitted", name, data.received(), data.transmitted()))
             .collect();
-
-        let ip_address = local_ip().unwrap_or_else(|_| "127.0.0.1".to_string());
-
+    
+        let ip_address = local_ip().unwrap_or_else(|_| "127.0.0.1".parse().unwrap()).to_string();
+    
         Ok(json!({
             "network_interfaces": interfaces,
             "ip_address": ip_address
@@ -323,4 +323,5 @@ pub fn get_network_info() -> Result<serde_json::Value> {
     #[cfg(windows)] { windows::get_network_info() }
     #[cfg(unix)] { unix::get_network_info() }
 }
+
 
