@@ -1,11 +1,10 @@
 use anyhow::{anyhow, Result};
 use serde_json::json;
-use sysinfo::{System, Cpu, NetworkData};  // Cpu is still necessary for gathering CPU details
+use sysinfo::{System, Cpu, NetworkData};
 use local_ip_address::local_ip;
 use std::process::Command;
 
 #[cfg(windows)]
-#[allow(dead_code)]
 mod windows {
     use super::*;
 
@@ -62,7 +61,7 @@ mod windows {
             String::new()
         };
 
-        Ok(json!({
+        Ok(json!( {
             "connected_ssid": connected_ssid,
             "networks": networks
         }))
@@ -71,7 +70,7 @@ mod windows {
     pub fn get_network_info() -> Result<serde_json::Value> {
         let ip_address = local_ip().unwrap_or_else(|_| "0.0.0.0".parse().unwrap()).to_string();
         let wifi_info = get_wifi_info().unwrap_or(json!({}));
-        Ok(json!({
+        Ok(json!( {
             "ip_address": ip_address,
             "wifi": wifi_info
         }))
@@ -81,7 +80,6 @@ mod windows {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        // Handle missing or undefined values with Option and unwrap_or_default()
         let hostname = sys.host_name().unwrap_or_else(|| "undefined".to_string());
         let os_name = sys.name().unwrap_or_else(|| "undefined".to_string());
         let os_version = sys.os_version().unwrap_or_else(|| "undefined".to_string());
@@ -97,7 +95,7 @@ mod windows {
         let total_memory = sys.total_memory();
         let used_memory = sys.used_memory();
 
-        Ok(json!({
+        Ok(json!( {
             "system_info": {
                 "hostname": hostname,
                 "os_name": os_name,
@@ -117,7 +115,6 @@ mod windows {
 }
 
 #[cfg(unix)]
-#[allow(dead_code)]
 mod unix {
     use super::*;
 
@@ -149,14 +146,14 @@ mod unix {
                 connected_ssid = ssid.clone();
             }
 
-            networks.push(json!({
+            networks.push(json!( {
                 "ssid": ssid,
                 "signal": signal,
                 "connected": active
             }));
         }
 
-        Ok(json!({
+        Ok(json!( {
             "connected_ssid": connected_ssid,
             "networks": networks
         }))
@@ -165,7 +162,7 @@ mod unix {
     pub fn get_network_info() -> Result<serde_json::Value> {
         let ip_address = local_ip().unwrap_or_else(|_| "0.0.0.0".parse().unwrap()).to_string();
         let wifi_info = get_wifi_info().unwrap_or(json!({}));
-        Ok(json!({
+        Ok(json!( {
             "ip_address": ip_address,
             "wifi": wifi_info
         }))
@@ -175,7 +172,6 @@ mod unix {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        // Handle missing or undefined values with Option and unwrap_or_default()
         let hostname = sys.host_name().unwrap_or_else(|| "undefined".to_string());
         let os_name = sys.name().unwrap_or_else(|| "undefined".to_string());
         let os_version = sys.os_version().unwrap_or_else(|| "undefined".to_string());
@@ -191,7 +187,7 @@ mod unix {
         let total_memory = sys.total_memory();
         let used_memory = sys.used_memory();
 
-        Ok(json!({
+        Ok(json!( {
             "system_info": {
                 "hostname": hostname,
                 "os_name": os_name,
@@ -211,7 +207,6 @@ mod unix {
 }
 
 // --- Top-level forwarders ---
-
 pub fn get_network_info() -> Result<serde_json::Value> {
     #[cfg(windows)]
     {
@@ -233,4 +228,3 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         unix::get_system_info()
     }
 }
-
