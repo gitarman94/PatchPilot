@@ -5,7 +5,6 @@ use rocket::{get, post, routes, launch, State};
 use rocket::serde::json::Json;
 use rocket::fs::{FileServer, NamedFile};
 use log::{info, error};
-//use std::path::{Path, PathBuf};
 use serde_json::json;
 use chrono::Utc;
 use local_ip_address::local_ip;
@@ -67,13 +66,13 @@ fn insert_or_update_device(conn: &mut SqliteConnection, device_id: &str, info: &
         .on_conflict(device_name)
         .do_update()
         .set(&new_device)
-        .execute(conn)?;  // Ensure that insert/update is handled properly
+        .execute(conn)?;
 
     let updated_device = devices
         .filter(device_name.eq(device_id))
-        .first::<Device>(conn)?;  // Fetch the updated device
+        .first::<Device>(conn)?;
 
-    Ok(updated_device.enrich_for_dashboard())  // Enrich device info for dashboard if needed
+    Ok(updated_device.enrich_for_dashboard())
 }
 
 // --- REST API endpoints ---
@@ -111,13 +110,27 @@ async fn heartbeat(
     let device_id = payload.get("device_id").and_then(|v| v.as_str()).unwrap_or("unknown");
     let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("unknown");
     let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str());
+    let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str());
 
     // Insert or update with approved=true by default
     let _ = diesel::insert_into(devices)
-        .values((device_name.eq(device_id), device_type.eq(device_type_val), device_model.eq(device_model_val), approved.eq(true), last_checkin.eq(Utc::now().naive_utc())))
+        .values((
+            device_name.eq(device_id),
+            device_type.eq(device_type_val),
+            device_model.eq(device_model_val),
+            network_interfaces.eq(network_interfaces_val),
+            ip_address.eq(ip_address_val),
+            approved.eq(true),
+            last_checkin.eq(Utc::now().naive_utc())
+        ))
         .on_conflict(device_name)
         .do_update()
-        .set(last_checkin.eq(Utc::now().naive_utc()))
+        .set((
+            last_checkin.eq(Utc::now().naive_utc()),
+            network_interfaces.eq(network_interfaces_val),
+            ip_address.eq(ip_address_val)
+        ))
         .execute(&mut conn);
 
     Json(json!({"adopted": true}))
@@ -132,7 +145,7 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
         .load::<Device>(&mut conn)
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|d| d.enrich_for_dashboard())  // Enrich device info for dashboard if needed
+        .map(|d| d.enrich_for_dashboard())
         .collect::<Vec<Device>>();
 
     Ok(Json(results))
@@ -176,16 +189,14 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
             device_model TEXT NOT NULL,
             uptime TEXT,
             updates_available BOOLEAN NOT NULL DEFAULT 0,
-            -- Adding new fields for network interfaces and IP addresses
             network_interfaces TEXT,
             ip_address TEXT
         )
-    "#).execute(conn)?;  // Create table if not exists
+    "#).execute(conn)?;
     Ok(())
 }
 
 // --- Utility function ---
-// Returns the local IP of the server
 fn get_server_ip() -> String {
     match local_ip() {
         Ok(ip) => ip.to_string(),
@@ -218,11 +229,6 @@ fn rocket() -> _ {
     rocket::build()
         .manage(pool)
         .mount("/api", routes![register_or_update_device, get_devices, status, heartbeat])
-        .mount("/", routes![dashboard])  // Serve the dashboard HTML at the root
-        .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))  // Serve static files from the templates folder
+        .mount("/", routes![dashboard])
+        .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))
 }
-
-
-
-
-
