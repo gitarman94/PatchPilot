@@ -5,7 +5,7 @@ use rocket::{get, post, routes, launch, State};
 use rocket::serde::json::Json;
 use rocket::fs::{FileServer, NamedFile};
 use log::{info, error};
-use std::path::{Path, PathBuf};
+//use std::path::{Path, PathBuf};
 use serde_json::json;
 use chrono::Utc;
 use local_ip_address::local_ip;
@@ -221,6 +221,7 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard])  // Serve the dashboard HTML at the root
         .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))  // Serve static files from the templates folder
 }
+
 
 
 
