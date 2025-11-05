@@ -2,12 +2,14 @@ use anyhow::{Result, anyhow};
 use serde_json::json;
 use std::process::Command;
 use local_ip_address::local_ip;
+use sysinfo::{System, SystemExt}; // Import sysinfo
 
 #[cfg(windows)]
 #[allow(dead_code)]
 mod windows {
     use super::*;
     use std::process::Command;
+    use sysinfo::{System, SystemExt}; // Import sysinfo for Windows
 
     pub fn get_serial_number() -> Result<String> {
         let output = Command::new("wmic")
@@ -184,6 +186,7 @@ mod windows {
 mod unix {
     use super::*;
     use std::path::Path;
+    use sysinfo::{System, SystemExt}; // Import sysinfo for Unix
 
     pub fn get_serial_number() -> Result<String> {
         let output = Command::new("dmidecode")
@@ -323,6 +326,3 @@ pub fn get_network_info() -> Result<serde_json::Value> {
     #[cfg(windows)] { windows::get_network_info() }
     #[cfg(unix)] { unix::get_network_info() }
 }
-
-
-
