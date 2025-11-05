@@ -107,7 +107,8 @@ mod windows {
                 "used_memory": used_memory,
                 "device_type": "windows",
                 "device_model": "generic",
-                "serial_number": "unknown"
+                "serial_number": "unknown",
+                "architecture": "x86_64"
             }
         }))
     }
@@ -198,7 +199,8 @@ mod unix {
                 "used_memory": used_memory,
                 "device_type": "unix",
                 "device_model": "generic",
-                "serial_number": "unknown"
+                "serial_number": "unknown",
+                "architecture": "x86_64"
             }
         }))
     }
@@ -227,3 +229,4 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         unix::get_system_info()
     }
 }
+
