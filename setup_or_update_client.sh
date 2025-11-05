@@ -36,10 +36,16 @@ fi
 # --- Cleanup for force install ---
 if [[ "$FORCE_INSTALL" = true ]]; then
     echo "🧹 Cleaning up old installation..."
-    systemctl stop "$SERVICE_NAME" || true
-    systemctl disable "$SERVICE_NAME" || true
-    rm -f "${SYSTEMD_DIR}/${SERVICE_NAME}"
-    systemctl daemon-reload
+    
+    # Check if the service exists before stopping or disabling
+    if systemctl list-units --full --all | grep -q "$SERVICE_NAME"; then
+        systemctl stop "$SERVICE_NAME" || true
+        systemctl disable "$SERVICE_NAME" || true
+        rm -f "${SYSTEMD_DIR}/${SERVICE_NAME}"
+        systemctl daemon-reload
+    else
+        echo "⚠️ Service $SERVICE_NAME not found. Skipping service cleanup."
+    fi
 
     # Remove Rust and Cargo installed under APP_DIR
     rm -rf "$APP_DIR" "$HOME/.cargo" "$HOME/.rustup"
