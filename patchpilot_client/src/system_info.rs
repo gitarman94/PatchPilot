@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
 use serde_json::json;
-use std::process::Command;
+use sysinfo::{System, Cpu, NetworkData};  // Cpu is still necessary for gathering CPU details
 use local_ip_address::local_ip;
-use sysinfo::{System, Cpu, ProcessExt, NetworkExt};  // Import necessary traits and structs from sysinfo
+use std::process::Command;
 
 #[cfg(windows)]
 #[allow(dead_code)]
@@ -81,11 +81,11 @@ mod windows {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        // Handle missing or undefined values
-        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "undefined".to_string());
-        let os_name = sysinfo::System::name().unwrap_or_else(|| "undefined".to_string());
-        let os_version = sysinfo::System::os_version().unwrap_or_else(|| "undefined".to_string());
-        let kernel_version = sysinfo::System::kernel_version().unwrap_or_else(|| "undefined".to_string());
+        // Handle missing or undefined values with Option and unwrap_or_default()
+        let hostname = sys.host_name().unwrap_or_else(|| "undefined".to_string());
+        let os_name = sys.name().unwrap_or_else(|| "undefined".to_string());
+        let os_version = sys.os_version().unwrap_or_else(|| "undefined".to_string());
+        let kernel_version = sys.kernel_version().unwrap_or_else(|| "undefined".to_string());
 
         let cpu_count = sys.cpus().len();
         let cpu_brand = sys
@@ -107,10 +107,10 @@ mod windows {
                 "cpu_count": cpu_count,
                 "total_memory": total_memory,
                 "used_memory": used_memory,
-                "device_type": "windows",
-                "device_model": "generic",
-                "serial_number": "undefined",
-                "architecture": "undefined"
+                "device_type": "windows",  // Example of platform-specific static data
+                "device_model": "generic",  // Example of platform-specific static data
+                "serial_number": "undefined",  // Example of platform-specific static data
+                "architecture": "undefined"  // Example of platform-specific static data
             }
         }))
     }
@@ -175,11 +175,11 @@ mod unix {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        // Handle missing or undefined values
-        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "undefined".to_string());
-        let os_name = sysinfo::System::name().unwrap_or_else(|| "undefined".to_string());
-        let os_version = sysinfo::System::os_version().unwrap_or_else(|| "undefined".to_string());
-        let kernel_version = sysinfo::System::kernel_version().unwrap_or_else(|| "undefined".to_string());
+        // Handle missing or undefined values with Option and unwrap_or_default()
+        let hostname = sys.host_name().unwrap_or_else(|| "undefined".to_string());
+        let os_name = sys.name().unwrap_or_else(|| "undefined".to_string());
+        let os_version = sys.os_version().unwrap_or_else(|| "undefined".to_string());
+        let kernel_version = sys.kernel_version().unwrap_or_else(|| "undefined".to_string());
 
         let cpu_count = sys.cpus().len();
         let cpu_brand = sys
