@@ -1,8 +1,6 @@
 use anyhow::{Result, anyhow};
 use serde_json::json;
 use std::process::Command;
-use std::env;
-use sysinfo::{System, NetworkData};
 use local_ip_address::local_ip;
 
 #[cfg(windows)]
@@ -56,6 +54,7 @@ mod windows {
         let os_info = get_os_info()?;
         let cpu_info = get_cpu_info()?;
         let memory_info = get_memory_info()?;
+        let network_info = get_network_info()?;
     
         Ok(json!({
             "serial_number": serial_number,
@@ -64,6 +63,7 @@ mod windows {
             "os_info": os_info,
             "cpu_info": cpu_info,
             "memory_info": memory_info,
+            "network_info": network_info
         }))
     }
 
@@ -323,5 +323,6 @@ pub fn get_network_info() -> Result<serde_json::Value> {
     #[cfg(windows)] { windows::get_network_info() }
     #[cfg(unix)] { unix::get_network_info() }
 }
+
 
 
