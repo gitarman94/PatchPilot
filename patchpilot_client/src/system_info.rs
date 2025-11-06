@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::Serialize;
 use std::process::Command;
-use sysinfo::{DiskExt, NetworkData, ProcessorExt, System};  // Fixed imports
+use sysinfo::{DiskExt, NetworkData, ProcessorExt, System, SystemExt};  // Fixed imports
 use local_ip_address::local_ip;
 #[cfg(target_os = "windows")]
 use wmi::*;  // Windows-specific imports
