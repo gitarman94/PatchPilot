@@ -1,6 +1,6 @@
 mod system_info;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use log::{error, info};
 use std::{thread, time::Duration};
 
@@ -133,4 +133,5 @@ fn main() {
         }
     }
 }
+
 
