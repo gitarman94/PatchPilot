@@ -74,7 +74,9 @@ fn main() {
     let result = system_info::get_system_info();
     match result {
         Ok(info) => {
-            println!("{}", info);
+            // Here we send the gathered system info back to the server
+            log::info!("Device Info: {:?}", info);
+            // You can replace the below line with actual server communication if needed
         }
         Err(e) => {
             eprintln!("Error fetching system info: {}", e);
