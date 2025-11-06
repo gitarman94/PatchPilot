@@ -207,6 +207,7 @@ $(document).ready(function () {
     loadDevices();
     setInterval(loadDevices, 30000);
 
+    // Device approve button functionality
     $('body').on('click', '.approve-btn', async function () {
         const row = table.row($(this).closest('tr')).data();
         try {
@@ -234,6 +235,28 @@ $(document).ready(function () {
         }
         showToast('Selected devices approved.');
         loadDevices();
+    });
+
+    // Device detail modal (Placeholder for when device link is clicked)
+    $('body').on('click', '.device-link', async function () {
+        const deviceId = $(this).text();
+        $('#deviceDetailBody').html('<div class="text-center py-5"><div class="spinner-border" role="status"></div></div>');
+        $('#deviceDetailModal').modal('show');
+        try {
+            const res = await fetch(`/api/devices/${deviceId}`);
+            const device = await res.json();
+            // Populate modal with device details
+            $('#deviceDetailBody').html(`
+                <p><strong>Device ID:</strong> ${device.id}</p>
+                <p><strong>Hostname:</strong> ${device.device_name}</p>
+                <p><strong>OS:</strong> ${device.os_name}</p>
+                <p><strong>CPU Usage:</strong> ${device.cpu}%</p>
+                <p><strong>RAM Usage:</strong> ${(device.ram_used / device.ram_total * 100).toFixed(1)}%</p>
+                <p><strong>Disk Usage:</strong> ${((device.disk_total - device.disk_free) / device.disk_total * 100).toFixed(1)}%</p>
+            `);
+        } catch {
+            $('#deviceDetailBody').html('<p>Error loading device details.</p>');
+        }
     });
 });
 </script>
