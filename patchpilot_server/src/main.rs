@@ -165,6 +165,11 @@ async fn dashboard() -> Option<NamedFile> {
     NamedFile::open("/opt/patchpilot_server/templates/dashboard.html").await.ok()
 }
 
+#[get("/favicon.ico")]
+async fn favicon() -> Option<NamedFile> {
+    NamedFile::open("/opt/patchpilot_server/templates/favicon.ico").await.ok()
+}
+
 // --- DB initialization ---
 fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
     diesel::sql_query(r#"
@@ -232,3 +237,4 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard])
         .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))
 }
+
