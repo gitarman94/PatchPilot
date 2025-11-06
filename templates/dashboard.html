@@ -45,6 +45,8 @@
         table.dataTable tbody td.select-checkbox { cursor: pointer; }
         table.dataTable tbody td.select-checkbox:before { content: "\f096"; font-family: FontAwesome; margin-right: 5px; }
         table.dataTable tbody tr.selected td.select-checkbox:before { content: "\f046"; }
+
+        .tooltip-inner { max-width: 300px; text-align: left; }
     </style>
 </head>
 <body>
@@ -82,8 +84,8 @@
                 <th>Hostname</th>
                 <th>OS</th>
                 <th>CPU %</th>
-                <th>RAM</th>
-                <th>Disk</th>
+                <th>RAM %</th>
+                <th>Disk %</th>
                 <th>Disk Health</th>
                 <th>Network</th>
                 <th>Ping</th>
@@ -115,6 +117,7 @@
 
 </div>
 
+<!-- JS Dependencies -->
 <script src="https://code.jquery.com/jquery-3.7.0.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
@@ -124,117 +127,115 @@
 <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
 
 <script>
-    /* Dark mode */
-    if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('dark-mode');
-    document.getElementById('darkModeToggle').addEventListener('click', () => {
-        document.body.classList.toggle('dark-mode');
-        localStorage.setItem('darkMode',
-            document.body.classList.contains('dark-mode') ? 'enabled' : 'disabled');
+/* Dark mode */
+if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('dark-mode');
+document.getElementById('darkModeToggle').addEventListener('click', () => {
+    document.body.classList.toggle('dark-mode');
+    localStorage.setItem('darkMode',
+        document.body.classList.contains('dark-mode') ? 'enabled' : 'disabled');
+});
+
+/* Toast helper */
+function showToast(message, type='success') {
+    const toast = $(`
+        <div class="toast align-items-center text-bg-${type} border-0 mb-2" role="alert">
+            <div class="d-flex">
+                <div class="toast-body">${message}</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>`);
+    $('.toast-container').append(toast);
+    new bootstrap.Toast(toast[0]).show();
+}
+
+$(document).ready(function () {
+    const table = $('#devicesTable').DataTable({
+        responsive: true,
+        select: { style: 'multi' },
+        buttons: ['copy', 'csv', 'excel', 'pdf', 'print'],
+        data: [],
+        columns: [
+            { data: null, defaultContent: '', className: 'select-checkbox' },
+            { data: 'id', render: d => `<a href="#" class="device-link text-primary">${d}</a>` },
+            { data: 'device_name', defaultContent: '—' },
+            { data: 'os_name', defaultContent: '—' },
+            { data: 'cpu', render: d => d != null ? `${d.toFixed(1)}%` : '—' },
+            { data: null, render: d => d.ram_total ? `${(d.ram_used / d.ram_total * 100).toFixed(1)}%` : '—' },
+            { data: null, render: d => d.disk_total ? `${((d.disk_total - d.disk_free) / d.disk_total * 100).toFixed(1)}%` : '—' },
+            { data: 'disk_health', defaultContent: '—' },
+            { data: 'network_throughput', defaultContent: '—' },
+            { data: 'ping_latency', render: d => d != null ? `${d} ms` : '—' },
+            { data: 'uptime', render: d => d ? `${d} sec` : '—' },
+            {
+                data: 'last_checkin',
+                render: ts => {
+                    if (!ts) return '<span class="status-offline">🔴 Offline</span>';
+                    const diff = (Date.now() - new Date(ts)) / 1000;
+                    return diff < 600
+                        ? '<span class="status-online">🟢 Online</span>'
+                        : '<span class="status-offline">🔴 Offline</span>';
+                }
+            },
+            {
+                data: 'updates_available',
+                render: d => d
+                    ? '<span class="status-updates">⚠️ Yes</span>'
+                    : '<span class="status-updates">✅ No</span>'
+            },
+            {
+                data: null,
+                render: d => `
+                    ${!d.approved ? `<button class="btn btn-sm btn-outline-success approve-btn" title="Approve"><i class="fa-solid fa-check"></i></button>` : ''}
+                    <button class="btn btn-sm btn-outline-warning force-btn" title="Force update"><i class="fa-solid fa-rotate"></i></button>
+                    <button class="btn btn-sm btn-outline-info checkin-btn" title="Allow check-in"><i class="fa-solid fa-check-double"></i></button>
+                `
+            }
+        ]
     });
 
-    /* Toast helper */
-    function showToast(message, type='success') {
-        const toast = $(`
-            <div class="toast align-items-center text-bg-${type} border-0 mb-2" role="alert">
-                <div class="d-flex">
-                    <div class="toast-body">${message}</div>
-                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-                </div>
-            </div>`);
-        $('.toast-container').append(toast);
-        new bootstrap.Toast(toast[0]).show();
+    async function loadDevices() {
+        try {
+            const res = await fetch('/api/devices');
+            const devices = await res.json();
+            table.clear().rows.add(devices).draw();
+        } catch (err) {
+            console.error('Error loading devices:', err);
+            showToast('Failed to load devices.', 'danger');
+        }
     }
 
-    $(document).ready(function () {
-        const table = $('#devicesTable').DataTable({
-            responsive: true,
-            select: { style: 'multi' },
-            buttons: ['copy', 'csv', 'excel', 'pdf', 'print'],
-            data: [],
-            columns: [
-                { data: null, defaultContent: '', className: 'select-checkbox' },
-                { data: 'id', render: d => `<a href="#" class="device-link text-primary">${d}</a>` },
-                { data: 'device_name', defaultContent: '—' },
-                { data: 'os_name', defaultContent: '—' },
-                { data: 'cpu', render: d => d != null ? `${d.toFixed(1)}%` : '—' },
-                { data: null, render: d => d.ram_total ? `${(d.ram_used / d.ram_total * 100).toFixed(1)}%` : '—' },
-                { data: null, render: d => d.disk_total ? `${((d.disk_total - d.disk_free) / d.disk_total * 100).toFixed(1)}%` : '—' },
-                { data: 'disk_health', defaultContent: '—' },
-                { data: 'network_throughput', defaultContent: '—' },
-                { data: 'ping_latency', render: d => d != null ? `${d} ms` : '—' },
-                { data: 'uptime', render: d => d ? `${d} sec` : '—' },
-                {
-                    data: 'last_checkin',
-                    render: ts => {
-                        if (!ts) return '<span class="status-offline">🔴 Offline</span>';
-                        const diff = (Date.now() - new Date(ts)) / 1000;
-                        return diff < 600
-                            ? '<span class="status-online">🟢 Online</span>'
-                            : '<span class="status-offline">🔴 Offline</span>';
-                    }
-                },
-                {
-                    data: 'updates_available',
-                    render: d => d
-                        ? '<span class="status-updates">⚠️ Yes</span>'
-                        : '<span class="status-updates">✅ No</span>'
-                },
-                {
-                    data: null,
-                    render: d => `
-                        ${!d.approved ? `<button class="btn btn-sm btn-outline-success approve-btn" title="Approve"><i class="fa-solid fa-check"></i></button>` : ''}
-                        <button class="btn btn-sm btn-outline-warning force-btn" title="Force update"><i class="fa-solid fa-rotate"></i></button>
-                        <button class="btn btn-sm btn-outline-info checkin-btn" title="Allow check-in"><i class="fa-solid fa-check-double"></i></button>
-                    `
-                }
-            ]
-        });
+    loadDevices();
+    setInterval(loadDevices, 30000);
 
-        async function loadDevices() {
-            try {
-                const res = await fetch('/api/devices');
-                const devices = await res.json();
-                table.clear().rows.add(devices).draw();
-            } catch (err) {
-                console.error('Error loading devices:', err);
-                showToast('Failed to load devices.', 'danger');
-            }
-        }
-
-        loadDevices();
-        setInterval(loadDevices, 30000);
-
-        $('body').on('click', '.approve-btn', async function () {
-            const row = table.row($(this).closest('tr')).data();
-            try {
-                const resp = await fetch('/api/devices/approve', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ hostname: row.device_name })
-                });
-                const json = await resp.json();
-                showToast(json.success ? 'Device approved successfully.' : 'Failed to approve device.', json.success ? 'success' : 'danger');
-                loadDevices();
-            } catch {
-                showToast('Error approving device.', 'danger');
-            }
-        });
-
-        $('#bulkApprove').click(async () => {
-            const selected = table.rows({ selected: true }).data().toArray();
-            for (const d of selected) {
-                await fetch('/api/devices/approve', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ hostname: d.device_name })
-                });
-            }
-            showToast('Selected devices approved.');
+    $('body').on('click', '.approve-btn', async function () {
+        const row = table.row($(this).closest('tr')).data();
+        try {
+            const resp = await fetch('/api/devices/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hostname: row.device_name })
+            });
+            const json = await resp.json();
+            showToast(json.success ? 'Device approved successfully.' : 'Failed to approve device.', json.success ? 'success' : 'danger');
             loadDevices();
-        });
+        } catch {
+            showToast('Error approving device.', 'danger');
+        }
     });
+
+    $('#bulkApprove').click(async () => {
+        const selected = table.rows({ selected: true }).data().toArray();
+        for (const d of selected) {
+            await fetch('/api/devices/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hostname: d.device_name })
+            });
+        }
+        showToast('Selected devices approved.');
+        loadDevices();
+    });
+});
 </script>
 </body>
 </html>
-
-
