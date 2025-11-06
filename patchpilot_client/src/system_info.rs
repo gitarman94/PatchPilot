@@ -1,12 +1,11 @@
 use anyhow::Result;
-use serde::{Serialize, Deserialize};
-use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt};
+use serde_json::json;
+use std::{thread, time::Duration};
 use local_ip_address::local_ip;
-use get_if_addrs::get_if_addrs;
-use std::process::Command;
+use sysinfo::{System, SystemExt, ProcessorExt, DiskExt, NetworkExt};
 
 /// System info struct for server payload
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct SystemInfo {
     pub os_name: String,
     pub architecture: String,
@@ -17,104 +16,54 @@ pub struct SystemInfo {
     pub disk_total: u64,     // MB
     pub disk_free: u64,      // MB
     pub disk_health: String,
-    pub network_throughput: u64,
+    pub network_throughput: f64, // MB/s
     pub ping_latency: Option<f32>,
     pub network_interfaces: Option<String>,
     pub ip_address: Option<String>,
 }
 
-/// Returns system info for client
+/// Returns system info for client with live network throughput
 pub fn get_system_info() -> Result<SystemInfo> {
     let mut sys = System::new_all();
     sys.refresh_all();
 
-    let cpu = sys.global_cpu_info().cpu_usage();
+    // CPU usage (average of all processors)
+    let cpu_usage = sys.processors().iter().map(|p| p.cpu_usage()).sum::<f32>()
+        / sys.processors().len() as f32;
 
-    let ram_total = sys.total_memory() / 1024; // MB
+    // RAM in MB
+    let ram_total = sys.total_memory() / 1024;
     let ram_used = sys.used_memory() / 1024;
     let ram_free = ram_total - ram_used;
 
+    // Disk info (sum of all disks)
     let disk_total = sys.disks().iter().map(|d| d.total_space()).sum::<u64>() / 1024 / 1024;
     let disk_free = sys.disks().iter().map(|d| d.available_space()).sum::<u64>() / 1024 / 1024;
 
-    let disk_health = "Good".to_string(); // placeholder, could integrate SMART checks
-
-    let network_throughput = sys.networks()
-        .iter()
-        .map(|(_, data)| data.received() + data.transmitted())
-        .sum::<u64>();
-
-    let ping_latency = ping("8.8.8.8");
-
-    let network_interfaces = get_interfaces().ok();
-
-    let ip_address = local_ip().ok().map(|ip| ip.to_string());
+    // Network throughput calculation (MB/s)
+    let networks = sys.networks();
+    let initial_bytes: u64 = networks.values().map(|n| n.received() + n.transmitted()).sum();
+    thread::sleep(Duration::from_secs(1));
+    sys.refresh_networks();
+    let networks = sys.networks();
+    let final_bytes: u64 = networks.values().map(|n| n.received() + n.transmitted()).sum();
+    let network_throughput = ((final_bytes - initial_bytes) as f64) / 1024.0 / 1024.0; // MB/s
 
     Ok(SystemInfo {
         os_name: sys.name().unwrap_or_else(|| "Unknown".into()),
         architecture: std::env::consts::ARCH.to_string(),
-        cpu,
+        cpu: cpu_usage,
         ram_total,
         ram_used,
         ram_free,
         disk_total,
         disk_free,
-        disk_health,
+        disk_health: "Good".to_string(),
         network_throughput,
-        ping_latency,
-        network_interfaces,
-        ip_address,
+        ping_latency: None,
+        network_interfaces: Some(networks.keys().cloned().collect::<Vec<_>>().join(", ")),
+        ip_address: local_ip().ok().map(|ip| ip.to_string()),
     })
-}
-
-/// List network interfaces as JSON string
-fn get_interfaces() -> Result<String> {
-    let mut list = vec![];
-    for iface in get_if_addrs()? {
-        list.push(serde_json::json!({
-            "name": iface.name,
-            "ip": iface.ip().to_string(),
-            "loopback": iface.is_loopback()
-        }));
-    }
-    Ok(serde_json::to_string(&list)?)
-}
-
-/// Ping an IP and return latency in milliseconds
-fn ping(host: &str) -> Option<f32> {
-    #[cfg(unix)]
-    {
-        let output = Command::new("ping")
-            .args(["-c", "1", host])
-            .output()
-            .ok()?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if let Some(pos) = line.find("time=") {
-                let time_str = &line[pos + 5..];
-                if let Some(ms_str) = time_str.split_whitespace().next() {
-                    return ms_str.parse::<f32>().ok();
-                }
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        let output = Command::new("ping")
-            .args([host, "-n", "1"])
-            .output()
-            .ok()?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if line.contains("Average =") {
-                let ms_str = line.split("Average =").nth(1)?.replace("ms", "").trim().to_string();
-                return ms_str.parse::<f32>().ok();
-            }
-        }
-    }
-
-    None
 }
 
 #[cfg(windows)]
@@ -127,15 +76,7 @@ mod windows {
         let output = Command::new("netsh")
             .args(["wlan", "show", "networks", "mode=Bssid"])
             .output()
-            .map_err(|e| anyhow::anyhow!("Failed to execute netsh wlan: {}", e))?;
-
-        if !output.status.success() {
-            return Ok(json!({
-                "connected_ssid": null,
-                "networks": []
-            }));
-        }
-
+            .unwrap_or_else(|_| panic!("Failed to run netsh"));
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut networks = vec![];
         let mut current = serde_json::Map::new();
@@ -223,8 +164,7 @@ mod unix {
             }));
         }
 
-        let output = output.unwrap();
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stdout = String::from_utf8_lossy(&output.unwrap().stdout);
         let mut networks = vec![];
         let mut connected_ssid: Option<String> = None;
 
