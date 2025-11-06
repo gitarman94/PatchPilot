@@ -2,19 +2,19 @@ use anyhow::Result;
 use serde_json::json;
 use std::process::Command;
 use local_ip_address::local_ip;
-use std::env;
+use sysinfo::{System, SystemExt, ProcessorExt, DiskExt};
 
 /// System info struct for server payload
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SystemInfo {
     pub os_name: String,
     pub architecture: String,
-    pub cpu: f32,
-    pub ram_total: u64,
-    pub ram_used: u64,
-    pub ram_free: u64,
-    pub disk_total: u64,
-    pub disk_free: u64,
+    pub cpu: f32,            // CPU usage percentage
+    pub ram_total: u64,      // MB
+    pub ram_used: u64,       // MB
+    pub ram_free: u64,       // MB
+    pub disk_total: u64,     // MB
+    pub disk_free: u64,      // MB
     pub disk_health: String,
     pub network_throughput: u64,
     pub ping_latency: Option<f32>,
@@ -24,17 +24,33 @@ pub struct SystemInfo {
 
 /// Returns system info for client
 pub fn get_system_info() -> Result<SystemInfo> {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    // CPU usage (average of all processors)
+    let cpu_usage = sys.processors().iter().map(|p| p.cpu_usage()).sum::<f32>()
+        / sys.processors().len() as f32;
+
+    // RAM in MB
+    let ram_total = sys.total_memory() / 1024;
+    let ram_used = sys.used_memory() / 1024;
+    let ram_free = ram_total - ram_used;
+
+    // Disk info (sum of all disks)
+    let disk_total = sys.disks().iter().map(|d| d.total_space()).sum::<u64>() / 1024 / 1024;
+    let disk_free = sys.disks().iter().map(|d| d.available_space()).sum::<u64>() / 1024 / 1024;
+
     Ok(SystemInfo {
-        os_name: env::consts::OS.to_string(),
-        architecture: env::consts::ARCH.to_string(),
-        cpu: 0.5,                 // placeholder: add real CPU metrics if needed
-        ram_total: 16 * 1024,     // MB
-        ram_used: 8 * 1024,
-        ram_free: 8 * 1024,
-        disk_total: 256 * 1024,   // MB
-        disk_free: 128 * 1024,
-        disk_health: "Good".to_string(),
-        network_throughput: 1000, // placeholder
+        os_name: sys.name().unwrap_or_else(|| "Unknown".into()),
+        architecture: std::env::consts::ARCH.to_string(),
+        cpu: cpu_usage,
+        ram_total,
+        ram_used,
+        ram_free,
+        disk_total,
+        disk_free,
+        disk_health: "Good".to_string(), // placeholder, could integrate SMART checks
+        network_throughput: 0,           // placeholder, could integrate actual network stats
         ping_latency: None,
         network_interfaces: None,
         ip_address: local_ip().ok().map(|ip| ip.to_string()),
@@ -45,6 +61,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
 mod windows {
     use super::*;
     use serde_json::json;
+    use std::process::Command;
 
     pub fn get_wifi_info() -> Result<serde_json::Value> {
         let output = Command::new("netsh")
@@ -131,6 +148,7 @@ mod windows {
 mod unix {
     use super::*;
     use serde_json::json;
+    use std::process::Command;
 
     pub fn get_wifi_info() -> Result<serde_json::Value> {
         let output = Command::new("nmcli")
