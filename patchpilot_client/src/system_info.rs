@@ -1,9 +1,7 @@
 use anyhow::Result;
 use serde::Serialize;
 use std::collections::HashMap;
-use sysinfo::{
-    DiskExt, NetworkExt, ProcessorExt, System, SystemExt
-};
+use sysinfo::{DiskExt, NetworkExt, ProcessorExt, System, SystemExt};
 use local_ip_address::local_ip;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "windows")]
