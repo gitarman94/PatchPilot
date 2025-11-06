@@ -8,7 +8,7 @@ use serde_json::to_string_pretty;
 #[cfg(windows)]
 mod windows_service {
     use super::*;
-    use once_cell::sync::Lazy;  // If you migrate to once_cell
+    use once_cell::sync::Lazy;
     use std::sync::atomic::{AtomicBool, Ordering};
     use windows_service::{
         define_windows_service, service_dispatcher,
@@ -16,7 +16,7 @@ mod windows_service {
         service::{ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType},
     };
 
-    static SERVICE_RUNNING: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(true));  // If using once_cell
+    static SERVICE_RUNNING: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(true));
 
     define_windows_service!(ffi_service_main, my_service_main);
 
@@ -58,7 +58,13 @@ mod windows_service {
 
         while SERVICE_RUNNING.load(Ordering::SeqCst) {
             match crate::system_info::get_system_info() {
-                Ok(info) => info!("System info: {}", to_string_pretty(&info).unwrap()),
+                Ok(info) => {
+                    if let Err(e) = to_string_pretty(&info) {
+                        error!("Error serializing system info: {}", e);
+                    } else {
+                        info!("System info: {}", to_string_pretty(&info).unwrap());
+                    }
+                }
                 Err(e) => error!("Error gathering system info: {}", e),
             }
             thread::sleep(Duration::from_secs(10));
@@ -89,7 +95,13 @@ mod unix_service {
 
         loop {
             match crate::system_info::get_system_info() {
-                Ok(info) => info!("System info: {}", to_string_pretty(&info).unwrap()),
+                Ok(info) => {
+                    if let Err(e) = to_string_pretty(&info) {
+                        error!("Error serializing system info: {}", e);
+                    } else {
+                        info!("System info: {}", to_string_pretty(&info).unwrap());
+                    }
+                }
                 Err(e) => error!("Error gathering system info: {}", e),
             }
 
@@ -112,9 +124,17 @@ fn main() {
     }
 
     // Fallback CLI run
-    if let Ok(info) = system_info::get_system_info() {
-        println!("Device Info:\n{}", to_string_pretty(&info).unwrap());
-    } else {
-        eprintln!("Error fetching system info");
+    match system_info::get_system_info() {
+        Ok(info) => {
+            if let Err(e) = to_string_pretty(&info) {
+                eprintln!("Error serializing system info: {}", e);
+            } else {
+                println!("Device Info:\n{}", to_string_pretty(&info).unwrap());
+            }
+        }
+        Err(e) => {
+            eprintln!("Error fetching system info: {}", e);
+            error!("Error fetching system info: {}", e);
+        }
     }
 }
