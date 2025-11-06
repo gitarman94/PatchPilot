@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use serde_json::json;
 use std::{fs, thread, time::Duration};
-use crate::system_info;
+use crate::system_info; // Updated import for system_info
 
 // Reads the server URL from a file
 fn read_server_url() -> Result<String> {
@@ -19,8 +19,11 @@ fn get_device_info() -> (String, String, String) {
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
-    let device_type = system_info::get_device_type();
-    let device_model = system_info::get_device_model();
+
+    // Fetch device type and model using the centralized system_info
+    let device_type = system_info::get_device_type().unwrap_or("unknown".to_string());
+    let device_model = system_info::get_device_model().unwrap_or("unknown".to_string());
+
     (device_id, device_type, device_model)
 }
 
@@ -63,7 +66,7 @@ fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
         Ok(info) => info,
         Err(e) => {
             log::error!("Failed to gather system info: {:?}", e);
-            json!({})
+            json!({}) // Sending empty JSON if system info fetch fails
         }
     };
 
@@ -103,7 +106,7 @@ mod windows_service {
 
     pub fn run_service() -> Result<()> {
         log::info!("Starting Windows service...");
-        service_dispatcher::start("RustPatchDeviceService", ffi_service_main)?;
+        service_dispatcher::start("RustPatchDeviceService", ffi_service_main)?; // Starting the service dispatcher
         Ok(())
     }
 
@@ -150,7 +153,7 @@ mod windows_service {
                 break;
             }
             log::info!("Waiting for approval...");
-            thread::sleep(Duration::from_secs(30));
+            thread::sleep(Duration::from_secs(30)); // Sleep for 30 seconds before checking adoption again
         }
 
         // Regular system update loop
@@ -187,7 +190,7 @@ mod unix_service {
                 break;
             }
             log::info!("Waiting for approval...");
-            thread::sleep(Duration::from_secs(30));
+            thread::sleep(Duration::from_secs(30)); // Sleep for 30 seconds before checking adoption again
         }
 
         // Regular system update loop
