@@ -167,7 +167,7 @@ async fn dashboard() -> Option<NamedFile> {
 
 #[get("/favicon.ico")]
 async fn favicon() -> Option<NamedFile> {
-    NamedFile::open("/opt/patchpilot_server/templates/favicon.ico").await.ok()
+    NamedFile::open("/opt/patchpilot_server/static/favicon.ico").await.ok()
 }
 
 // --- DB initialization ---
@@ -234,7 +234,8 @@ fn rocket() -> _ {
     rocket::build()
         .manage(pool)
         .mount("/api", routes![register_or_update_device, get_devices, status, heartbeat])
-        .mount("/", routes![dashboard])
-        .mount("/static", FileServer::from("/opt/patchpilot_server/templates"))
+        .mount("/", routes![dashboard, favicon])
+        .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
+
 
