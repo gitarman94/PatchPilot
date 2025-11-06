@@ -1,5 +1,5 @@
 use std::{process::Command};
-use sysinfo::{Disk, NetworkData, Process, System, SystemExt};
+use sysinfo::{Disk, NetworkData, Process, System, SystemExt}; // Ensure SystemExt is imported
 use serde::Serialize;
 use local_ip_address::local_ip;
 
@@ -142,9 +142,9 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
 
     // Returning the full system info
     Ok(SystemInfo {
-        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        architecture: sys.architecture().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: sys.uptime(),
+        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()), // Ensure SystemExt trait is in scope for name
+        architecture: sys.architecture().unwrap_or_else(|| "Unknown".to_string()), // Ensure SystemExt trait is in scope for architecture
+        uptime_seconds: sys.uptime(), // Ensure SystemExt trait is in scope for uptime
         cpu_usage_total,
         cpu_usage_per_core,
         cpu_temperature: None,  // CPU temperature is not supported
