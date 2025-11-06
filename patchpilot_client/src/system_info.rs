@@ -147,7 +147,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         uptime_seconds: sys.uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
-        cpu_temperature: sys.cpu_temperature(),
+        cpu_temperature: sys.cpu_temperature(), // This could return None if not supported
         ram_total,
         ram_used,
         ram_free,
