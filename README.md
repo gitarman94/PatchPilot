@@ -49,7 +49,6 @@ PatchPilot/
 
 └───static                            # HTML resource location
 │   │   favicon.ico                   # Decorative favorite icon used around the site
-│
 ````
 
 ---
