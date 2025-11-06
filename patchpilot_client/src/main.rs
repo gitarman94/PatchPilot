@@ -3,7 +3,7 @@ mod system_info;
 use anyhow::Result;
 use log::{error, info};
 use std::{thread, time::Duration};
-use serde_json::json;
+use serde_json::to_string_pretty;
 
 #[cfg(windows)]
 mod windows_service {
@@ -15,21 +15,12 @@ mod windows_service {
         service_control_handler::{self, ServiceControl, ServiceControlHandlerResult},
         service::{ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType},
     };
-    use std::fs;
-    use anyhow::Context;
 
     lazy_static! {
         static ref SERVICE_RUNNING: AtomicBool = AtomicBool::new(true);
     }
 
     define_windows_service!(ffi_service_main, my_service_main);
-
-    fn read_server_url() -> Result<String> {
-        let url_path = "C:\\ProgramData\\PatchPilotClient\\server_url.txt";
-        let url = fs::read_to_string(url_path)
-            .with_context(|| format!("Failed to read server URL from {}", url_path))?;
-        Ok(url.trim().to_string())
-    }
 
     pub fn run_service() -> Result<()> {
         info!("Starting Windows PatchPilot client service...");
@@ -68,17 +59,10 @@ mod windows_service {
         })?;
 
         while SERVICE_RUNNING.load(Ordering::SeqCst) {
-            // Gather and log system info every 10 seconds
             match crate::system_info::get_system_info() {
-                Ok(info) => info!("System info: {}", serde_json::to_string_pretty(&info).unwrap()),
+                Ok(info) => info!("System info: {}", to_string_pretty(&info).unwrap()),
                 Err(e) => error!("Error gathering system info: {}", e),
             }
-
-            match crate::system_info::get_network_info() {
-                Ok(net_info) => info!("Network info: {}", serde_json::to_string_pretty(&net_info).unwrap()),
-                Err(e) => error!("Error gathering network info: {}", e),
-            }
-
             thread::sleep(Duration::from_secs(10));
         }
 
@@ -107,13 +91,8 @@ mod unix_service {
 
         loop {
             match crate::system_info::get_system_info() {
-                Ok(info) => info!("System info: {}", serde_json::to_string_pretty(&info).unwrap()),
+                Ok(info) => info!("System info: {}", to_string_pretty(&info).unwrap()),
                 Err(e) => error!("Error gathering system info: {}", e),
-            }
-
-            match crate::system_info::get_network_info() {
-                Ok(net_info) => info!("Network info: {}", serde_json::to_string_pretty(&net_info).unwrap()),
-                Err(e) => error!("Error gathering network info: {}", e),
             }
 
             thread::sleep(Duration::from_secs(10));
@@ -125,27 +104,19 @@ fn main() {
     env_logger::init();
 
     #[cfg(windows)]
-    {
-        if let Err(e) = windows_service::run_service() {
-            error!("Windows service failed: {}", e);
-        }
+    if let Err(e) = windows_service::run_service() {
+        error!("Windows service failed: {}", e);
     }
 
     #[cfg(unix)]
-    {
-        if let Err(e) = unix_service::run_service() {
-            error!("Unix service failed: {}", e);
-        }
+    if let Err(e) = unix_service::run_service() {
+        error!("Unix service failed: {}", e);
     }
 
-    // Fallback: run once if not launched as a background service
-    match system_info::get_system_info() {
-        Ok(info) => println!("Device Info: {}", serde_json::to_string_pretty(&info).unwrap()),
-        Err(e) => eprintln!("Error fetching system info: {}", e),
-    }
-
-    match system_info::get_network_info() {
-        Ok(net_info) => println!("Network Info: {}", serde_json::to_string_pretty(&net_info).unwrap()),
-        Err(e) => eprintln!("Error fetching network info: {}", e),
+    // Fallback CLI run
+    if let Ok(info) = system_info::get_system_info() {
+        println!("Device Info:\n{}", to_string_pretty(&info).unwrap());
+    } else {
+        eprintln!("Error fetching system info");
     }
 }
