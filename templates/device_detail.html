@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Device Details - PatchPilot</title>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
 
     <!-- Bootstrap 5 -->
     <link rel="stylesheet"
@@ -160,3 +161,4 @@ document.addEventListener('DOMContentLoaded', async function() {
             <p><strong>Used RAM:</strong> ${(device.ram_used / 1024 / 1024 / 1024).toFixed(2)} GB</p>
             <p><strong>Disk Health:</strong> ${device.disk_health ?? '—'}</p>
             <p><strong>Total Disk:</strong> ${(device.disk_total / 1024 / 1024 / 1024).toFixed(2)_
+
