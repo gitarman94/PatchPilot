@@ -3,6 +3,7 @@ mod system_info;
 use anyhow::Result;
 use log::{error, info};
 use std::{thread, time::Duration};
+use serde_json::json;
 
 #[cfg(windows)]
 mod windows_service {
@@ -67,7 +68,18 @@ mod windows_service {
         })?;
 
         while SERVICE_RUNNING.load(Ordering::SeqCst) {
-            thread::sleep(Duration::from_secs(5));
+            // Gather and log system info every 10 seconds
+            match crate::system_info::get_system_info() {
+                Ok(info) => info!("System info: {}", serde_json::to_string_pretty(&info).unwrap()),
+                Err(e) => error!("Error gathering system info: {}", e),
+            }
+
+            match crate::system_info::get_network_info() {
+                Ok(net_info) => info!("Network info: {}", serde_json::to_string_pretty(&net_info).unwrap()),
+                Err(e) => error!("Error gathering network info: {}", e),
+            }
+
+            thread::sleep(Duration::from_secs(10));
         }
 
         status_handle.set_service_status(ServiceStatus {
@@ -95,12 +107,12 @@ mod unix_service {
 
         loop {
             match crate::system_info::get_system_info() {
-                Ok(info) => info!("System info: {:?}", info),
+                Ok(info) => info!("System info: {}", serde_json::to_string_pretty(&info).unwrap()),
                 Err(e) => error!("Error gathering system info: {}", e),
             }
 
             match crate::system_info::get_network_info() {
-                Ok(net_info) => info!("Network info: {:?}", net_info),
+                Ok(net_info) => info!("Network info: {}", serde_json::to_string_pretty(&net_info).unwrap()),
                 Err(e) => error!("Error gathering network info: {}", e),
             }
 
@@ -128,12 +140,12 @@ fn main() {
 
     // Fallback: run once if not launched as a background service
     match system_info::get_system_info() {
-        Ok(info) => info!("Device Info: {:?}", info),
+        Ok(info) => println!("Device Info: {}", serde_json::to_string_pretty(&info).unwrap()),
         Err(e) => eprintln!("Error fetching system info: {}", e),
     }
 
     match system_info::get_network_info() {
-        Ok(net_info) => info!("Network Info: {:?}", net_info),
+        Ok(net_info) => println!("Network Info: {}", serde_json::to_string_pretty(&net_info).unwrap()),
         Err(e) => eprintln!("Error fetching network info: {}", e),
     }
 }
