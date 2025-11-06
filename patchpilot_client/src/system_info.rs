@@ -79,39 +79,68 @@ mod windows {
     pub fn get_system_info() -> Result<serde_json::Value> {
         let mut sys = System::new_all();
         sys.refresh_all();
-
-        let hostname = sys.host_name().unwrap_or_else(|| "undefined".to_string());
-        let os_name = sys.name().unwrap_or_else(|| "undefined".to_string());
-        let os_version = sys.os_version().unwrap_or_else(|| "undefined".to_string());
-        let kernel_version = sys.kernel_version().unwrap_or_else(|| "undefined".to_string());
-
+    
+        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "undefined".to_string());
+        let os_name = sysinfo::System::name().unwrap_or_else(|| "undefined".to_string());
+        let os_version = sysinfo::System::os_version().unwrap_or_else(|| "undefined".to_string());
+        let kernel_version = sysinfo::System::kernel_version().unwrap_or_else(|| "undefined".to_string());
+    
         let cpu_count = sys.cpus().len();
         let cpu_brand = sys
             .cpus()
             .get(0)
             .map(|c| c.brand().to_string())
             .unwrap_or_else(|| "undefined".to_string());
-
+        
+        let cpu_usage = sys
+            .cpus()
+            .iter()
+            .map(|cpu| cpu.cpu_usage()) // CPU usage percentage
+            .sum::<f32>() / cpu_count as f32;
+    
         let total_memory = sys.total_memory();
         let used_memory = sys.used_memory();
-
-        Ok(json!({
+        let free_memory = sys.free_memory();
+    
+        // Gathering network throughput by summing received and transmitted bytes
+        let network_throughput: u64 = sys.networks().iter().map(|(_, data)| {
+            data.received() + data.transmitted()
+        }).sum();
+    
+        // Assuming `disk_health` is estimated based on disk free space
+        let disk_health = sys
+            .disks()
+            .iter()
+            .map(|disk| {
+                let free = disk.free_space();
+                let total = disk.total_space();
+                (free as f32 / total as f32) * 100.0 // percentage free space as "health"
+            })
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap_or(100.0); // Worst disk health
+    
+        Ok(json!( {
             "system_info": {
                 "hostname": hostname,
                 "os_name": os_name,
                 "os_version": os_version,
                 "kernel_version": kernel_version,
                 "cpu_brand": cpu_brand,
+                "cpu_usage": cpu_usage,
                 "cpu_count": cpu_count,
                 "total_memory": total_memory,
                 "used_memory": used_memory,
-                "device_type": "windows",  // This would be dynamic based on the OS
-                "device_model": "generic", // Could be updated based on machine type
-                "serial_number": "undefined",  // This could be fetched if available
-                "architecture": std::env::consts::ARCH,  // Architecture (e.g., x86_64)
+                "free_memory": free_memory,
+                "disk_health": disk_health,
+                "network_throughput": network_throughput,
+                "device_type": "windows",  // This could be dynamically set based on OS
+                "device_model": "generic", // Placeholder for actual device model
+                "architecture": std::env::consts::ARCH,
+                "ip_address": local_ip().unwrap_or_else(|_| "0.0.0.0".to_string()),
             }
         }))
     }
+
 }
 
 #[cfg(unix)]
@@ -228,3 +257,4 @@ pub fn get_system_info() -> Result<serde_json::Value> {
         unix::get_system_info()
     }
 }
+
