@@ -1,8 +1,8 @@
 mod system_info;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Result};
 use log::{error, info};
-use std::{fs, thread, time::Duration};
+use std::{thread, time::Duration};
 
 #[cfg(windows)]
 mod windows_service {
@@ -133,3 +133,4 @@ fn main() {
         }
     }
 }
+
