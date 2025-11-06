@@ -1,12 +1,7 @@
 use anyhow::Result;
 use serde::Serialize;
-use std::process::Command;
-use sysinfo::{DiskExt, NetworkData, ProcessorExt, System, SystemExt};  // Fixed imports
+use sysinfo::{Disk, NetworkData, Processor, System, SystemExt};  // Updated imports
 use local_ip_address::local_ip;
-#[cfg(target_os = "windows")]
-use wmi::*;  // Windows-specific imports
-#[cfg(unix)]
-use std::process::Command;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DiskInfo {
@@ -75,12 +70,6 @@ pub fn get_system_info() -> Result<SystemInfo> {
         cpu_usage_per_core.iter().sum::<f32>() / cpu_usage_per_core.len() as f32
     };
 
-    // CPU temperature (first component if available)
-    let cpu_temperature = sys.components().iter()
-        .filter(|c| c.label().to_lowercase().contains("cpu"))
-        .map(|c| c.temperature())
-        .next();
-
     // RAM & swap
     let ram_total = sys.total_memory() / 1024;  // in MB
     let ram_used = sys.used_memory() / 1024;    // in MB
@@ -134,41 +123,29 @@ pub fn get_system_info() -> Result<SystemInfo> {
             let stdout = String::from_utf8_lossy(&output.stdout);
             if let Some(line) = stdout.lines().find(|l| l.contains("%")) {
                 let parts: Vec<&str> = line.split(';').collect();
-                let percentage = parts[0].split('%').next().and_then(|s| s.trim().parse::<f32>().ok());
-                let status = if line.contains("charging") { "Charging" } else { "Discharging" }.to_string();
-                Some(BatteryInfo { percentage, status: Some(status) })
-            } else { None }
-        } else { None }
-    };
-
-    #[cfg(target_os = "windows")]
-    let battery = {
-        use battery::*;
-        let manager = Manager::new().ok();
-        if let Some(manager) = manager {
-            let batteries = manager.batteries().ok();
-            if let Some(mut batteries) = batteries {
-                batteries.next().and_then(|batt| batt.ok()).map(|b| BatteryInfo {
-                    percentage: Some(b.state_of_charge().value * 100.0),
-                    status: Some(format!("{:?}", b.state())),
+                let percentage = parts[0].trim().split_whitespace().nth(1).and_then(|v| v.parse().ok());
+                Some(BatteryInfo {
+                    percentage,
+                    status: Some(parts[1].trim().to_string()),
                 })
-            } else { None }
-        } else { None }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     };
 
-    // IP addresses
-    let local_ip = local_ip().ok().map(|ip| ip.to_string());
-    let public_ip = reqwest::blocking::get("https://api.ipify.org")
-        .ok()
-        .and_then(|resp| resp.text().ok());
+    let local_ip = local_ip().ok();
 
+    // Construct system info
     Ok(SystemInfo {
-        os_name: sysinfo::System::name().unwrap_or_else(|| "Unknown".to_string()),
-        architecture: std::env::consts::ARCH.to_string(),
-        uptime_seconds: sysinfo::System::uptime(),
+        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
+        architecture: sys.architecture().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: sys.uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
-        cpu_temperature,
+        cpu_temperature: None,  // Can be filled if available
         ram_total,
         ram_used,
         ram_free,
@@ -178,7 +155,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
         disks,
         network_interfaces,
         local_ip,
-        public_ip,
+        public_ip: None,  // Needs an external service for public IP
         top_processes_cpu,
         top_processes_ram,
         battery,
