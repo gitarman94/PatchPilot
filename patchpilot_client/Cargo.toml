@@ -10,13 +10,13 @@ serde_json = "1.0.104"
 log = "0.4.19"
 simplelog = "0.12.0"
 anyhow = "1.0.64"
-sysinfo = "0.37.2"  # Keep the sysinfo crate version for system info
+sysinfo = "0.37.2"
 lazy_static = "1.4.0"
 termcolor = "1.4.1"
 env_logger = "0.10.0"
 local-ip-address = "0.6.5"
 windows-service = { version = "0.8.0", optional = true }
-chrono = "0.4"  # Add chrono crate for timestamp functionality
+chrono = "0.4"
 
 [features]
 default = []
@@ -29,3 +29,4 @@ path = "src/main.rs"
 [[bin]]
 name = "patchpilot_updater"
 path = "src/patchpilot_updater.rs"
+
