@@ -1,6 +1,7 @@
 mod system_info;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use log::{error, info};
 use std::{fs, thread, time::Duration};
 
 #[cfg(windows)]
@@ -21,7 +22,8 @@ mod windows_service {
     define_windows_service!(ffi_service_main, my_service_main);
 
     fn read_server_url() -> Result<String> {
-        let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")?;
+        let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")
+            .context("Failed to read the server URL from file")?;
         Ok(url.trim().to_string())
     }
 
@@ -71,7 +73,9 @@ mod unix_service {
 }
 
 fn main() {
+    // Fetch system info from the `system_info` module
     let result = system_info::get_system_info();
+    
     match result {
         Ok(info) => {
             // Here we send the gathered system info back to the server
@@ -79,6 +83,7 @@ fn main() {
             // You can replace the below line with actual server communication if needed
         }
         Err(e) => {
+            // Handle the error gracefully and log the issue
             eprintln!("Error fetching system info: {}", e);
         }
     }
