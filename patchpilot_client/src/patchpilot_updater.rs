@@ -1,68 +1,59 @@
-use std::{
-    env,
-    fs,
-    process::{Command, exit},
-    thread::sleep,
-    time::Duration,
-};
-use log::{info, warn, error};
-use simplelog::{SimpleLogger, Config, LevelFilter};
+#!/bin/bash
 
-fn main() {
-    // Initialize logger
-    SimpleLogger::init(LevelFilter::Info, Config::default())
-        .expect("Failed to initialize logger");
-
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 3 {
-        eprintln!("Usage: patchpilot_updater <old_exe_path> <new_exe_path>");
-        exit(1);
-    }
-
-    let old_path = &args[1];
-    let new_path = &args[2];
-
-    info!("[*] PatchPilot updater started.");
-    info!("[*] Waiting 2 seconds for main process to exit...");
-    sleep(Duration::from_secs(2));
-
-    const MAX_RETRIES: u8 = 5;
-    let mut retries = MAX_RETRIES;
-
-    while retries > 0 {
-        match fs::rename(new_path, old_path) {
-            Ok(_) => {
-                info!("[✔] Successfully replaced binary at '{}'.", old_path);
-                break;
-            }
-            Err(e) => {
-                retries -= 1;
-                warn!(
-                    "[!] Failed to replace binary ({}). Retries left: {}. Retrying in 1s...",
-                    e, retries
-                );
-                sleep(Duration::from_secs(1));
-            }
-        }
-    }
-
-    if retries == 0 {
-        error!(
-            "[✖] Failed to replace binary '{}' after {} attempts. Aborting.",
-            old_path, MAX_RETRIES
-        );
-        exit(1);
-    }
-
-    info!("[*] Attempting to restart application: '{}'", old_path);
-
-    match Command::new(old_path).spawn() {
-        Ok(_child) => {
-            info!("[✔] Update complete. Application restarted successfully.");
-        }
-        Err(e) => {
-            error!("[✖] Failed to restart application '{}': {}", old_path, e);
-            exit(1);
-        }
-    }
+# Function to log messages
+log() {
+    LEVEL=$1
+    MESSAGE=$2
+    TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
+    echo "$TIMESTAMP [$LEVEL] $MESSAGE"
 }
+
+# Check if the correct number of arguments is passed
+if [ $# -ne 2 ]; then
+    log "ERROR" "Usage: patchpilot_updater.sh <old_exe_path> <new_exe_path>"
+    exit 1
+fi
+
+OLD_PATH=$1
+NEW_PATH=$2
+
+# Log the start of the update process
+log "INFO" "[*] PatchPilot updater started."
+log "INFO" "[*] Waiting 2 seconds for main process to exit..."
+sleep 2
+
+# Maximum retries and current retry count
+MAX_RETRIES=5
+RETRIES=$MAX_RETRIES
+
+# Attempt to replace the old binary with the new one, with retries
+while [ $RETRIES -gt 0 ]; do
+    if mv "$NEW_PATH" "$OLD_PATH"; then
+        log "INFO" "[✔] Successfully replaced binary at '$OLD_PATH'."
+        break
+    else
+        RETRIES=$((RETRIES - 1))
+        log "WARN" "[!] Failed to replace binary. Retries left: $RETRIES. Retrying in 1 second..."
+        sleep 1
+    fi
+done
+
+# Check if the replacement was successful
+if [ $RETRIES -eq 0 ]; then
+    log "ERROR" "[✖] Failed to replace binary '$OLD_PATH' after $MAX_RETRIES attempts. Aborting."
+    exit 1
+fi
+
+# After the replacement, restart the application
+log "INFO" "[*] Attempting to restart application: '$OLD_PATH'"
+
+# Start the application
+if "$OLD_PATH" &; then
+    log "INFO" "[✔] Update complete. Application restarted successfully."
+else
+    log "ERROR" "[✖] Failed to restart application '$OLD_PATH'."
+    exit 1
+fi
+
+# Log the completion of the update process
+log "INFO" "[*] PatchPilot update process completed successfully."
