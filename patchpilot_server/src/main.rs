@@ -44,7 +44,7 @@ fn establish_connection(pool: &DbPool) -> Result<PooledConnection<ConnectionMana
     pool.get().map_err(|e| ApiError::ValidationError(format!("Failed to get DB connection: {}", e)))
 }
 
-// Basic validation
+// Basic validation for the incoming device info
 fn validate_device_info(info: &DeviceInfo) -> Result<(), ApiError> {
     if info.system_info.cpu < 0.0 {
         return Err(ApiError::ValidationError("CPU usage cannot be negative".into()));
@@ -55,7 +55,7 @@ fn validate_device_info(info: &DeviceInfo) -> Result<(), ApiError> {
     Ok(())
 }
 
-// Insert or update a device
+// Insert or update a device based on device ID and info
 fn insert_or_update_device(conn: &mut SqliteConnection, device_id: &str, info: &DeviceInfo) -> Result<Device, ApiError> {
     use crate::schema::devices::dsl::*;
 
@@ -77,6 +77,7 @@ fn insert_or_update_device(conn: &mut SqliteConnection, device_id: &str, info: &
 
 // --- REST API endpoints ---
 
+// Register or update a device with the provided device ID and info
 #[post("/devices/<device_id>", format = "json", data = "<device_info>")]
 async fn register_or_update_device(
     pool: &State<DbPool>,
@@ -98,6 +99,7 @@ async fn register_or_update_device(
     }
 }
 
+// Device heartbeat endpoint, updates last check-in and other details
 #[post("/devices/heartbeat", format = "json", data = "<payload>")]
 async fn heartbeat(
     pool: &State<DbPool>,
@@ -136,6 +138,7 @@ async fn heartbeat(
     Json(json!({"adopted": true}))
 }
 
+// Get list of all devices
 #[get("/devices")]
 async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> {
     use crate::schema::devices::dsl::*;
@@ -151,6 +154,7 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
     Ok(Json(results))
 }
 
+// Check server status
 #[get("/status")]
 fn status() -> Json<serde_json::Value> {
     Json(json!({
@@ -171,6 +175,8 @@ async fn favicon() -> Option<NamedFile> {
 }
 
 // --- DB initialization ---
+
+// Initialize DB schema
 fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS devices (
@@ -201,7 +207,7 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
     Ok(())
 }
 
-// --- Utility function ---
+// Get server IP for LAN usage
 fn get_server_ip() -> String {
     match local_ip() {
         Ok(ip) => ip.to_string(),
@@ -209,6 +215,7 @@ fn get_server_ip() -> String {
     }
 }
 
+// Rocket server entry point
 #[launch]
 fn rocket() -> _ {
     use std::env;
@@ -237,5 +244,3 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
-
-
