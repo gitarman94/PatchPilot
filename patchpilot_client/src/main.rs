@@ -11,7 +11,7 @@ mod windows_service {
     use std::sync::atomic::{AtomicBool, Ordering};
     use windows_service::{
         define_windows_service, service_dispatcher,
-        service_control_handler::{ServiceControl, ServiceControlHandlerResult},
+        service_control_handler::{self, ServiceControl, ServiceControlHandlerResult},
         service::{ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType},
     };
 
@@ -22,46 +22,67 @@ mod windows_service {
     define_windows_service!(ffi_service_main, my_service_main);
 
     fn read_server_url() -> Result<String> {
-        let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")
-            .context("Failed to read the server URL from file")?;
+        // ✅ Fixed: Use Windows path and provide clear context
+        let url_path = "C:\\ProgramData\\PatchPilotClient\\server_url.txt";
+        let url = fs::read_to_string(url_path)
+            .with_context(|| format!("Failed to read server URL from {}", url_path))?;
         Ok(url.trim().to_string())
     }
 
     pub fn run_service() -> Result<()> {
-        log::info!("Starting Windows PatchPilot client service...");
+        info!("Starting Windows PatchPilot client service...");
         service_dispatcher::start("PatchPilotClientService", ffi_service_main)?;
         Ok(())
     }
 
     fn my_service_main(_argc: u32, _argv: *mut *mut u16) {
         if let Err(e) = service_main() {
-            log::error!("Service failed: {}", e);
+            error!("Service failed: {}", e);
         }
     }
 
     fn service_main() -> Result<()> {
-        let mut service = windows_service::service_control_handler::ServiceControlHandler::new()?;
-        service.set_status(ServiceStatus {
+        // ✅ Fixed: Properly register service control handler
+        let event_handler = move |control_event| -> ServiceControlHandlerResult {
+            match control_event {
+                ServiceControl::Stop => {
+                    SERVICE_RUNNING.store(false, Ordering::SeqCst);
+                    ServiceControlHandlerResult::NoError
+                }
+                _ => ServiceControlHandlerResult::NotImplemented,
+            }
+        };
+
+        let status_handle =
+            service_control_handler::register("PatchPilotClientService", event_handler)?;
+
+        // Report running status
+        status_handle.set_service_status(ServiceStatus {
             service_type: ServiceType::OWN_PROCESS,
             current_state: ServiceState::Running,
             controls_accepted: ServiceControlAccept::STOP,
             exit_code: ServiceExitCode::Win32(0),
             checkpoint: 0,
             wait_hint: 0,
+            process_id: None,
         })?;
 
+        // Main loop
         while SERVICE_RUNNING.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_secs(5));
         }
 
-        service.set_status(ServiceStatus {
+        // Report stopped status
+        status_handle.set_service_status(ServiceStatus {
             service_type: ServiceType::OWN_PROCESS,
             current_state: ServiceState::Stopped,
             controls_accepted: ServiceControlAccept::STOP,
             exit_code: ServiceExitCode::Win32(0),
             checkpoint: 0,
             wait_hint: 0,
+            process_id: None,
         })?;
+
         Ok(())
     }
 }
@@ -69,21 +90,45 @@ mod windows_service {
 #[cfg(unix)]
 mod unix_service {
     use super::*;
-    // Similar implementation for Unix, omitted here for brevity.
+    use std::process::Command;
+
+    pub fn run_service() -> Result<()> {
+        info!("Starting Unix PatchPilot client daemon...");
+
+        loop {
+            // Example: call get_system_info every 10 seconds
+            match crate::system_info::get_system_info() {
+                Ok(info) => info!("System info: {:?}", info),
+                Err(e) => error!("Error gathering system info: {}", e),
+            }
+            thread::sleep(Duration::from_secs(10));
+        }
+    }
 }
 
 fn main() {
-    // Fetch system info from the `system_info` module
-    let result = system_info::get_system_info();
-    
-    match result {
+    env_logger::init();
+
+    #[cfg(windows)]
+    {
+        if let Err(e) = windows_service::run_service() {
+            error!("Windows service failed: {}", e);
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        if let Err(e) = unix_service::run_service() {
+            error!("Unix service failed: {}", e);
+        }
+    }
+
+    // Fallback: run once if not launched as a background service
+    match system_info::get_system_info() {
         Ok(info) => {
-            // Here we send the gathered system info back to the server
-            log::info!("Device Info: {:?}", info);
-            // You can replace the below line with actual server communication if needed
+            info!("Device Info: {:?}", info);
         }
         Err(e) => {
-            // Handle the error gracefully and log the issue
             eprintln!("Error fetching system info: {}", e);
         }
     }
