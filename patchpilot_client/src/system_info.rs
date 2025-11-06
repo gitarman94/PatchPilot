@@ -68,46 +68,46 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let mut sys = System::new_all();
     sys.refresh_all();
 
-    // CPU usage per core
-    let cpu_usage_per_core: Vec<f32> = sys.processors().iter().map(|p| p.cpu_usage()).collect();
+    // CPU usage per core (updated)
+    let cpu_usage_per_core: Vec<f32> = sys.get_processors().iter().map(|p| p.get_cpu_usage()).collect();
     let cpu_usage_total = if cpu_usage_per_core.is_empty() {
         0.0
     } else {
         cpu_usage_per_core.iter().sum::<f32>() / cpu_usage_per_core.len() as f32
     };
 
-    // RAM and swap information
-    let ram_total = sys.total_memory() / 1024;  // in MB
-    let ram_used = sys.used_memory() / 1024;    // in MB
+    // RAM and swap information (no change here)
+    let ram_total = sys.get_total_memory() / 1024;  // in MB
+    let ram_used = sys.get_used_memory() / 1024;    // in MB
     let ram_free = ram_total - ram_used;
-    let ram_cached = sys.used_memory() / 1024;  // in MB (this might need adjustment)
-    let swap_total = sys.total_swap() / 1024;    // in MB
-    let swap_used = sys.used_swap() / 1024;      // in MB
+    let ram_cached = sys.get_used_memory() / 1024;  // in MB
+    let swap_total = sys.get_total_swap() / 1024;    // in MB
+    let swap_used = sys.get_used_swap() / 1024;      // in MB
 
-    // Disk information
-    let disks = sys.disks().iter().map(|d| DiskInfo {
-        name: d.name().to_string_lossy().to_string(),
-        total: d.total_space() / 1024 / 1024,  // in MB
-        used: (d.total_space() - d.available_space()) / 1024 / 1024,  // in MB
-        free: d.available_space() / 1024 / 1024,  // in MB
-        mount_point: d.mount_point().to_string_lossy().to_string(),
+    // Disk information (updated)
+    let disks = sys.get_disks().iter().map(|d| DiskInfo {
+        name: d.get_name().to_string_lossy().to_string(),
+        total: d.get_total_space() / 1024 / 1024,  // in MB
+        used: (d.get_total_space() - d.get_available_space()) / 1024 / 1024,  // in MB
+        free: d.get_available_space() / 1024 / 1024,  // in MB
+        mount_point: d.get_mount_point().to_string_lossy().to_string(),
     }).collect::<Vec<_>>();
 
-    // Network information
-    let network_interfaces = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
+    // Network information (updated)
+    let network_interfaces = sys.get_networks().iter().map(|(name, data)| NetworkInterfaceInfo {
         name: name.clone(),
         mac: None,  // MAC address can be added if necessary
-        received_bytes: data.received(),
-        transmitted_bytes: data.transmitted(),
-        errors: data.errors(),
+        received_bytes: data.get_received(),
+        transmitted_bytes: data.get_transmitted(),
+        errors: data.get_errors(),
     }).collect::<Vec<_>>();
 
-    // Top processes by CPU and RAM usage
-    let mut processes: Vec<ProcessInfo> = sys.processes().values().map(|p| ProcessInfo {
-        pid: p.pid().as_u32() as i32,
-        name: p.name().to_string_lossy().to_string(),
-        cpu: p.cpu_usage(),
-        memory: p.memory() / 1024,  // in MB
+    // Top processes by CPU and RAM usage (no change here)
+    let mut processes: Vec<ProcessInfo> = sys.get_processes().values().map(|p| ProcessInfo {
+        pid: p.get_pid().as_u32() as i32,
+        name: p.get_name().to_string_lossy().to_string(),
+        cpu: p.get_cpu_usage(),
+        memory: p.get_memory() / 1024,  // in MB
     }).collect();
 
     // Sorting processes
@@ -142,12 +142,12 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
 
     // Returning the full system info
     Ok(SystemInfo {
-        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        architecture: sys.architecture().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: sys.uptime(),  // uptime() is an associated function
+        os_name: sys.get_name().unwrap_or_else(|| "Unknown".to_string()),
+        architecture: sys.get_architecture().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: sys.get_uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
-        cpu_temperature: None,  // CPU temperature is not supported (default to None)
+        cpu_temperature: None,  // CPU temperature is not supported
         ram_total,
         ram_used,
         ram_free,
