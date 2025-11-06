@@ -2,12 +2,13 @@ use std::process::Command;
 use anyhow::{Result, anyhow};
 use serde_json::json;
 use log::{info, error};
+use crate::models::{DeviceInfo, SystemInfo}; // Add imports for DeviceInfo and SystemInfo
 
 #[cfg(windows)]
 mod windows {
     use super::*;
 
-    pub fn get_system_info() -> Result<serde_json::Value> {
+    pub fn get_system_info() -> Result<DeviceInfo> {
         info!("Retrieving system information for Windows...");
 
         let serial_number = get_serial_number()?;
@@ -15,12 +16,27 @@ mod windows {
         let cpu_info = get_cpu_info()?;
         let memory_info = get_memory_info()?;
 
-        Ok(json!( {
-            "serial_number": serial_number,
-            "os_info": os_info,
-            "cpu": cpu_info,
-            "memory": memory_info,
-        }))
+        let system_info = SystemInfo {
+            os_name: os_info,
+            architecture: "x86_64".to_string(), // Update as necessary for architecture
+            cpu: cpu_info,
+            ram_total: memory_info.total_memory,
+            ram_used: memory_info.used_memory,
+            ram_free: memory_info.free_memory,
+            disk_total: 0, // Could be fetched from another system command
+            disk_free: 0,  // Same as above
+            disk_health: "Healthy".to_string(), // Replace with actual logic if needed
+            network_throughput: 0, // Placeholder for network throughput
+            ping_latency: None, // Placeholder
+            network_interfaces: None, // Placeholder
+            ip_address: None, // Placeholder
+        };
+
+        Ok(DeviceInfo {
+            system_info,
+            device_type: None, // Set if available
+            device_model: None, // Set if available
+        })
     }
 
     fn get_serial_number() -> Result<String> {
@@ -89,7 +105,7 @@ mod windows {
         Ok(cpu_load)
     }
 
-    fn get_memory_info() -> Result<serde_json::Value> {
+    fn get_memory_info() -> Result<SystemInfo> {
         info!("Getting memory info...");
         let output = Command::new("systeminfo")
             .arg("/fo")
@@ -121,19 +137,29 @@ mod windows {
 
         info!("Memory info retrieved: total_memory: {}, free_memory: {}", total_memory, free_memory);
 
-        Ok(json!( {
-            "total_memory": total_memory,
-            "free_memory": free_memory
-        }))
+        Ok(SystemInfo {
+            os_name: "Windows".to_string(), // For simplicity; can be dynamic
+            architecture: "x86_64".to_string(),
+            cpu: 0.0, // Placeholder, will fill later
+            ram_total: total_memory as i64,
+            ram_used: (total_memory - free_memory) as i64,
+            ram_free: free_memory as i64,
+            disk_total: 0, // Placeholder for disk info
+            disk_free: 0,  // Same as above
+            disk_health: "Healthy".to_string(),
+            network_throughput: 0,
+            ping_latency: None,
+            network_interfaces: None,
+            ip_address: None,
+        })
     }
 }
 
 #[cfg(unix)]
 mod unix {
     use super::*;
-    use std::fs;
 
-    pub fn get_system_info() -> Result<serde_json::Value> {
+    pub fn get_system_info() -> Result<DeviceInfo> {
         info!("Retrieving system information for Unix...");
 
         let serial_number = get_serial_number()?;
@@ -141,12 +167,27 @@ mod unix {
         let cpu_info = get_cpu_info()?;
         let memory_info = get_memory_info()?;
 
-        Ok(json!( {
-            "serial_number": serial_number,
-            "os_info": os_info,
-            "cpu": cpu_info,
-            "memory": memory_info,
-        }))
+        let system_info = SystemInfo {
+            os_name: os_info,
+            architecture: "x86_64".to_string(), // Update as necessary for architecture
+            cpu: cpu_info,
+            ram_total: memory_info.total_memory,
+            ram_used: memory_info.used_memory,
+            ram_free: memory_info.free_memory,
+            disk_total: 0, // Could be fetched from another system command
+            disk_free: 0,  // Same as above
+            disk_health: "Healthy".to_string(), // Replace with actual logic if needed
+            network_throughput: 0, // Placeholder for network throughput
+            ping_latency: None, // Placeholder
+            network_interfaces: None, // Placeholder
+            ip_address: None, // Placeholder
+        };
+
+        Ok(DeviceInfo {
+            system_info,
+            device_type: None, // Set if available
+            device_model: None, // Set if available
+        })
     }
 
     fn get_serial_number() -> Result<String> {
@@ -192,42 +233,34 @@ mod unix {
 
     fn get_cpu_info() -> Result<f32> {
         info!("Getting CPU load...");
-        let stat_content = fs::read_to_string("/proc/stat")
-            .map_err(|e| anyhow!("Failed to read /proc/stat: {}", e))?;
-        let mut total = 0u64;
-        let mut idle = 0u64;
+        let output = Command::new("top")
+            .args(&["-bn1"])
+            .output()
+            .map_err(|e| anyhow!("Failed to execute top command for CPU info: {}", e))?;
 
-        if let Some(line) = stat_content.lines().next() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() < 5 {
-                return Err(anyhow!("Unexpected /proc/stat format"));
-            }
-            let nums: Vec<u64> = parts[1..].iter().filter_map(|v| v.parse().ok()).collect();
-            total = nums.iter().sum();
-            idle = nums[3]; // idle time
+        if !output.status.success() {
+            error!("Failed to retrieve CPU info using top");
+            return Err(anyhow!("Failed to retrieve CPU load"));
         }
 
-        // Wait 100ms and read again
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        let stat_content2 = fs::read_to_string("/proc/stat")?;
-        let mut total2 = 0u64;
-        let mut idle2 = 0u64;
-        if let Some(line) = stat_content2.lines().next() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            let nums: Vec<u64> = parts[1..].iter().filter_map(|v| v.parse().ok()).collect();
-            total2 = nums.iter().sum();
-            idle2 = nums[3];
-        }
+        let cpu_info = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .find(|line| line.contains("Cpu(s)"))
+            .map(|line| {
+                line.split('%')
+                    .next()
+                    .unwrap_or("0")
+                    .trim()
+                    .parse::<f32>()
+                    .unwrap_or(0.0)
+            })
+            .unwrap_or(0.0);
 
-        let total_delta = total2.saturating_sub(total);
-        let idle_delta = idle2.saturating_sub(idle);
-        let usage = if total_delta == 0 { 0.0 } else { ((total_delta - idle_delta) as f32 / total_delta as f32) * 100.0 };
-
-        info!("CPU load retrieved: {:.2}%", usage);
-        Ok(usage)
+        info!("CPU load retrieved: {}%", cpu_info);
+        Ok(cpu_info)
     }
 
-    fn get_memory_info() -> Result<serde_json::Value> {
+    fn get_memory_info() -> Result<SystemInfo> {
         info!("Getting memory info...");
         let output = Command::new("free")
             .arg("-b")
@@ -240,20 +273,38 @@ mod unix {
         }
 
         let output_str = String::from_utf8_lossy(&output.stdout);
-        let mut total = 0u64;
-        let mut free = 0u64;
-        for line in output_str.lines() {
-            if line.starts_with("Mem:") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                total = parts.get(1).unwrap_or(&"0").parse().unwrap_or(0);
-                free = parts.get(3).unwrap_or(&"0").parse().unwrap_or(0);
-            }
-        }
+        let total_memory = output_str
+            .lines()
+            .filter(|line| line.starts_with("Mem:"))
+            .map(|line| line.split_whitespace().nth(1).unwrap_or("0"))
+            .next()
+            .unwrap_or("0")
+            .parse::<u64>()
+            .unwrap_or(0);
 
-        info!("Memory info retrieved: total_memory: {}, free_memory: {}", total, free);
-        Ok(json!( {
-            "total_memory": total,
-            "free_memory": free
-        }))
+        let free_memory = output_str
+            .lines()
+            .filter(|line| line.starts_with("Mem:"))
+            .map(|line| line.split_whitespace().nth(3).unwrap_or("0"))
+            .next()
+            .unwrap_or("0")
+            .parse::<u64>()
+            .unwrap_or(0);
+
+        Ok(SystemInfo {
+            os_name: "Linux".to_string(),
+            architecture: "x86_64".to_string(),
+            cpu: 0.0, // Placeholder for CPU usage
+            ram_total: total_memory as i64,
+            ram_used: (total_memory - free_memory) as i64,
+            ram_free: free_memory as i64,
+            disk_total: 0,
+            disk_free: 0,
+            disk_health: "Healthy".to_string(),
+            network_throughput: 0,
+            ping_latency: None,
+            network_interfaces: None,
+            ip_address: None,
+        })
     }
 }
