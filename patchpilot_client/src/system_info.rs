@@ -84,7 +84,6 @@ mod windows {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        // Fixed: Use associated functions (not methods)
         let hostname = System::host_name().unwrap_or_else(|| "undefined".to_string());
         let os_name = System::name().unwrap_or_else(|| "undefined".to_string());
         let os_version = System::os_version().unwrap_or_else(|| "undefined".to_string());
@@ -221,7 +220,6 @@ mod unix {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        // Fix: use associated functions for system-level data
         let hostname = System::host_name().unwrap_or_else(|| "undefined".to_string());
         let os_name = System::name().unwrap_or_else(|| "undefined".to_string());
         let os_version = System::os_version().unwrap_or_else(|| "undefined".to_string());
@@ -302,4 +300,3 @@ pub use windows::{get_system_info, get_network_info, get_wifi_info};
 
 #[cfg(unix)]
 pub use unix::{get_system_info, get_network_info, get_wifi_info};
-
