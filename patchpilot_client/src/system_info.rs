@@ -1,8 +1,9 @@
-use anyhow::Result;
+use std::{process::Command};
+use sysinfo::{Disk, NetworkData, Process, System};
 use serde::Serialize;
-use sysinfo::{Disk, NetworkData, Processor, System, SystemExt};  // Updated imports
 use local_ip_address::local_ip;
 
+/// Struct to hold disk information
 #[derive(Debug, Clone, Serialize)]
 pub struct DiskInfo {
     pub name: String,
@@ -12,6 +13,7 @@ pub struct DiskInfo {
     pub mount_point: String,
 }
 
+/// Struct to hold network interface information
 #[derive(Debug, Clone, Serialize)]
 pub struct NetworkInterfaceInfo {
     pub name: String,
@@ -21,6 +23,7 @@ pub struct NetworkInterfaceInfo {
     pub errors: u64,
 }
 
+/// Struct to hold process information
 #[derive(Debug, Clone, Serialize)]
 pub struct ProcessInfo {
     pub pid: i32,
@@ -29,12 +32,14 @@ pub struct ProcessInfo {
     pub memory: u64,
 }
 
+/// Struct to hold battery information
 #[derive(Debug, Clone, Serialize)]
 pub struct BatteryInfo {
     pub percentage: Option<f32>,
     pub status: Option<String>,
 }
 
+/// Struct to hold all system information
 #[derive(Debug, Clone, Serialize)]
 pub struct SystemInfo {
     pub os_name: String,
@@ -58,11 +63,12 @@ pub struct SystemInfo {
     pub battery: Option<BatteryInfo>,
 }
 
-pub fn get_system_info() -> Result<SystemInfo> {
+/// Function to get system information
+pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let mut sys = System::new_all();
     sys.refresh_all();
 
-    // CPU
+    // CPU usage per core
     let cpu_usage_per_core: Vec<f32> = sys.processors().iter().map(|p| p.cpu_usage()).collect();
     let cpu_usage_total = if cpu_usage_per_core.is_empty() {
         0.0
@@ -70,53 +76,48 @@ pub fn get_system_info() -> Result<SystemInfo> {
         cpu_usage_per_core.iter().sum::<f32>() / cpu_usage_per_core.len() as f32
     };
 
-    // RAM & swap
+    // RAM and swap information
     let ram_total = sys.total_memory() / 1024;  // in MB
     let ram_used = sys.used_memory() / 1024;    // in MB
     let ram_free = ram_total - ram_used;
-    let ram_cached = sys.used_memory() / 1024;  // Using used_memory as fallback
+    let ram_cached = sys.cached_memory() / 1024;  // in MB
     let swap_total = sys.total_swap() / 1024;    // in MB
     let swap_used = sys.used_swap() / 1024;      // in MB
 
-    // Disks
+    // Disk information
     let disks = sys.disks().iter().map(|d| DiskInfo {
         name: d.name().to_string_lossy().to_string(),
-        total: d.total_space() / 1024 / 1024,  // Convert to MB
-        used: (d.total_space() - d.available_space()) / 1024 / 1024,  // Convert to MB
-        free: d.available_space() / 1024 / 1024,  // Convert to MB
+        total: d.total_space() / 1024 / 1024,  // in MB
+        used: (d.total_space() - d.available_space()) / 1024 / 1024,  // in MB
+        free: d.available_space() / 1024 / 1024,  // in MB
         mount_point: d.mount_point().to_string_lossy().to_string(),
     }).collect::<Vec<_>>();
 
-    // Network
-    let mut network_interfaces = vec![];
-    for (name, data) in sys.networks() {
-        network_interfaces.push(NetworkInterfaceInfo {
-            name: name.clone(),
-            mac: None,  // MAC address can be added if necessary
-            received_bytes: data.received(),
-            transmitted_bytes: data.transmitted(),
-            errors: data.errors(),
-        });
-    }
+    // Network information
+    let network_interfaces = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
+        name: name.clone(),
+        mac: None,  // MAC address can be added if necessary
+        received_bytes: data.received(),
+        transmitted_bytes: data.transmitted(),
+        errors: data.errors(),
+    }).collect::<Vec<_>>();
 
     // Top processes by CPU and RAM usage
     let mut processes: Vec<ProcessInfo> = sys.processes().values().map(|p| ProcessInfo {
         pid: p.pid().as_u32() as i32,
         name: p.name().to_string_lossy().to_string(),
         cpu: p.cpu_usage(),
-        memory: p.memory() / 1024,  // Convert to MB
+        memory: p.memory() / 1024,  // in MB
     }).collect();
 
-    // Top processes by CPU usage
+    // Sorting processes
     processes.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
     let top_processes_cpu = processes.iter().take(5).cloned().collect::<Vec<_>>();
 
-    // Top processes by memory usage
     processes.sort_by(|a, b| b.memory.cmp(&a.memory));
     let top_processes_ram = processes.iter().take(5).cloned().collect::<Vec<_>>();
 
-    // Battery info (platform-specific handling)
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    // Battery info (for Mac/Linux)
     let battery = {
         let output = Command::new("pmset").args(["-g", "batt"]).output().ok();
         if let Some(output) = output {
@@ -136,16 +137,17 @@ pub fn get_system_info() -> Result<SystemInfo> {
         }
     };
 
-    let local_ip = local_ip().ok();
+    // Local IP address
+    let local_ip = local_ip().ok().map(|ip| ip.to_string());  // Convert IpAddr to String
 
-    // Construct system info
+    // Returning the full system info
     Ok(SystemInfo {
         os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
         architecture: sys.architecture().unwrap_or_else(|| "Unknown".to_string()),
         uptime_seconds: sys.uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
-        cpu_temperature: None,  // Can be filled if available
+        cpu_temperature: sys.cpu_temperature(),
         ram_total,
         ram_used,
         ram_free,
@@ -155,7 +157,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
         disks,
         network_interfaces,
         local_ip,
-        public_ip: None,  // Needs an external service for public IP
+        public_ip: None,  // Fetching public IP can be done via an external service
         top_processes_cpu,
         top_processes_ram,
         battery,
