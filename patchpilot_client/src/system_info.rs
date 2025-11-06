@@ -61,7 +61,7 @@ mod windows {
             String::new()
         };
 
-        Ok(json!( {
+        Ok(json!({
             "connected_ssid": connected_ssid,
             "networks": networks
         }))
@@ -70,7 +70,7 @@ mod windows {
     pub fn get_network_info() -> Result<serde_json::Value> {
         let ip_address = local_ip().unwrap_or_else(|_| "0.0.0.0".parse().unwrap()).to_string();
         let wifi_info = get_wifi_info().unwrap_or(json!({}));
-        Ok(json!( {
+        Ok(json!({
             "ip_address": ip_address,
             "wifi": wifi_info
         }))
@@ -80,11 +80,10 @@ mod windows {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        // Fixed function calls
-        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "undefined".to_string());
-        let os_name = sysinfo::System::name().unwrap_or_else(|| "undefined".to_string());
-        let os_version = sysinfo::System::os_version().unwrap_or_else(|| "undefined".to_string());
-        let kernel_version = sysinfo::System::kernel_version().unwrap_or_else(|| "undefined".to_string());
+        let hostname = sys.host_name().unwrap_or_else(|| "undefined".to_string());
+        let os_name = sys.name().unwrap_or_else(|| "undefined".to_string());
+        let os_version = sys.os_version().unwrap_or_else(|| "undefined".to_string());
+        let kernel_version = sys.kernel_version().unwrap_or_else(|| "undefined".to_string());
 
         let cpu_count = sys.cpus().len();
         let cpu_brand = sys
@@ -96,7 +95,7 @@ mod windows {
         let total_memory = sys.total_memory();
         let used_memory = sys.used_memory();
 
-        Ok(json!( {
+        Ok(json!({
             "system_info": {
                 "hostname": hostname,
                 "os_name": os_name,
@@ -106,10 +105,10 @@ mod windows {
                 "cpu_count": cpu_count,
                 "total_memory": total_memory,
                 "used_memory": used_memory,
-                "device_type": "windows",
-                "device_model": "generic",
-                "serial_number": "undefined",
-                "architecture": "undefined"
+                "device_type": "windows",  // This would be dynamic based on the OS
+                "device_model": "generic", // Could be updated based on machine type
+                "serial_number": "undefined",  // This could be fetched if available
+                "architecture": std::env::consts::ARCH,  // Architecture (e.g., x86_64)
             }
         }))
     }
@@ -147,14 +146,14 @@ mod unix {
                 connected_ssid = ssid.clone();
             }
 
-            networks.push(json!( {
+            networks.push(json!({
                 "ssid": ssid,
                 "signal": signal,
                 "connected": active
             }));
         }
 
-        Ok(json!( {
+        Ok(json!({
             "connected_ssid": connected_ssid,
             "networks": networks
         }))
@@ -163,7 +162,7 @@ mod unix {
     pub fn get_network_info() -> Result<serde_json::Value> {
         let ip_address = local_ip().unwrap_or_else(|_| "0.0.0.0".parse().unwrap()).to_string();
         let wifi_info = get_wifi_info().unwrap_or(json!({}));
-        Ok(json!( {
+        Ok(json!({
             "ip_address": ip_address,
             "wifi": wifi_info
         }))
@@ -173,11 +172,10 @@ mod unix {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        // Fixed function calls
-        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "undefined".to_string());
-        let os_name = sysinfo::System::name().unwrap_or_else(|| "undefined".to_string());
-        let os_version = sysinfo::System::os_version().unwrap_or_else(|| "undefined".to_string());
-        let kernel_version = sysinfo::System::kernel_version().unwrap_or_else(|| "undefined".to_string());
+        let hostname = sys.host_name().unwrap_or_else(|| "undefined".to_string());
+        let os_name = sys.name().unwrap_or_else(|| "undefined".to_string());
+        let os_version = sys.os_version().unwrap_or_else(|| "undefined".to_string());
+        let kernel_version = sys.kernel_version().unwrap_or_else(|| "undefined".to_string());
 
         let cpu_count = sys.cpus().len();
         let cpu_brand = sys
@@ -189,7 +187,7 @@ mod unix {
         let total_memory = sys.total_memory();
         let used_memory = sys.used_memory();
 
-        Ok(json!( {
+        Ok(json!({
             "system_info": {
                 "hostname": hostname,
                 "os_name": os_name,
@@ -199,10 +197,10 @@ mod unix {
                 "cpu_count": cpu_count,
                 "total_memory": total_memory,
                 "used_memory": used_memory,
-                "device_type": "unix",
-                "device_model": "generic",
-                "serial_number": "undefined",
-                "architecture": "undefined"
+                "device_type": "unix",  // This would be dynamic based on the OS
+                "device_model": "generic",  // Could be updated based on machine type
+                "serial_number": "undefined",  // This could be fetched if available
+                "architecture": std::env::consts::ARCH,  // Architecture (e.g., x86_64)
             }
         }))
     }
