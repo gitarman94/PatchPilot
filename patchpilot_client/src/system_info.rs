@@ -123,38 +123,79 @@ mod windows {
     }
 
     fn get_device_model() -> String {
-        if let Ok(output) = Command::new("wmic")
-            .args(["computersystem", "get", "model"])
+        if let Ok(output) = Command::new("cat")
+            .arg("/sys/devices/virtual/dmi/id/product_name")
             .output()
         {
             if output.status.success() {
                 let model = String::from_utf8_lossy(&output.stdout);
-                return model
-                    .lines()
-                    .nth(1)
-                    .unwrap_or("generic")
-                    .trim()
-                    .to_string();
+                return model.trim().to_string();
             }
         }
+    
+        // macOS model (e.g. "MacBookPro18,1")
+        if let Ok(output) = Command::new("sysctl")
+            .args(["-n", "hw.model"])
+            .output()
+        {
+            if output.status.success() {
+                let model = String::from_utf8_lossy(&output.stdout);
+                return model.trim().to_string();
+            }
+        }
+    
+        // macOS detailed model name (fallback using system_profiler)
+        if let Ok(output) = Command::new("system_profiler")
+            .args(["SPHardwareDataType"])
+            .output()
+        {
+            if output.status.success() {
+                for line in String::from_utf8_lossy(&output.stdout).lines() {
+                    if line.trim_start().starts_with("Model Name:") {
+                        return line
+                            .split(':')
+                            .nth(1)
+                            .unwrap_or("generic")
+                            .trim()
+                            .to_string();
+                    }
+                }
+            }
+        }
+    
         "generic".to_string()
     }
 
     fn get_serial_number() -> String {
-        if let Ok(output) = Command::new("wmic")
-            .args(["bios", "get", "serialnumber"])
-            .output()
+    if let Ok(output) = Command::new("cat")
+        .arg("/sys/devices/virtual/dmi/id/product_serial")
+        .output()
+    {
+        if output.status.success() {
+            let serial = String::from_utf8_lossy(&output.stdout);
+            return serial.trim().to_string();
+        }
+    }
+
+    // macOS serial number via system_profiler
+    if let Ok(output) = Command::new("system_profiler")
+        .args(["SPHardwareDataType"])
+        .output()
         {
             if output.status.success() {
-                let serial = String::from_utf8_lossy(&output.stdout);
-                return serial
-                    .lines()
-                    .nth(1)
-                    .unwrap_or("undefined")
-                    .trim()
-                    .to_string();
+                for line in String::from_utf8_lossy(&output.stdout).lines() {
+                    if line.trim_start().starts_with("Serial Number") {
+                        return line
+                            .split(':')
+                            .nth(1)
+                            .unwrap_or("undefined")
+                            .trim()
+                            .to_string();
+                    }
+                }
             }
         }
+    
         "undefined".to_string()
     }
 }
@@ -297,3 +338,4 @@ pub use windows::{get_system_info, get_network_info, get_wifi_info};
 
 #[cfg(unix)]
 pub use unix::{get_system_info, get_network_info, get_wifi_info};
+
