@@ -15,7 +15,7 @@ mod windows {
         let cpu_info = get_cpu_info()?;
         let memory_info = get_memory_info()?;
 
-        Ok(json!({
+        Ok(json!( {
             "serial_number": serial_number,
             "os_info": os_info,
             "cpu": cpu_info,
@@ -121,7 +121,7 @@ mod windows {
 
         info!("Memory info retrieved: total_memory: {}, free_memory: {}", total_memory, free_memory);
 
-        Ok(json!({
+        Ok(json!( {
             "total_memory": total_memory,
             "free_memory": free_memory
         }))
@@ -141,7 +141,7 @@ mod unix {
         let cpu_info = get_cpu_info()?;
         let memory_info = get_memory_info()?;
 
-        Ok(json!({
+        Ok(json!( {
             "serial_number": serial_number,
             "os_info": os_info,
             "cpu": cpu_info,
@@ -251,19 +251,9 @@ mod unix {
         }
 
         info!("Memory info retrieved: total_memory: {}, free_memory: {}", total, free);
-        Ok(json!({
+        Ok(json!( {
             "total_memory": total,
             "free_memory": free
         }))
     }
-}
-
-#[cfg(windows)]
-pub fn get_system_info() -> Result<serde_json::Value> {
-    windows::get_system_info()
-}
-
-#[cfg(unix)]
-pub fn get_system_info() -> Result<serde_json::Value> {
-    unix::get_system_info()
 }
