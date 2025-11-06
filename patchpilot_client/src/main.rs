@@ -87,7 +87,8 @@ mod windows_service {
 #[cfg(unix)]
 mod unix_service {
     use super::*;
-    use std::process::Command;
+    use std::thread;
+    use std::time::Duration;
 
     pub fn run_service() -> Result<()> {
         info!("Starting Unix PatchPilot client daemon...");
