@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use serde_json::json;
-use sysinfo::{System, SystemExt, CpuExt};
+use sysinfo::System;
 use local_ip_address::local_ip;
 use std::process::Command;
 
@@ -302,3 +302,4 @@ pub use windows::{get_system_info, get_network_info, get_wifi_info};
 
 #[cfg(unix)]
 pub use unix::{get_system_info, get_network_info, get_wifi_info};
+
