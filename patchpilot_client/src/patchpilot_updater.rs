@@ -1,59 +1,66 @@
-#!/bin/bash
+use std::process::Command;
+use std::fs;
+use std::{thread, time::Duration};
 
-# Function to log messages
-log() {
-    LEVEL=$1
-    MESSAGE=$2
-    TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
-    echo "$TIMESTAMP [$LEVEL] $MESSAGE"
+/// Function to log messages
+fn log(level: &str, message: &str) {
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    println!("{} [{}] {}", timestamp, level, message);
 }
 
-# Check if the correct number of arguments is passed
-if [ $# -ne 2 ]; then
-    log "ERROR" "Usage: patchpilot_updater.sh <old_exe_path> <new_exe_path>"
-    exit 1
-fi
+/// Main function to handle the update logic
+fn main() {
+    // Check if the correct number of arguments is passed
+    if std::env::args().len() != 3 {
+        log("ERROR", "Usage: patchpilot_updater <old_exe_path> <new_exe_path>");
+        std::process::exit(1);
+    }
 
-OLD_PATH=$1
-NEW_PATH=$2
+    let args: Vec<String> = std::env::args().collect();
+    let old_path = &args[1];
+    let new_path = &args[2];
 
-# Log the start of the update process
-log "INFO" "[*] PatchPilot updater started."
-log "INFO" "[*] Waiting 2 seconds for main process to exit..."
-sleep 2
+    // Log the start of the update process
+    log("INFO", "[*] PatchPilot updater started.");
+    log("INFO", "[*] Waiting 2 seconds for the main process to exit...");
+    thread::sleep(Duration::new(2, 0));
 
-# Maximum retries and current retry count
-MAX_RETRIES=5
-RETRIES=$MAX_RETRIES
+    // Maximum retries and current retry count
+    const MAX_RETRIES: u32 = 5;
+    let mut retries = MAX_RETRIES;
 
-# Attempt to replace the old binary with the new one, with retries
-while [ $RETRIES -gt 0 ]; do
-    if mv "$NEW_PATH" "$OLD_PATH"; then
-        log "INFO" "[✔] Successfully replaced binary at '$OLD_PATH'."
-        break
-    else
-        RETRIES=$((RETRIES - 1))
-        log "WARN" "[!] Failed to replace binary. Retries left: $RETRIES. Retrying in 1 second..."
-        sleep 1
-    fi
-done
+    // Attempt to replace the old binary with the new one, with retries
+    while retries > 0 {
+        match fs::rename(new_path, old_path) {
+            Ok(_) => {
+                log("INFO", "[✔] Successfully replaced binary.");
+                break;
+            }
+            Err(_) => {
+                retries -= 1;
+                log(
+                    "WARN",
+                    &format!("[!] Failed to replace binary. Retries left: {}. Retrying in 1 second...", retries),
+                );
+                thread::sleep(Duration::new(1, 0));
+            }
+        }
+    }
 
-# Check if the replacement was successful
-if [ $RETRIES -eq 0 ]; then
-    log "ERROR" "[✖] Failed to replace binary '$OLD_PATH' after $MAX_RETRIES attempts. Aborting."
-    exit 1
-fi
+    // Check if the replacement was successful
+    if retries == 0 {
+        log("ERROR", "[✖] Failed to replace binary after max retries.");
+        std::process::exit(1);
+    }
 
-# After the replacement, restart the application
-log "INFO" "[*] Attempting to restart application: '$OLD_PATH'"
+    // Attempt to restart the application
+    log("INFO", "[*] Attempting to restart application.");
+    if Command::new(old_path).spawn().is_ok() {
+        log("INFO", "[✔] Update complete. Application restarted successfully.");
+    } else {
+        log("ERROR", "[✖] Failed to restart application.");
+        std::process::exit(1);
+    }
 
-# Start the application
-if "$OLD_PATH" &; then
-    log "INFO" "[✔] Update complete. Application restarted successfully."
-else
-    log "ERROR" "[✖] Failed to restart application '$OLD_PATH'."
-    exit 1
-fi
-
-# Log the completion of the update process
-log "INFO" "[*] PatchPilot update process completed successfully."
+    log("INFO", "[*] PatchPilot update process completed successfully.");
+}
