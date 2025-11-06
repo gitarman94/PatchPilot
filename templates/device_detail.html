@@ -18,119 +18,81 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
-        body {
-            background-color: #f4f6f8;
-        }
-        .card-header {
-            background-color: #f8f9fa;
-            font-weight: bold;
-        }
-        .status-online { color: #28a745; font-weight: bold; }
-        .status-offline { color: #dc3545; font-weight: bold; }
-        .metric-value { font-size: 1.2rem; font-weight: 600; }
-        .metric-label { font-size: 0.875rem; color: #6c757d; }
-        .action-buttons .btn { margin-right: 10px; }
-        .badge-status { padding: 5px 10px; font-size: 0.875rem; }
+        body { background: #f4f4f9; color: #333; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .container { max-width: 1200px; margin: auto; padding-top: 20px; }
+        .card { margin-bottom: 20px; }
+        .card-header { font-weight: bold; background-color: #f8f9fa; }
+        .card-body { background-color: #ffffff; }
+        .chart-container { position: relative; height: 300px; width: 100%; }
+        .status-updates { color: #ffc107; font-weight: bold; }
+        .status-online { color: #28a745; }
+        .status-offline { color: #dc3545; }
+        .status-text { font-size: 18px; font-weight: 500; }
     </style>
 </head>
-
 <body>
-<div class="container py-4">
-    <h2 class="mb-4"><i class="fa-solid fa-desktop"></i> Device Details</h2>
 
-    <div class="row">
-        <!-- LEFT COLUMN -->
-        <div class="col-md-6">
-            <!-- Device Info -->
-            <div class="card mb-4">
-                <div class="card-header"><i class="fa-solid fa-circle-info"></i> Device Information</div>
-                <div class="card-body">
-                    <p><strong>Name:</strong> <span id="device-name">Loading...</span></p>
-                    <p><strong>OS:</strong> <span id="os-name">Loading...</span></p>
-                    <p><strong>Last Check-in:</strong> <span id="last-checkin">Loading...</span></p>
-                    <p><strong>Status:</strong> <span id="status">Loading...</span></p>
-                </div>
-            </div>
+<div class="container">
+    <h1 class="mb-4">Device: <span id="deviceName">Loading...</span></h1>
 
-            <!-- System Info -->
-            <div class="card mb-4">
-                <div class="card-header"><i class="fa-solid fa-microchip"></i> System Information</div>
-                <div class="card-body" id="system-info">
-                    <p>Loading system details...</p>
-                </div>
-            </div>
-
-            <!-- Wi-Fi Info -->
-            <div class="card mb-4">
-                <div class="card-header"><i class="fa-solid fa-wifi"></i> Wi-Fi Information</div>
-                <div class="card-body" id="wifi-info">
-                    <p><strong>SSID:</strong> <span id="wifi-ssid">Loading...</span></p>
-                    <p><strong>Signal Strength:</strong> <span id="wifi-signal">Loading...</span></p>
-                    <p><strong>Nearby Networks:</strong></p>
-                    <ul id="wifi-networks" class="list-group list-group-flush"></ul>
-                </div>
-            </div>
-
-            <!-- Patch Info -->
-            <div class="card mb-4">
-                <div class="card-header"><i class="fa-solid fa-shield-halved"></i> Patch Information</div>
-                <div class="card-body">
-                    <p><strong>Status:</strong> <span id="patch-status">Loading...</span></p>
-                    <p><strong>Last Patch Date:</strong> <span id="last-patch-date">Loading...</span></p>
-                </div>
-            </div>
+    <!-- Device Info -->
+    <div class="card">
+        <div class="card-header">General Information</div>
+        <div class="card-body">
+            <p><strong>Device ID:</strong> <span id="deviceID">Loading...</span></p>
+            <p><strong>OS:</strong> <span id="osName">Loading...</span></p>
+            <p><strong>Uptime:</strong> <span id="uptime">Loading...</span></p>
+            <p><strong>Last Check-in:</strong> <span id="lastCheckin">Loading...</span></p>
+            <p><strong>Status:</strong> <span id="deviceStatus">Loading...</span></p>
+            <p><strong>Network Throughput:</strong> <span id="networkThroughput">Loading...</span></p>
         </div>
+    </div>
 
-        <!-- RIGHT COLUMN -->
-        <div class="col-md-6">
-            <!-- Charts -->
-            <div class="card mb-4">
-                <div class="card-header"><i class="fa-solid fa-chart-pie"></i> CPU Usage</div>
-                <div class="card-body">
-                    <canvas id="cpuUsageChart" height="150"></canvas>
+    <!-- Hardware Info -->
+    <div class="card">
+        <div class="card-header">Hardware Details</div>
+        <div class="card-body">
+            <p><strong>CPU Cores:</strong> <span id="cpuCores">Loading...</span></p>
+            <p><strong>CPU Usage:</strong> <span id="cpuUsage">Loading...</span>%</p>
+            <p><strong>RAM Usage:</strong> <span id="ramUsage">Loading...</span>%</p>
+            <p><strong>Disk Usage:</strong> <span id="diskUsage">Loading...</span>%</p>
+            <p><strong>Disk Health:</strong> <span id="diskHealth">Loading...</span></p>
+            <p><strong>Battery Health:</strong> <span id="batteryHealth">Loading...</span></p>
+            <p><strong>GPU:</strong> <span id="gpu">Loading...</span></p>
+        </div>
+    </div>
+
+    <!-- Network Info -->
+    <div class="card">
+        <div class="card-header">Network Details</div>
+        <div class="card-body">
+            <p><strong>Wi-Fi Status:</strong> <span id="wifiStatus">Loading...</span></p>
+            <p><strong>IP Address:</strong> <span id="ipAddress">Loading...</span></p>
+            <p><strong>MAC Address:</strong> <span id="macAddress">Loading...</span></p>
+        </div>
+    </div>
+
+    <!-- System Stats (Charts) -->
+    <div class="card">
+        <div class="card-header">System Stats</div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4">
+                    <h5>CPU Usage</h5>
+                    <div class="chart-container" id="cpuUsageChart"></div>
                 </div>
-            </div>
-
-            <div class="card mb-4">
-                <div class="card-header"><i class="fa-solid fa-memory"></i> RAM Usage</div>
-                <div class="card-body">
-                    <canvas id="ramUsageChart" height="150"></canvas>
+                <div class="col-md-4">
+                    <h5>RAM Usage</h5>
+                    <div class="chart-container" id="ramUsageChart"></div>
                 </div>
-            </div>
-
-            <div class="card mb-4">
-                <div class="card-header"><i class="fa-solid fa-hard-drive"></i> Disk Usage</div>
-                <div class="card-body">
-                    <canvas id="diskUsageChart" height="150"></canvas>
-                </div>
-            </div>
-
-            <!-- Network Stats -->
-            <div class="card mb-4">
-                <div class="card-header"><i class="fa-solid fa-network-wired"></i> Network Stats</div>
-                <div class="card-body">
-                    <p><strong>Network Throughput:</strong> <span id="network-throughput">Loading...</span> Mbps</p>
-                    <p><strong>Ping Latency:</strong> <span id="ping-latency">Loading...</span> ms</p>
-                </div>
-            </div>
-
-            <!-- Actions -->
-            <div class="card mb-4">
-                <div class="card-header"><i class="fa-solid fa-gears"></i> Actions</div>
-                <div class="card-body action-buttons">
-                    <button id="approve-device" class="btn btn-success mb-2">
-                        <i class="fa-solid fa-check"></i> Approve Device
-                    </button>
-                    <button class="btn btn-outline-primary mb-2">
-                        <i class="fa-solid fa-rotate"></i> Force Patch
-                    </button>
-                    <button class="btn btn-outline-danger mb-2">
-                        <i class="fa-solid fa-arrow-rotate-left"></i> Force Reinstall
-                    </button>
+                <div class="col-md-4">
+                    <h5>Disk Usage</h5>
+                    <div class="chart-container" id="diskUsageChart"></div>
                 </div>
             </div>
         </div>
     </div>
+
 </div>
 
 <!-- JS Dependencies -->
@@ -138,27 +100,88 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 
 <script>
-document.addEventListener('DOMContentLoaded', async function() {
-    const deviceId = window.location.pathname.split('/').pop();
+    $(document).ready(function() {
+        const deviceID = new URLSearchParams(window.location.search).get('deviceID'); // Extract device ID from URL
 
-    try {
-        const res = await fetch(`/api/devices/${deviceId}`);
-        const device = await res.json();
+        // Function to load device details
+        async function loadDeviceDetails() {
+            try {
+                const response = await fetch(`/api/device/${deviceID}`);
+                const data = await response.json();
 
-        // Device Info
-        document.getElementById('device-name').textContent = device.device_name || '—';
-        document.getElementById('os-name').textContent = device.os_name || '—';
-        document.getElementById('last-checkin').textContent = device.last_checkin ? new Date(device.last_checkin).toLocaleString() : '—';
-        document.getElementById('status').innerHTML = device.online
-            ? '<span class="status-online">🟢 Online</span>'
-            : '<span class="status-offline">🔴 Offline</span>';
+                if (!data.success) {
+                    $('#deviceName').text('Error: Device not found');
+                    return;
+                }
 
-        // System Info
-        document.getElementById('system-info').innerHTML = `
-            <p><strong>CPU:</strong> ${device.cpu ?? '—'}%</p>
-            <p><strong>Total RAM:</strong> ${(device.ram_total / 1024 / 1024 / 1024).toFixed(2)} GB</p>
-            <p><strong>Used RAM:</strong> ${(device.ram_used / 1024 / 1024 / 1024).toFixed(2)} GB</p>
-            <p><strong>Disk Health:</strong> ${device.disk_health ?? '—'}</p>
-            <p><strong>Total Disk:</strong> ${(device.disk_total / 1024 / 1024 / 1024).toFixed(2)_
+                const device = data.device;
 
+                // Fill the fields
+                $('#deviceName').text(device.device_name);
+                $('#deviceID').text(device.id);
+                $('#osName').text(device.os_name);
+                $('#uptime').text(device.uptime ? `${device.uptime} seconds` : 'N/A');
+                $('#lastCheckin').text(device.last_checkin ? new Date(device.last_checkin).toLocaleString() : 'N/A');
+                $('#deviceStatus').text(device.is_online ? 'Online' : 'Offline').addClass(device.is_online ? 'status-online' : 'status-offline');
+                $('#networkThroughput').text(device.network_throughput || 'N/A');
 
+                // Hardware info
+                $('#cpuCores').text(device.cpu_cores || 'N/A');
+                $('#cpuUsage').text(device.cpu_usage ? device.cpu_usage.toFixed(2) : 'N/A');
+                $('#ramUsage').text(device.ram_usage ? `${device.ram_usage.toFixed(2)}%` : 'N/A');
+                $('#diskUsage').text(device.disk_usage ? `${device.disk_usage.toFixed(2)}%` : 'N/A');
+                $('#diskHealth').text(device.disk_health || 'N/A');
+                $('#batteryHealth').text(device.battery_health || 'N/A');
+                $('#gpu').text(device.gpu || 'N/A');
+
+                // Network info
+                $('#wifiStatus').text(device.wifi_status || 'N/A');
+                $('#ipAddress').text(device.ip_address || 'N/A');
+                $('#macAddress').text(device.mac_address || 'N/A');
+
+                // Render charts
+                renderChart('cpuUsageChart', 'CPU Usage', 'CPU Usage (%)', device.cpu_usage_history || []);
+                renderChart('ramUsageChart', 'RAM Usage', 'RAM Usage (%)', device.ram_usage_history || []);
+                renderChart('diskUsageChart', 'Disk Usage', 'Disk Usage (%)', device.disk_usage_history || []);
+            } catch (error) {
+                console.error('Error loading device details:', error);
+                $('#deviceName').text('Failed to load device details');
+            }
+        }
+
+        // Function to render charts
+        function renderChart(elementId, label, title, data) {
+            const ctx = document.getElementById(elementId).getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map((_, index) => `T${index + 1}`), // Time labels
+                    datasets: [{
+                        label: title,
+                        data: data,
+                        borderColor: '#4e73df',
+                        tension: 0.1,
+                        fill: false,
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: { display: true, text: label },
+                        tooltip: { enabled: true }
+                    },
+                    scales: {
+                        x: { title: { display: true, text: 'Time' } },
+                        y: { title: { display: true, text: title } }
+                    }
+                }
+            });
+        }
+
+        // Load device details
+        loadDeviceDetails();
+    });
+</script>
+</body>
+</html>
