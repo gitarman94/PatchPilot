@@ -1,24 +1,39 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use serde_json::json;
 use std::{fs, thread, time::Duration};
 use crate::system_info;
 
+// Reads the server URL from a file
 fn read_server_url() -> Result<String> {
-    let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")?;
+    let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")
+        .context("Failed to read the server URL from file")?;
     Ok(url.trim().to_string())
 }
 
+// Retrieves device-specific information (ID, type, and model)
 fn get_device_info() -> (String, String, String) {
     let device_info = system_info::get_system_info().unwrap_or_default();
-    let device_id = device_info.get("serial_number").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+    let device_id = device_info
+        .get("serial_number")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
     let device_type = system_info::get_device_type();
     let device_model = system_info::get_device_model();
     (device_id, device_type, device_model)
 }
 
-fn check_adoption_status(client: &Client, server_url: &str, device_id: &str, device_type: &str, device_model: &str) -> Result<bool> {
-    let response = client.post(format!("{}/api/devices/heartbeat", server_url))
+// Checks the adoption status of the device on the server
+fn check_adoption_status(
+    client: &Client,
+    server_url: &str,
+    device_id: &str,
+    device_type: &str,
+    device_model: &str,
+) -> Result<bool> {
+    let response = client
+        .post(format!("{}/api/devices/heartbeat", server_url))
         .json(&json!({
             "device_id": device_id,
             "device_type": device_type,
@@ -30,11 +45,11 @@ fn check_adoption_status(client: &Client, server_url: &str, device_id: &str, dev
         Ok(resp) if resp.status().is_success() => {
             let status_json: serde_json::Value = resp.json()?;
             Ok(status_json["adopted"].as_bool() == Some(true))
-        },
+        }
         Ok(_) => {
             log::error!("Unexpected response received while checking adoption status.");
             Ok(false)
-        },
+        }
         Err(e) => {
             log::error!("Error checking adoption status: {:?}", e);
             Ok(false)
@@ -42,6 +57,7 @@ fn check_adoption_status(client: &Client, server_url: &str, device_id: &str, dev
     }
 }
 
+// Sends system information update to the server
 fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
     let sys_info = match system_info::get_system_info() {
         Ok(info) => info,
@@ -53,8 +69,9 @@ fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
 
     log::info!("Sending system update: {}", sys_info);
 
-    let response = client.post(format!("{}/api/devices/update_status", server_url))
-        .json(&json!( {
+    let response = client
+        .post(format!("{}/api/devices/update_status", server_url))
+        .json(&json!({
             "device_id": device_id,
             "status": "active",
             "system_info": sys_info,
@@ -139,7 +156,7 @@ mod windows_service {
         // Regular system update loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
             send_system_update(&client, &server_url, &device_id);
-            thread::sleep(Duration::from_secs(600));
+            thread::sleep(Duration::from_secs(600)); // Send updates every 10 minutes
         }
 
         log::info!("Service stopping...");
@@ -176,7 +193,7 @@ mod unix_service {
         // Regular system update loop
         loop {
             send_system_update(&client, &server_url, &device_id);
-            thread::sleep(Duration::from_secs(600));
+            thread::sleep(Duration::from_secs(600)); // Send updates every 10 minutes
         }
     }
 }
