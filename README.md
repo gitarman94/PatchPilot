@@ -42,7 +42,6 @@ PatchPilot/
 │           self_update.rs            # Logic for updating the Rust client itself (self-updating mechanism).
 │           service.rs                # Provides the core service for the PatchPilot client, including running in the background and maintaining client health.
 │           system_info.rs            # Collects system information (e.g., CPU, RAM, OS version) to send back to the server.
-│           updater.rs                # Manages the update process, including checking for available updates and applying them.
 │
 └───templates                        # HTML templates used by the Rust server for the web UI.
 │       client_detail.html            # Template for showing detailed information about a specific client (e.g., status, updates, system info).
