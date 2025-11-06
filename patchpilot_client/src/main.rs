@@ -14,6 +14,8 @@ mod windows_service {
         service_control_handler::{self, ServiceControl, ServiceControlHandlerResult},
         service::{ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType},
     };
+    use std::fs;
+    use anyhow::Context;
 
     lazy_static! {
         static ref SERVICE_RUNNING: AtomicBool = AtomicBool::new(true);
@@ -22,7 +24,6 @@ mod windows_service {
     define_windows_service!(ffi_service_main, my_service_main);
 
     fn read_server_url() -> Result<String> {
-        // ✅ Fixed: Use Windows path and provide clear context
         let url_path = "C:\\ProgramData\\PatchPilotClient\\server_url.txt";
         let url = fs::read_to_string(url_path)
             .with_context(|| format!("Failed to read server URL from {}", url_path))?;
@@ -42,7 +43,6 @@ mod windows_service {
     }
 
     fn service_main() -> Result<()> {
-        // ✅ Fixed: Properly register service control handler
         let event_handler = move |control_event| -> ServiceControlHandlerResult {
             match control_event {
                 ServiceControl::Stop => {
@@ -56,7 +56,6 @@ mod windows_service {
         let status_handle =
             service_control_handler::register("PatchPilotClientService", event_handler)?;
 
-        // Report running status
         status_handle.set_service_status(ServiceStatus {
             service_type: ServiceType::OWN_PROCESS,
             current_state: ServiceState::Running,
@@ -67,12 +66,10 @@ mod windows_service {
             process_id: None,
         })?;
 
-        // Main loop
         while SERVICE_RUNNING.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_secs(5));
         }
 
-        // Report stopped status
         status_handle.set_service_status(ServiceStatus {
             service_type: ServiceType::OWN_PROCESS,
             current_state: ServiceState::Stopped,
@@ -96,11 +93,16 @@ mod unix_service {
         info!("Starting Unix PatchPilot client daemon...");
 
         loop {
-            // Example: call get_system_info every 10 seconds
             match crate::system_info::get_system_info() {
                 Ok(info) => info!("System info: {:?}", info),
                 Err(e) => error!("Error gathering system info: {}", e),
             }
+
+            match crate::system_info::get_network_info() {
+                Ok(net_info) => info!("Network info: {:?}", net_info),
+                Err(e) => error!("Error gathering network info: {}", e),
+            }
+
             thread::sleep(Duration::from_secs(10));
         }
     }
@@ -125,13 +127,12 @@ fn main() {
 
     // Fallback: run once if not launched as a background service
     match system_info::get_system_info() {
-        Ok(info) => {
-            info!("Device Info: {:?}", info);
-        }
-        Err(e) => {
-            eprintln!("Error fetching system info: {}", e);
-        }
+        Ok(info) => info!("Device Info: {:?}", info),
+        Err(e) => eprintln!("Error fetching system info: {}", e),
+    }
+
+    match system_info::get_network_info() {
+        Ok(net_info) => info!("Network Info: {:?}", net_info),
+        Err(e) => eprintln!("Error fetching network info: {}", e),
     }
 }
-
-
