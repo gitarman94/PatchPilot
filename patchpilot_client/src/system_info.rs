@@ -1,5 +1,5 @@
 use std::{process::Command};
-use sysinfo::{Disk, NetworkData, Process, System};
+use sysinfo::{Disk, NetworkData, Process, System, SystemExt};
 use serde::Serialize;
 use local_ip_address::local_ip;
 
@@ -80,7 +80,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let ram_total = sys.total_memory() / 1024;  // in MB
     let ram_used = sys.used_memory() / 1024;    // in MB
     let ram_free = ram_total - ram_used;
-    let ram_cached = sys.cached_memory() / 1024;  // in MB
+    let ram_cached = sys.used_memory() / 1024;  // in MB
     let swap_total = sys.total_swap() / 1024;    // in MB
     let swap_used = sys.used_swap() / 1024;      // in MB
 
@@ -147,7 +147,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         uptime_seconds: sys.uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
-        cpu_temperature: sys.cpu_temperature(), // This could return None if not supported
+        cpu_temperature: None,  // CPU temperature is not supported
         ram_total,
         ram_used,
         ram_free,
