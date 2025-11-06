@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde::Serialize;
 use std::collections::HashMap;
 use sysinfo::{
-    DiskExt, NetworkExt, NetworksExt, ProcessExt, ProcessorExt, System, SystemExt, ComponentExt,
+    DiskExt, NetworkExt, ProcessorExt, System, SystemExt
 };
 use local_ip_address::local_ip;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -84,19 +84,19 @@ pub fn get_system_info() -> Result<SystemInfo> {
         .map(|c| c.temperature());
 
     // RAM & swap
-    let ram_total = sys.total_memory() / 1024;
-    let ram_used = sys.used_memory() / 1024;
+    let ram_total = sys.total_memory() / 1024;  // in MB
+    let ram_used = sys.used_memory() / 1024;    // in MB
     let ram_free = ram_total - ram_used;
-    let ram_cached = sys.cached_memory() / 1024;
-    let swap_total = sys.total_swap() / 1024;
-    let swap_used = sys.used_swap() / 1024;
+    let ram_cached = sys.cached_memory() / 1024;  // in MB
+    let swap_total = sys.total_swap() / 1024;    // in MB
+    let swap_used = sys.used_swap() / 1024;      // in MB
 
     // Disks
     let disks = sys.disks().iter().map(|d| DiskInfo {
         name: d.name().to_string_lossy().to_string(),
-        total: d.total_space() / 1024 / 1024,
-        used: (d.total_space() - d.available_space()) / 1024 / 1024,
-        free: d.available_space() / 1024 / 1024,
+        total: d.total_space() / 1024 / 1024,  // Convert to MB
+        used: (d.total_space() - d.available_space()) / 1024 / 1024,  // Convert to MB
+        free: d.available_space() / 1024 / 1024,  // Convert to MB
         mount_point: d.mount_point().to_string_lossy().to_string(),
     }).collect::<Vec<_>>();
 
@@ -105,28 +105,30 @@ pub fn get_system_info() -> Result<SystemInfo> {
     for (name, data) in sys.networks() {
         network_interfaces.push(NetworkInterfaceInfo {
             name: name.clone(),
-            mac: None, // optional MAC lookup later
+            mac: None,  // MAC address can be added if necessary
             received_bytes: data.received(),
             transmitted_bytes: data.transmitted(),
             errors: data.errors(),
         });
     }
 
-    // Top processes
+    // Top processes by CPU and RAM usage
     let mut processes: Vec<ProcessInfo> = sys.processes().values().map(|p| ProcessInfo {
         pid: p.pid().as_u32() as i32,
         name: p.name().to_string(),
         cpu: p.cpu_usage(),
-        memory: p.memory() / 1024,
+        memory: p.memory() / 1024,  // Convert to MB
     }).collect();
 
+    // Top processes by CPU usage
     processes.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
     let top_processes_cpu = processes.iter().take(5).cloned().collect::<Vec<_>>();
 
+    // Top processes by memory usage
     processes.sort_by(|a, b| b.memory.cmp(&a.memory));
     let top_processes_ram = processes.iter().take(5).cloned().collect::<Vec<_>>();
 
-    // Battery info
+    // Battery info (platform-specific handling)
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     let battery = {
         let output = Command::new("pmset").args(["-g", "batt"]).output().ok();
