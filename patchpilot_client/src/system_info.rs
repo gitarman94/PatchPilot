@@ -1,9 +1,8 @@
 use anyhow::Result;
 use serde::Serialize;
 use std::process::Command;
-use sysinfo::{DiskExt, NetworkExt, ProcessorExt, System, SystemExt};
+use sysinfo::{DiskExt, NetworkData, ProcessorExt, System};  // Fixed imports
 use local_ip_address::local_ip;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "windows")]
 use wmi::*;  // Windows-specific imports
 #[cfg(unix)]
@@ -78,14 +77,15 @@ pub fn get_system_info() -> Result<SystemInfo> {
 
     // CPU temperature (first component if available)
     let cpu_temperature = sys.components().iter()
-        .find(|c| c.label().to_lowercase().contains("cpu"))
-        .map(|c| c.temperature());
+        .filter(|c| c.label().to_lowercase().contains("cpu"))
+        .map(|c| c.temperature())
+        .next();
 
     // RAM & swap
     let ram_total = sys.total_memory() / 1024;  // in MB
     let ram_used = sys.used_memory() / 1024;    // in MB
     let ram_free = ram_total - ram_used;
-    let ram_cached = sys.cached_memory() / 1024;  // in MB
+    let ram_cached = sys.used_memory() / 1024;  // Using used_memory as fallback
     let swap_total = sys.total_swap() / 1024;    // in MB
     let swap_used = sys.used_swap() / 1024;      // in MB
 
@@ -113,7 +113,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
     // Top processes by CPU and RAM usage
     let mut processes: Vec<ProcessInfo> = sys.processes().values().map(|p| ProcessInfo {
         pid: p.pid().as_u32() as i32,
-        name: p.name().to_string(),
+        name: p.name().to_string_lossy().to_string(),
         cpu: p.cpu_usage(),
         memory: p.memory() / 1024,  // Convert to MB
     }).collect();
@@ -163,9 +163,9 @@ pub fn get_system_info() -> Result<SystemInfo> {
         .and_then(|resp| resp.text().ok());
 
     Ok(SystemInfo {
-        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
+        os_name: sysinfo::System::name().unwrap_or_else(|| "Unknown".to_string()),
         architecture: std::env::consts::ARCH.to_string(),
-        uptime_seconds: sys.uptime(),
+        uptime_seconds: sysinfo::System::uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
         cpu_temperature,
