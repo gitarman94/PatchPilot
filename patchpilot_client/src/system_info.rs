@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use serde_json::json;
-use sysinfo::{System};
+use sysinfo::{System, SystemExt, CpuExt};
 use local_ip_address::local_ip;
 use std::process::Command;
 
@@ -70,7 +70,9 @@ mod windows {
     }
 
     pub fn get_network_info() -> Result<serde_json::Value> {
-        let ip_address = local_ip().unwrap_or_else(|_| "0.0.0.0".parse().unwrap()).to_string();
+        let ip_address = local_ip()
+            .map(|ip| ip.to_string())
+            .unwrap_or_else(|_| "0.0.0.0".to_string());
         let wifi_info = get_wifi_info().unwrap_or(json!({}));
         Ok(json!({
             "ip_address": ip_address,
@@ -82,10 +84,11 @@ mod windows {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        let hostname = sys.host_name().unwrap_or_else(|| "undefined".to_string());
-        let os_name = sys.name().unwrap_or_else(|| "undefined".to_string());
-        let os_version = sys.os_version().unwrap_or_else(|| "undefined".to_string());
-        let kernel_version = sys.kernel_version().unwrap_or_else(|| "undefined".to_string());
+        // Fixed: Use associated functions (not methods)
+        let hostname = System::host_name().unwrap_or_else(|| "undefined".to_string());
+        let os_name = System::name().unwrap_or_else(|| "undefined".to_string());
+        let os_version = System::os_version().unwrap_or_else(|| "undefined".to_string());
+        let kernel_version = System::kernel_version().unwrap_or_else(|| "undefined".to_string());
 
         let cpu_count = sys.cpus().len();
         let cpu_brand = sys
@@ -98,7 +101,6 @@ mod windows {
         let used_memory = sys.used_memory();
         let free_memory = sys.free_memory();
 
-        let device_type = "windows";
         let device_model = get_device_model();
         let serial_number = get_serial_number();
 
@@ -113,89 +115,48 @@ mod windows {
                 "total_memory": total_memory,
                 "used_memory": used_memory,
                 "free_memory": free_memory,
-                "device_type": device_type,
+                "device_type": "windows",
                 "device_model": device_model,
                 "serial_number": serial_number,
                 "architecture": std::env::consts::ARCH,
-                "ip_address": local_ip().unwrap_or_else(|_| "0.0.0.0".to_string()),
+                "ip_address": local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "0.0.0.0".to_string())
             }
         }))
     }
 
     fn get_device_model() -> String {
-        if let Ok(output) = Command::new("cat")
-            .arg("/sys/devices/virtual/dmi/id/product_name")
+        if let Ok(output) = Command::new("wmic")
+            .args(["computersystem", "get", "model"])
             .output()
         {
             if output.status.success() {
-                let model = String::from_utf8_lossy(&output.stdout);
-                return model.trim().to_string();
-            }
-        }
-    
-        // macOS model (e.g. "MacBookPro18,1")
-        if let Ok(output) = Command::new("sysctl")
-            .args(["-n", "hw.model"])
-            .output()
-        {
-            if output.status.success() {
-                let model = String::from_utf8_lossy(&output.stdout);
-                return model.trim().to_string();
-            }
-        }
-    
-        // macOS detailed model name (fallback using system_profiler)
-        if let Ok(output) = Command::new("system_profiler")
-            .args(["SPHardwareDataType"])
-            .output()
-        {
-            if output.status.success() {
-                for line in String::from_utf8_lossy(&output.stdout).lines() {
-                    if line.trim_start().starts_with("Model Name:") {
-                        return line
-                            .split(':')
-                            .nth(1)
-                            .unwrap_or("generic")
-                            .trim()
-                            .to_string();
-                    }
+                let lines: Vec<_> = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .skip(1)
+                    .collect();
+                if let Some(model) = lines.first() {
+                    return model.trim().to_string();
                 }
             }
         }
-    
         "generic".to_string()
     }
 
     fn get_serial_number() -> String {
-    if let Ok(output) = Command::new("cat")
-        .arg("/sys/devices/virtual/dmi/id/product_serial")
-        .output()
-    {
-        if output.status.success() {
-            let serial = String::from_utf8_lossy(&output.stdout);
-            return serial.trim().to_string();
-        }
-    }
-
-    // macOS serial number via system_profiler
-    if let Ok(output) = Command::new("system_profiler")
-        .args(["SPHardwareDataType"])
-        .output()
+        if let Ok(output) = Command::new("wmic")
+            .args(["bios", "get", "serialnumber"])
+            .output()
         {
             if output.status.success() {
-                for line in String::from_utf8_lossy(&output.stdout).lines() {
-                    if line.trim_start().starts_with("Serial Number") {
-                        return line
-                            .split(':')
-                            .nth(1)
-                            .unwrap_or("undefined")
-                            .trim()
-                            .to_string();
-                    }
+                let lines: Vec<_> = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .skip(1)
+                    .collect();
+                if let Some(serial) = lines.first() {
+                    return serial.trim().to_string();
                 }
             }
         }
-    
         "undefined".to_string()
     }
 }
@@ -246,7 +207,9 @@ mod unix {
     }
 
     pub fn get_network_info() -> Result<serde_json::Value> {
-        let ip_address = local_ip().unwrap_or_else(|_| "0.0.0.0".parse().unwrap()).to_string();
+        let ip_address = local_ip()
+            .map(|ip| ip.to_string())
+            .unwrap_or_else(|_| "0.0.0.0".to_string());
         let wifi_info = get_wifi_info().unwrap_or(json!({}));
         Ok(json!({
             "ip_address": ip_address,
@@ -258,10 +221,11 @@ mod unix {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        let hostname = sys.host_name().unwrap_or_else(|| "undefined".to_string());
-        let os_name = sys.name().unwrap_or_else(|| "undefined".to_string());
-        let os_version = sys.os_version().unwrap_or_else(|| "undefined".to_string());
-        let kernel_version = sys.kernel_version().unwrap_or_else(|| "undefined".to_string());
+        // Fix: use associated functions for system-level data
+        let hostname = System::host_name().unwrap_or_else(|| "undefined".to_string());
+        let os_name = System::name().unwrap_or_else(|| "undefined".to_string());
+        let os_version = System::os_version().unwrap_or_else(|| "undefined".to_string());
+        let kernel_version = System::kernel_version().unwrap_or_else(|| "undefined".to_string());
 
         let cpu_count = sys.cpus().len();
         let cpu_brand = sys
@@ -290,7 +254,7 @@ mod unix {
                 "device_model": device_model,
                 "serial_number": serial_number,
                 "architecture": std::env::consts::ARCH,
-                "ip_address": local_ip().unwrap_or_else(|_| "0.0.0.0".to_string()),
+                "ip_address": local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "0.0.0.0".to_string())
             }
         }))
     }
@@ -338,4 +302,3 @@ pub use windows::{get_system_info, get_network_info, get_wifi_info};
 
 #[cfg(unix)]
 pub use unix::{get_system_info, get_network_info, get_wifi_info};
-
