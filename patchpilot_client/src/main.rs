@@ -8,7 +8,7 @@ use serde_json::to_string_pretty;
 #[cfg(windows)]
 mod windows_service {
     use super::*;
-    use lazy_static::lazy_static;
+    use once_cell::sync::Lazy;  // If you migrate to once_cell
     use std::sync::atomic::{AtomicBool, Ordering};
     use windows_service::{
         define_windows_service, service_dispatcher,
@@ -16,9 +16,7 @@ mod windows_service {
         service::{ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType},
     };
 
-    lazy_static! {
-        static ref SERVICE_RUNNING: AtomicBool = AtomicBool::new(true);
-    }
+    static SERVICE_RUNNING: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(true));  // If using once_cell
 
     define_windows_service!(ffi_service_main, my_service_main);
 
