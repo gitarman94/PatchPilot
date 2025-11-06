@@ -69,7 +69,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
     sys.refresh_all();
 
     // CPU
-    let cpu_usage_per_core: Vec<f32> = sys.get_processors().iter().map(|p| p.cpu_usage()).collect();
+    let cpu_usage_per_core: Vec<f32> = sys.processors().iter().map(|p| p.cpu_usage()).collect();
     let cpu_usage_total = if cpu_usage_per_core.is_empty() {
         0.0
     } else {
@@ -77,20 +77,20 @@ pub fn get_system_info() -> Result<SystemInfo> {
     };
 
     // CPU temperature (first component if available)
-    let cpu_temperature = sys.get_components().iter()
+    let cpu_temperature = sys.components().iter()
         .find(|c| c.label().to_lowercase().contains("cpu"))
         .map(|c| c.temperature());
 
     // RAM & swap
-    let ram_total = sys.get_total_memory() / 1024;  // in MB
-    let ram_used = sys.get_used_memory() / 1024;    // in MB
+    let ram_total = sys.total_memory() / 1024;  // in MB
+    let ram_used = sys.used_memory() / 1024;    // in MB
     let ram_free = ram_total - ram_used;
-    let ram_cached = sys.get_cached_memory() / 1024;  // in MB
-    let swap_total = sys.get_total_swap() / 1024;    // in MB
-    let swap_used = sys.get_used_swap() / 1024;      // in MB
+    let ram_cached = sys.cached_memory() / 1024;  // in MB
+    let swap_total = sys.total_swap() / 1024;    // in MB
+    let swap_used = sys.used_swap() / 1024;      // in MB
 
     // Disks
-    let disks = sys.get_disks().iter().map(|d| DiskInfo {
+    let disks = sys.disks().iter().map(|d| DiskInfo {
         name: d.name().to_string_lossy().to_string(),
         total: d.total_space() / 1024 / 1024,  // Convert to MB
         used: (d.total_space() - d.available_space()) / 1024 / 1024,  // Convert to MB
@@ -100,7 +100,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
 
     // Network
     let mut network_interfaces = vec![];
-    for (name, data) in sys.get_networks() {
+    for (name, data) in sys.networks() {
         network_interfaces.push(NetworkInterfaceInfo {
             name: name.clone(),
             mac: None,  // MAC address can be added if necessary
@@ -111,7 +111,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
     }
 
     // Top processes by CPU and RAM usage
-    let mut processes: Vec<ProcessInfo> = sys.get_processes().values().map(|p| ProcessInfo {
+    let mut processes: Vec<ProcessInfo> = sys.processes().values().map(|p| ProcessInfo {
         pid: p.pid().as_u32() as i32,
         name: p.name().to_string(),
         cpu: p.cpu_usage(),
