@@ -199,7 +199,35 @@ Get-Service RustPatchClientService
 
 ## 📜 License
 
-This project is licensed under **GPL-3.0**. See the [LICENSE](LICENSE) file for full details.
+License Overview
+This project is licensed under a dual licensing model:
+
+* Free for Personal Use: Individuals may use, modify, and distribute this software without cost for personal, non-commercial purposes.
+  
+* Paid License for Commercial Use:Organizations or individuals intending to use this software for commercial purposes must obtain a paid license.
+Terms of Use
+
+1. Grant of License
+You are granted a non-exclusive, worldwide license to use this software under the following terms:
+    1. Personal Use: Individuals may download, install, and utilize this software without any payment or registration for personal, non-commercial purposes.
+    2. Commercial Use: Businesses and organizations must contact me to negotiate a paid license before using the software for any commercial purpose.
+    
+2. Definitions
+    * Personal Use: Refers to use by an individual for non-commercial, personal purposes.
+    * Commercial Use: Refers to use by businesses, organizations, or any activities conducted for profit.
+  
+3. Payment Terms
+    * Organizations utilizing the software for commercial purposes must pay the licensing fee determined by me. Payment details will be provided upon inquiry.
+  
+4. Compliance
+    * Users must comply with this license agreement. Violation of these terms may result in termination of the license.
+    * I reserve the right to enforce this agreement through appropriate legal actions.
+      
+5. Disclaimer
+This software is provided "as-is," without warranty of any kind. I shall not be liable for any damages arising from its use.
+
+6. Modifications
+I may modify the terms of this license at any time, with updates posted in this file. Continued use of the software constitutes acceptance of the new terms.
 
 ---
 
@@ -208,12 +236,5 @@ This project is licensed under **GPL-3.0**. See the [LICENSE](LICENSE) file for 
 Questions or bugs? Open an issue on GitHub.
 
 ---
-
-```
-
-### Key Changes:
-1. **No Python References:** The README no longer mentions Python at all. The entire system, both client and server, is now Rust-based.
-2. **Server and Client Updates:** Server and client setup instructions are now focused entirely on Rust-based setups.
-3. **Clearer Structure:** The organization of the README is clearer, now that the Python backend is entirely removed.
 
 ```
