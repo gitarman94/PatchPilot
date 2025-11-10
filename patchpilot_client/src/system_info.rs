@@ -3,7 +3,7 @@ use serde::Serialize;
 use sysinfo::{System, Cpu, Disk, NetworkData, Process, Pid};
 use local_ip_address::local_ip;
 
-/// Struct to hold disk information
+/// Disk information
 #[derive(Debug, Clone, Serialize)]
 pub struct DiskInfo {
     pub name: String,
@@ -13,7 +13,7 @@ pub struct DiskInfo {
     pub mount_point: String,
 }
 
-/// Struct to hold network interface information
+/// Network interface information
 #[derive(Debug, Clone, Serialize)]
 pub struct NetworkInterfaceInfo {
     pub name: String,
@@ -23,7 +23,7 @@ pub struct NetworkInterfaceInfo {
     pub errors: u64,
 }
 
-/// Struct to hold process information
+/// Process information
 #[derive(Debug, Clone, Serialize)]
 pub struct ProcessInfo {
     pub pid: u32,
@@ -32,14 +32,14 @@ pub struct ProcessInfo {
     pub memory: u64,
 }
 
-/// Struct to hold battery information
+/// Battery information
 #[derive(Debug, Clone, Serialize)]
 pub struct BatteryInfo {
     pub percentage: Option<f32>,
     pub status: Option<String>,
 }
 
-/// Struct to hold all system information
+/// All system information
 #[derive(Debug, Clone, Serialize)]
 pub struct SystemInfo {
     pub os_name: String,
@@ -62,20 +62,21 @@ pub struct SystemInfo {
     pub battery: Option<BatteryInfo>,
 }
 
-/// Get full system information
 pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let mut sys = System::new();
+
+    // Refresh data
     sys.refresh_all();
 
     // CPU usage per core
     let cpu_usage_per_core: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
-    let cpu_usage_total = if cpu_usage_per_core.is_empty() {
-        0.0
-    } else {
+    let cpu_usage_total = if !cpu_usage_per_core.is_empty() {
         cpu_usage_per_core.iter().sum::<f32>() / cpu_usage_per_core.len() as f32
+    } else {
+        0.0
     };
 
-    // Memory info (in MB)
+    // Memory
     let ram_total = sys.total_memory() / 1024;
     let ram_used = sys.used_memory() / 1024;
     let ram_free = ram_total.saturating_sub(ram_used);
@@ -83,36 +84,30 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let swap_used = sys.used_swap() / 1024;
 
     // Disks
-    let disks: Vec<DiskInfo> = sys.disks().iter()
-        .map(|d| DiskInfo {
-            name: d.name().to_string_lossy().to_string(),
-            total: d.total_space() / 1024 / 1024,
-            used: (d.total_space() - d.available_space()) / 1024 / 1024,
-            free: d.available_space() / 1024 / 1024,
-            mount_point: d.mount_point().to_string_lossy().to_string(),
-        })
-        .collect();
+    let disks: Vec<DiskInfo> = sys.disks().iter().map(|d| DiskInfo {
+        name: d.name().to_string_lossy().into_owned(),
+        total: d.total_space() / 1024 / 1024,
+        used: (d.total_space() - d.available_space()) / 1024 / 1024,
+        free: d.available_space() / 1024 / 1024,
+        mount_point: d.mount_point().to_string_lossy().into_owned(),
+    }).collect();
 
     // Networks
-    let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks().iter()
-        .map(|(name, data)| NetworkInterfaceInfo {
-            name: name.clone(),
-            mac: None,
-            received_bytes: data.received(),
-            transmitted_bytes: data.transmitted(),
-            errors: 0,
-        })
-        .collect();
+    let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
+        name: name.clone(),
+        mac: None,
+        received_bytes: data.received(),
+        transmitted_bytes: data.transmitted(),
+        errors: 0,
+    }).collect();
 
     // Processes
-    let mut process_list: Vec<ProcessInfo> = sys.processes().values()
-        .map(|p| ProcessInfo {
-            pid: p.pid().as_u32(),
-            name: p.name().to_string(),
-            cpu: p.cpu_usage(),
-            memory: p.memory() / 1024,
-        })
-        .collect();
+    let mut process_list: Vec<ProcessInfo> = sys.processes().values().map(|p| ProcessInfo {
+        pid: p.pid().as_u32(),
+        name: p.name().to_string(),
+        cpu: p.cpu_usage(),
+        memory: p.memory() / 1024,
+    }).collect();
 
     process_list.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
     let top_processes_cpu = process_list.iter().take(5).cloned().collect::<Vec<_>>();
@@ -120,7 +115,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     process_list.sort_by(|a, b| b.memory.cmp(&a.memory));
     let top_processes_ram = process_list.iter().take(5).cloned().collect::<Vec<_>>();
 
-    // Battery (macOS only)
+    // Battery
     let battery = {
         #[cfg(target_os = "macos")]
         {
@@ -129,8 +124,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 if let Some(line) = stdout.lines().find(|l| l.contains('%')) {
                     let parts: Vec<&str> = line.split(';').collect();
-                    let percentage = parts
-                        .get(0)
+                    let percentage = parts.get(0)
                         .and_then(|v| v.split_whitespace().nth(1))
                         .and_then(|v| v.trim_end_matches('%').parse::<f32>().ok());
                     Some(BatteryInfo {
@@ -140,22 +134,17 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
                 } else {
                     None
                 }
-            } else {
-                None
-            }
+            } else { None }
         }
         #[cfg(not(target_os = "macos"))]
-        {
-            None
-        }
+        { None }
     };
 
-    // Local IP
     let local_ip = local_ip().ok().map(|ip| ip.to_string());
 
     Ok(SystemInfo {
-        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        architecture: sys.long_os_version().unwrap_or_else(|| "Unknown".to_string()),
+        os_name: sys.name().unwrap_or("Unknown".to_string()),
+        architecture: sys.long_os_version().unwrap_or("Unknown".to_string()),
         uptime_seconds: sys.uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
