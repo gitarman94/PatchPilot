@@ -1,5 +1,5 @@
 use std::process::Command;
-use sysinfo::{Disk, NetworkData, Process, System};
+use sysinfo::{System, ProcessorExt, DiskExt, NetworksExt, ProcessExt};
 use serde::Serialize;
 use local_ip_address::local_ip;
 
@@ -69,7 +69,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     sys.refresh_all();
 
     // CPU usage per core
-    let cpu_usage_per_core: Vec<f32> = sys.cpus().iter().map(|cpu| cpu.cpu_usage()).collect();
+    let cpu_usage_per_core: Vec<f32> = sys.processors().iter().map(|p| p.cpu_usage()).collect();
     let cpu_usage_total = if cpu_usage_per_core.is_empty() {
         0.0
     } else {
@@ -105,7 +105,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     // Process info
     let mut processes: Vec<ProcessInfo> = sys.processes().values().map(|p| ProcessInfo {
         pid: p.pid().as_u32() as i32,
-        name: p.name().to_string_lossy().to_string(),
+        name: p.name().to_string(),
         cpu: p.cpu_usage(),
         memory: p.memory() / 1024,
     }).collect();
@@ -121,9 +121,13 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         let output = Command::new("pmset").args(["-g", "batt"]).output().ok();
         if let Some(output) = output {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            if let Some(line) = stdout.lines().find(|l| l.contains("%")) {
+            if let Some(line) = stdout.lines().find(|l| l.contains('%')) {
                 let parts: Vec<&str> = line.split(';').collect();
-                let percentage = parts[0].trim().split_whitespace().nth(1).and_then(|v| v.trim_end_matches('%').parse().ok());
+                let percentage = parts[0]
+                    .trim()
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|v| v.trim_end_matches('%').parse().ok());
                 Some(BatteryInfo {
                     percentage,
                     status: Some(parts.get(1).unwrap_or(&"Unknown").trim().to_string()),
@@ -141,9 +145,9 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
 
     // Build final struct
     Ok(SystemInfo {
-        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        architecture: sys.long_os_version().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: sys.uptime(),
+        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
+        architecture: System::long_os_version().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: System::uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
         cpu_temperature: None,
