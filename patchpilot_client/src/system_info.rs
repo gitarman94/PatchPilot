@@ -1,5 +1,5 @@
 use std::process::Command;
-use sysinfo::System;
+use sysinfo::{System, Disks, Networks, Processes, CpuRefreshKind, RefreshKind};
 use serde::Serialize;
 use local_ip_address::local_ip;
 
@@ -63,20 +63,25 @@ pub struct SystemInfo {
     pub battery: Option<BatteryInfo>,
 }
 
-/// Function to get system information
+/// Get full system information
 pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
-    let mut sys = System::new_all();
+    let mut sys = System::new_with_specifics(
+        RefreshKind::new()
+            .with_cpu(CpuRefreshKind::everything())
+            .with_memory()
+            .with_processes()
+    );
     sys.refresh_all();
 
-    // --- CPU usage per core ---
-    let cpu_usage_per_core: Vec<f32> = sys.cpus().iter().map(|cpu| cpu.cpu_usage()).collect();
+    // CPU usage per core
+    let cpu_usage_per_core: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
     let cpu_usage_total = if cpu_usage_per_core.is_empty() {
         0.0
     } else {
         cpu_usage_per_core.iter().sum::<f32>() / cpu_usage_per_core.len() as f32
     };
 
-    // --- Memory info ---
+    // Memory info
     let ram_total = sys.total_memory() / 1024;
     let ram_used = sys.used_memory() / 1024;
     let ram_free = ram_total.saturating_sub(ram_used);
@@ -84,54 +89,67 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let swap_total = sys.total_swap() / 1024;
     let swap_used = sys.used_swap() / 1024;
 
-    // --- Disk info ---
-    let disks = sys.disks().iter().map(|d| DiskInfo {
-        name: d.name().to_string_lossy().to_string(),
-        total: d.total_space() / 1024 / 1024,
-        used: (d.total_space() - d.available_space()) / 1024 / 1024,
-        free: d.available_space() / 1024 / 1024,
-        mount_point: d.mount_point().to_string_lossy().to_string(),
-    }).collect::<Vec<_>>();
+    // Disks
+    let mut disks = Disks::new_with_refreshed_list();
+    let disks: Vec<DiskInfo> = disks
+        .list()
+        .iter()
+        .map(|d| DiskInfo {
+            name: d.name().to_string_lossy().to_string(),
+            total: d.total_space() / 1024 / 1024,
+            used: (d.total_space() - d.available_space()) / 1024 / 1024,
+            free: d.available_space() / 1024 / 1024,
+            mount_point: d.mount_point().to_string_lossy().to_string(),
+        })
+        .collect();
 
-    // --- Network info ---
-    let network_interfaces = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
-        name: name.clone(),
-        mac: None,
-        received_bytes: data.received(),
-        transmitted_bytes: data.transmitted(),
-        errors: data.errors(),
-    }).collect::<Vec<_>>();
+    // Networks
+    let mut networks = Networks::new_with_refreshed_list();
+    let network_interfaces: Vec<NetworkInterfaceInfo> = networks
+        .list()
+        .iter()
+        .map(|(name, data)| NetworkInterfaceInfo {
+            name: name.clone(),
+            mac: None,
+            received_bytes: data.total_received(),
+            transmitted_bytes: data.total_transmitted(),
+            errors: data.errors(),
+        })
+        .collect();
 
-    // --- Process info ---
-    let mut processes: Vec<ProcessInfo> = sys.processes().values().map(|p| ProcessInfo {
-        pid: p.pid().as_u32() as i32,
-        name: p.name().to_string_lossy().to_string(),
-        cpu: p.cpu_usage(),
-        memory: p.memory() / 1024,
-    }).collect();
+    // Processes
+    let processes = Processes::new_with_refreshed_list();
+    let mut process_list: Vec<ProcessInfo> = processes
+        .list()
+        .iter()
+        .map(|(pid, p)| ProcessInfo {
+            pid: pid.as_u32() as i32,
+            name: p.name().to_string_lossy().to_string(),
+            cpu: p.cpu_usage(),
+            memory: p.memory() / 1024,
+        })
+        .collect();
 
-    // Sort processes by CPU and memory
-    processes.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
-    let top_processes_cpu = processes.iter().take(5).cloned().collect::<Vec<_>>();
+    process_list.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
+    let top_processes_cpu = process_list.iter().take(5).cloned().collect::<Vec<_>>();
 
-    processes.sort_by(|a, b| b.memory.cmp(&a.memory));
-    let top_processes_ram = processes.iter().take(5).cloned().collect::<Vec<_>>();
+    process_list.sort_by(|a, b| b.memory.cmp(&a.memory));
+    let top_processes_ram = process_list.iter().take(5).cloned().collect::<Vec<_>>();
 
-    // --- Battery info (macOS example) ---
+    // Battery (Mac/Linux only)
     let battery = {
         let output = Command::new("pmset").args(["-g", "batt"]).output().ok();
         if let Some(output) = output {
             let stdout = String::from_utf8_lossy(&output.stdout);
             if let Some(line) = stdout.lines().find(|l| l.contains('%')) {
                 let parts: Vec<&str> = line.split(';').collect();
-                let percentage = parts[0]
-                    .trim()
-                    .split_whitespace()
-                    .nth(1)
-                    .and_then(|v| v.trim_end_matches('%').parse().ok());
+                let percentage = parts
+                    .get(0)
+                    .and_then(|v| v.split_whitespace().nth(1))
+                    .and_then(|v| v.trim_end_matches('%').parse::<f32>().ok());
                 Some(BatteryInfo {
                     percentage,
-                    status: Some(parts.get(1).unwrap_or(&"Unknown").trim().to_string()),
+                    status: parts.get(1).map(|s| s.trim().to_string()),
                 })
             } else {
                 None
@@ -141,10 +159,9 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         }
     };
 
-    // --- Local IP ---
+    // Local IP
     let local_ip = local_ip().ok().map(|ip| ip.to_string());
 
-    // --- Build final struct ---
     Ok(SystemInfo {
         os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
         architecture: System::long_os_version().unwrap_or_else(|| "Unknown".to_string()),
