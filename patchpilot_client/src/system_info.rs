@@ -1,6 +1,6 @@
 use std::process::Command;
-use sysinfo::{CpuExt, DiskExt, NetworkExt, ProcessExt, System, SystemExt};
 use serde::Serialize;
+use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ProcessExt};
 use local_ip_address::local_ip;
 
 /// Struct to hold disk information
@@ -20,7 +20,7 @@ pub struct NetworkInterfaceInfo {
     pub mac: Option<String>,
     pub received_bytes: u64,
     pub transmitted_bytes: u64,
-    pub errors: u64, // sysinfo 0.37 does not provide errors; we'll default to 0
+    pub errors: u64,
 }
 
 /// Struct to hold process information
@@ -51,7 +51,6 @@ pub struct SystemInfo {
     pub ram_total: u64,
     pub ram_used: u64,
     pub ram_free: u64,
-    pub ram_cached: u64,
     pub swap_total: u64,
     pub swap_used: u64,
     pub disks: Vec<DiskInfo>,
@@ -80,13 +79,11 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let ram_total = sys.total_memory() / 1024;
     let ram_used = sys.used_memory() / 1024;
     let ram_free = ram_total.saturating_sub(ram_used);
-    let ram_cached = sys.total_memory() / 1024; // sysinfo 0.37 doesn't expose cached memory separately
     let swap_total = sys.total_swap() / 1024;
     let swap_used = sys.used_swap() / 1024;
 
     // Disks
-    let disks: Vec<DiskInfo> = sys
-        .disks()
+    let disks: Vec<DiskInfo> = sys.disks()
         .iter()
         .map(|d| DiskInfo {
             name: d.name().to_string_lossy().to_string(),
@@ -98,24 +95,22 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         .collect();
 
     // Networks
-    let network_interfaces: Vec<NetworkInterfaceInfo> = sys
-        .networks()
+    let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks()
         .iter()
         .map(|(name, data)| NetworkInterfaceInfo {
             name: name.clone(),
             mac: None, // sysinfo 0.37 does not provide MAC addresses
             received_bytes: data.received(),
             transmitted_bytes: data.transmitted(),
-            errors: 0, // not available in 0.37
+            errors: 0,
         })
         .collect();
 
     // Processes
-    let mut process_list: Vec<ProcessInfo> = sys
-        .processes()
-        .values()
-        .map(|p| ProcessInfo {
-            pid: p.pid().as_u32() as i32,
+    let mut process_list: Vec<ProcessInfo> = sys.processes()
+        .iter()
+        .map(|(&pid, p)| ProcessInfo {
+            pid: pid as i32,
             name: p.name().to_string(),
             cpu: p.cpu_usage(),
             memory: p.memory() / 1024,
@@ -128,25 +123,32 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     process_list.sort_by(|a, b| b.memory.cmp(&a.memory));
     let top_processes_ram = process_list.iter().take(5).cloned().collect::<Vec<_>>();
 
-    // Battery (Mac/Linux only)
+    // Battery (macOS only)
     let battery = {
-        let output = Command::new("pmset").args(["-g", "batt"]).output().ok();
-        if let Some(output) = output {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if let Some(line) = stdout.lines().find(|l| l.contains('%')) {
-                let parts: Vec<&str> = line.split(';').collect();
-                let percentage = parts
-                    .get(0)
-                    .and_then(|v| v.split_whitespace().nth(1))
-                    .and_then(|v| v.trim_end_matches('%').parse::<f32>().ok());
-                Some(BatteryInfo {
-                    percentage,
-                    status: parts.get(1).map(|s| s.trim().to_string()),
-                })
+        #[cfg(target_os = "macos")]
+        {
+            let output = Command::new("pmset").args(["-g", "batt"]).output().ok();
+            if let Some(output) = output {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some(line) = stdout.lines().find(|l| l.contains('%')) {
+                    let parts: Vec<&str> = line.split(';').collect();
+                    let percentage = parts
+                        .get(0)
+                        .and_then(|v| v.split_whitespace().nth(1))
+                        .and_then(|v| v.trim_end_matches('%').parse::<f32>().ok());
+                    Some(BatteryInfo {
+                        percentage,
+                        status: parts.get(1).map(|s| s.trim().to_string()),
+                    })
+                } else {
+                    None
+                }
             } else {
                 None
             }
-        } else {
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
             None
         }
     };
@@ -160,11 +162,10 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         uptime_seconds: sys.uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
-        cpu_temperature: None, // not implemented here
+        cpu_temperature: None,
         ram_total,
         ram_used,
         ram_free,
-        ram_cached,
         swap_total,
         swap_used,
         disks,
