@@ -1,140 +1,102 @@
-mod system_info;
-
 use anyhow::Result;
-use log::{error, info};
-use std::{thread, time::Duration};
-use serde_json::to_string_pretty;
+use serde::Serialize;
+use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ProcessExt};
 
-#[cfg(windows)]
-mod windows_service {
-    use super::*;
-    use once_cell::sync::Lazy;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use windows_service::{
-        define_windows_service, service_dispatcher,
-        service_control_handler::{self, ServiceControl, ServiceControlHandlerResult},
-        service::{ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType},
+#[derive(Serialize)]
+pub struct CpuInfo {
+    pub name: String,
+    pub frequency: u64,
+    pub usage: f32,
+}
+
+#[derive(Serialize)]
+pub struct MemoryInfo {
+    pub total: u64,
+    pub used: u64,
+}
+
+#[derive(Serialize)]
+pub struct DiskInfo {
+    pub name: String,
+    pub total_space: u64,
+    pub available_space: u64,
+    pub file_system: String,
+}
+
+#[derive(Serialize)]
+pub struct NetworkInterfaceInfo {
+    pub name: String,
+    pub received: u64,
+    pub transmitted: u64,
+}
+
+#[derive(Serialize)]
+pub struct ProcessInfo {
+    pub pid: i32,
+    pub name: String,
+    pub cpu_usage: f32,
+    pub memory: u64,
+}
+
+#[derive(Serialize)]
+pub struct SystemInfo {
+    pub os_name: String,
+    pub os_version: String,
+    pub kernel_version: String,
+    pub hostname: String,
+    pub uptime_seconds: u64,
+    pub cpus: Vec<CpuInfo>,
+    pub memory: MemoryInfo,
+    pub disks: Vec<DiskInfo>,
+    pub network_interfaces: Vec<NetworkInterfaceInfo>,
+    pub processes: Vec<ProcessInfo>,
+}
+
+pub fn get_system_info() -> Result<SystemInfo> {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let cpus = sys.cpus().iter().map(|cpu| CpuInfo {
+        name: cpu.name().to_string(),
+        frequency: cpu.frequency(),
+        usage: cpu.cpu_usage(),
+    }).collect();
+
+    let memory = MemoryInfo {
+        total: sys.total_memory(),
+        used: sys.used_memory(),
     };
 
-    static SERVICE_RUNNING: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(true));
+    let disks = sys.disks().iter().map(|disk| DiskInfo {
+        name: disk.name().to_string_lossy().into_owned(),
+        total_space: disk.total_space(),
+        available_space: disk.available_space(),
+        file_system: String::from_utf8_lossy(disk.file_system()).into_owned(),
+    }).collect();
 
-    define_windows_service!(ffi_service_main, my_service_main);
+    let network_interfaces = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
+        name: name.clone(),
+        received: data.received(),
+        transmitted: data.transmitted(),
+    }).collect();
 
-    pub fn run_service() -> Result<()> {
-        info!("Starting Windows PatchPilot client service...");
-        service_dispatcher::start("PatchPilotClientService", ffi_service_main)?;
-        Ok(())
-    }
+    let processes = sys.processes().iter().map(|(pid, process)| ProcessInfo {
+        pid: pid.as_u32() as i32,
+        name: process.name().to_string(),
+        cpu_usage: process.cpu_usage(),
+        memory: process.memory(),
+    }).collect();
 
-    fn my_service_main(_argc: u32, _argv: *mut *mut u16) {
-        if let Err(e) = service_main() {
-            error!("Service failed: {}", e);
-        }
-    }
-
-    fn service_main() -> Result<()> {
-        let event_handler = move |control_event| -> ServiceControlHandlerResult {
-            match control_event {
-                ServiceControl::Stop => {
-                    SERVICE_RUNNING.store(false, Ordering::SeqCst);
-                    ServiceControlHandlerResult::NoError
-                }
-                _ => ServiceControlHandlerResult::NotImplemented,
-            }
-        };
-
-        let status_handle =
-            service_control_handler::register("PatchPilotClientService", event_handler)?;
-
-        status_handle.set_service_status(ServiceStatus {
-            service_type: ServiceType::OWN_PROCESS,
-            current_state: ServiceState::Running,
-            controls_accepted: ServiceControlAccept::STOP,
-            exit_code: ServiceExitCode::Win32(0),
-            checkpoint: 0,
-            wait_hint: 0,
-            process_id: None,
-        })?;
-
-        while SERVICE_RUNNING.load(Ordering::SeqCst) {
-            match crate::system_info::get_system_info() {
-                Ok(info) => {
-                    if let Err(e) = to_string_pretty(&info) {
-                        error!("Error serializing system info: {}", e);
-                    } else {
-                        info!("System info: {}", to_string_pretty(&info).unwrap());
-                    }
-                }
-                Err(e) => error!("Error gathering system info: {}", e),
-            }
-            thread::sleep(Duration::from_secs(10));
-        }
-
-        status_handle.set_service_status(ServiceStatus {
-            service_type: ServiceType::OWN_PROCESS,
-            current_state: ServiceState::Stopped,
-            controls_accepted: ServiceControlAccept::STOP,
-            exit_code: ServiceExitCode::Win32(0),
-            checkpoint: 0,
-            wait_hint: 0,
-            process_id: None,
-        })?;
-
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
-mod unix_service {
-    use super::*;
-    use std::thread;
-    use std::time::Duration;
-
-    pub fn run_service() -> Result<()> {
-        info!("Starting Unix PatchPilot client daemon...");
-
-        loop {
-            match crate::system_info::get_system_info() {
-                Ok(info) => {
-                    if let Err(e) = to_string_pretty(&info) {
-                        error!("Error serializing system info: {}", e);
-                    } else {
-                        info!("System info: {}", to_string_pretty(&info).unwrap());
-                    }
-                }
-                Err(e) => error!("Error gathering system info: {}", e),
-            }
-
-            thread::sleep(Duration::from_secs(10));
-        }
-    }
-}
-
-fn main() {
-    env_logger::init();
-
-    #[cfg(windows)]
-    if let Err(e) = windows_service::run_service() {
-        error!("Windows service failed: {}", e);
-    }
-
-    #[cfg(unix)]
-    if let Err(e) = unix_service::run_service() {
-        error!("Unix service failed: {}", e);
-    }
-
-    // Fallback CLI run
-    match system_info::get_system_info() {
-        Ok(info) => {
-            if let Err(e) = to_string_pretty(&info) {
-                eprintln!("Error serializing system info: {}", e);
-            } else {
-                println!("Device Info:\n{}", to_string_pretty(&info).unwrap());
-            }
-        }
-        Err(e) => {
-            eprintln!("Error fetching system info: {}", e);
-            error!("Error fetching system info: {}", e);
-        }
-    }
+    Ok(SystemInfo {
+        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
+        kernel_version: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        hostname: sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: sys.uptime(),
+        cpus,
+        memory,
+        disks,
+        network_interfaces,
+        processes,
+    })
 }
