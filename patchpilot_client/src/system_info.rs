@@ -1,5 +1,5 @@
 use std::process::Command;
-use sysinfo::{System, Disks, Networks, Processes, CpuRefreshKind, RefreshKind};
+use sysinfo::{CpuExt, DiskExt, NetworkExt, ProcessExt, System, SystemExt};
 use serde::Serialize;
 use local_ip_address::local_ip;
 
@@ -20,7 +20,7 @@ pub struct NetworkInterfaceInfo {
     pub mac: Option<String>,
     pub received_bytes: u64,
     pub transmitted_bytes: u64,
-    pub errors: u64,
+    pub errors: u64, // sysinfo 0.37 does not provide errors; we'll default to 0
 }
 
 /// Struct to hold process information
@@ -65,12 +65,7 @@ pub struct SystemInfo {
 
 /// Get full system information
 pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
-    let mut sys = System::new_with_specifics(
-        RefreshKind::new()
-            .with_cpu(CpuRefreshKind::everything())
-            .with_memory()
-            .with_processes()
-    );
+    let mut sys = System::new_all();
     sys.refresh_all();
 
     // CPU usage per core
@@ -81,18 +76,17 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         cpu_usage_per_core.iter().sum::<f32>() / cpu_usage_per_core.len() as f32
     };
 
-    // Memory info
+    // Memory info (in MB)
     let ram_total = sys.total_memory() / 1024;
     let ram_used = sys.used_memory() / 1024;
     let ram_free = ram_total.saturating_sub(ram_used);
-    let ram_cached = sys.used_memory() / 1024;
+    let ram_cached = sys.total_memory() / 1024; // sysinfo 0.37 doesn't expose cached memory separately
     let swap_total = sys.total_swap() / 1024;
     let swap_used = sys.used_swap() / 1024;
 
     // Disks
-    let mut disks = Disks::new_with_refreshed_list();
-    let disks: Vec<DiskInfo> = disks
-        .list()
+    let disks: Vec<DiskInfo> = sys
+        .disks()
         .iter()
         .map(|d| DiskInfo {
             name: d.name().to_string_lossy().to_string(),
@@ -104,27 +98,25 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         .collect();
 
     // Networks
-    let mut networks = Networks::new_with_refreshed_list();
-    let network_interfaces: Vec<NetworkInterfaceInfo> = networks
-        .list()
+    let network_interfaces: Vec<NetworkInterfaceInfo> = sys
+        .networks()
         .iter()
         .map(|(name, data)| NetworkInterfaceInfo {
             name: name.clone(),
-            mac: None,
-            received_bytes: data.total_received(),
-            transmitted_bytes: data.total_transmitted(),
-            errors: data.errors(),
+            mac: None, // sysinfo 0.37 does not provide MAC addresses
+            received_bytes: data.received(),
+            transmitted_bytes: data.transmitted(),
+            errors: 0, // not available in 0.37
         })
         .collect();
 
     // Processes
-    let processes = Processes::new_with_refreshed_list();
-    let mut process_list: Vec<ProcessInfo> = processes
-        .list()
-        .iter()
-        .map(|(pid, p)| ProcessInfo {
-            pid: pid.as_u32() as i32,
-            name: p.name().to_string_lossy().to_string(),
+    let mut process_list: Vec<ProcessInfo> = sys
+        .processes()
+        .values()
+        .map(|p| ProcessInfo {
+            pid: p.pid().as_u32() as i32,
+            name: p.name().to_string(),
             cpu: p.cpu_usage(),
             memory: p.memory() / 1024,
         })
@@ -163,12 +155,12 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let local_ip = local_ip().ok().map(|ip| ip.to_string());
 
     Ok(SystemInfo {
-        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
-        architecture: System::long_os_version().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: System::uptime(),
+        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
+        architecture: sys.long_os_version().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: sys.uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
-        cpu_temperature: None,
+        cpu_temperature: None, // not implemented here
         ram_total,
         ram_used,
         ram_free,
