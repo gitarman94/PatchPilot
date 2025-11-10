@@ -15,12 +15,17 @@ lazy_static = "1.4.0"
 termcolor = "1.4.1"
 env_logger = "0.10.0"
 local-ip-address = "0.6.5"
-windows-service = { version = "0.8.0", optional = true }
 chrono = "0.4"
+
+# Optional Windows service support
+windows-service = { version = "0.8.0", optional = true }
+
+# Add windows crate for Windows API calls
+windows = { version = "0.48.0", optional = true }
 
 [features]
 default = []
-windows = ["windows-service"]
+windows = ["windows-service", "windows"]
 
 [[bin]]
 name = "rust_patch_client"
@@ -29,4 +34,3 @@ path = "src/main.rs"
 [[bin]]
 name = "patchpilot_updater"
 path = "src/patchpilot_updater.rs"
-
