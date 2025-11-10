@@ -1,6 +1,6 @@
 use std::process::Command;
 use serde::Serialize;
-use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ProcessExt};
+use sysinfo::{System, SystemKind, Cpu, Disk, NetworkData, Process, Pid};
 use local_ip_address::local_ip;
 
 /// Struct to hold disk information
@@ -26,7 +26,7 @@ pub struct NetworkInterfaceInfo {
 /// Struct to hold process information
 #[derive(Debug, Clone, Serialize)]
 pub struct ProcessInfo {
-    pub pid: i32,
+    pub pid: u32,
     pub name: String,
     pub cpu: f32,
     pub memory: u64,
@@ -64,8 +64,14 @@ pub struct SystemInfo {
 
 /// Get full system information
 pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
-    let mut sys = System::new_all();
-    sys.refresh_all();
+    let mut sys = System::new();
+
+    // Refresh all system information
+    sys.refresh_cpu();
+    sys.refresh_memory();
+    sys.refresh_disks();
+    sys.refresh_networks();
+    sys.refresh_processes();
 
     // CPU usage per core
     let cpu_usage_per_core: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
@@ -83,8 +89,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let swap_used = sys.used_swap() / 1024;
 
     // Disks
-    let disks: Vec<DiskInfo> = sys.disks()
-        .iter()
+    let disks: Vec<DiskInfo> = sys.disks().iter()
         .map(|d| DiskInfo {
             name: d.name().to_string_lossy().to_string(),
             total: d.total_space() / 1024 / 1024,
@@ -95,8 +100,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         .collect();
 
     // Networks
-    let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks()
-        .iter()
+    let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks().iter()
         .map(|(name, data)| NetworkInterfaceInfo {
             name: name.clone(),
             mac: None, // sysinfo 0.37 does not provide MAC addresses
@@ -107,10 +111,9 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         .collect();
 
     // Processes
-    let mut process_list: Vec<ProcessInfo> = sys.processes()
-        .iter()
-        .map(|(&pid, p)| ProcessInfo {
-            pid: pid as i32,
+    let mut process_list: Vec<ProcessInfo> = sys.processes().values()
+        .map(|p| ProcessInfo {
+            pid: p.pid().as_u32(),
             name: p.name().to_string(),
             cpu: p.cpu_usage(),
             memory: p.memory() / 1024,
