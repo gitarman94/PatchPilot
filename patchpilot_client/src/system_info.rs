@@ -1,6 +1,6 @@
 use std::process::Command;
 use serde::Serialize;
-use sysinfo::{System, SystemKind, Cpu, Disk, NetworkData, Process, Pid};
+use sysinfo::{System, Cpu, Disk, NetworkData, Process, Pid};
 use local_ip_address::local_ip;
 
 /// Struct to hold disk information
@@ -65,13 +65,7 @@ pub struct SystemInfo {
 /// Get full system information
 pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let mut sys = System::new();
-
-    // Refresh all system information
-    sys.refresh_cpu();
-    sys.refresh_memory();
-    sys.refresh_disks();
-    sys.refresh_networks();
-    sys.refresh_processes();
+    sys.refresh_all();
 
     // CPU usage per core
     let cpu_usage_per_core: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
@@ -103,7 +97,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks().iter()
         .map(|(name, data)| NetworkInterfaceInfo {
             name: name.clone(),
-            mac: None, // sysinfo 0.37 does not provide MAC addresses
+            mac: None,
             received_bytes: data.received(),
             transmitted_bytes: data.transmitted(),
             errors: 0,
