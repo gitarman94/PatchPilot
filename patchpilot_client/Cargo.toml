@@ -15,17 +15,12 @@ lazy_static = "1.4.0"
 termcolor = "1.4.1"
 env_logger = "0.10.0"
 local-ip-address = "0.6.5"
-chrono = "0.4"
-
-# Optional Windows service support
 windows-service = { version = "0.8.0", optional = true }
-
-# Add windows crate for Windows API calls
-windows = { version = "0.48.0", optional = true }
+chrono = "0.4"
 
 [features]
 default = []
-windows = ["windows-service", "windows"]
+windows = ["windows-service"]
 
 [[bin]]
 name = "rust_patch_client"
