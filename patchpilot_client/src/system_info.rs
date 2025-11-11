@@ -1,7 +1,7 @@
-use std::process::Command;
 use serde::Serialize;
-use sysinfo::{System, Cpu, Disk, NetworkData, Process, Pid};
+use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ProcessExt};
 use local_ip_address::local_ip;
+use std::process::Command;
 
 /// Disk information
 #[derive(Debug, Clone, Serialize)]
@@ -75,16 +75,16 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
 
     // Disks
     let disks: Vec<DiskInfo> = sys.disks().iter().map(|d| DiskInfo {
-        name: d.name().to_string_lossy().to_string(),
+        name: d.name().to_string_lossy().into_owned(),
         total: d.total_space(),
         used: d.total_space().saturating_sub(d.available_space()),
         free: d.available_space(),
-        mount_point: d.mount_point().to_string_lossy().to_string(),
+        mount_point: d.mount_point().to_string_lossy().into_owned(),
     }).collect();
 
     // Networks
     let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks().iter()
-        .map(|(name, data): (&String, &NetworkData)| NetworkInterfaceInfo {
+        .map(|(name, data)| NetworkInterfaceInfo {
             name: name.clone(),
             mac: None,
             received_bytes: data.received(),
@@ -92,9 +92,9 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         }).collect();
 
     // Processes
-    let mut process_list: Vec<ProcessInfo> = sys.processes().values().map(|p: &Process| ProcessInfo {
+    let mut process_list: Vec<ProcessInfo> = sys.processes().values().map(|p| ProcessInfo {
         pid: p.pid().as_u32(),
-        name: p.name().to_string(),
+        name: p.name().to_string_lossy().into_owned(),
         cpu: p.cpu_usage(),
         memory: p.memory(),
     }).collect();
@@ -111,9 +111,9 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let (device_type, device_model) = get_device_type_model();
 
     Ok(SystemInfo {
-        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
-        architecture: System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: System::uptime(),
+        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
+        architecture: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: sys.uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
         ram_total,
@@ -132,16 +132,17 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     })
 }
 
+/// Serial number detection
 fn get_serial_number() -> Option<String> {
     #[cfg(target_os = "linux")]
-    {
-        std::fs::read_to_string("/sys/class/dmi/id/product_serial").ok().map(|s| s.trim().to_string())
-    }
+    { std::fs::read_to_string("/sys/class/dmi/id/product_serial").ok().map(|s| s.trim().to_string()) }
+
     #[cfg(target_os = "windows")]
     {
         let output = Command::new("wmic").args(["bios", "get", "serialnumber"]).output().ok()?;
         Some(String::from_utf8_lossy(&output.stdout).lines().nth(1)?.trim().to_string())
     }
+
     #[cfg(target_os = "macos")]
     {
         let output = Command::new("ioreg").args(["-l"]).output().ok()?;
@@ -153,12 +154,12 @@ fn get_serial_number() -> Option<String> {
         }
         None
     }
+
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    {
-        None
-    }
+    { None }
 }
 
+/// Device type/model detection
 fn get_device_type_model() -> (Option<String>, Option<String>) {
     #[cfg(target_os = "linux")]
     {
@@ -166,6 +167,7 @@ fn get_device_type_model() -> (Option<String>, Option<String>) {
         let m = std::fs::read_to_string("/sys/class/dmi/id/product_name").ok().map(|s| s.trim().to_string());
         (t, m)
     }
+
     #[cfg(target_os = "windows")]
     {
         let output = Command::new("wmic").args(["computersystem", "get", "model,manufacturer"]).output().ok();
@@ -180,6 +182,7 @@ fn get_device_type_model() -> (Option<String>, Option<String>) {
         }
         (None, None)
     }
+
     #[cfg(target_os = "macos")]
     {
         let output = Command::new("system_profiler").args(["SPHardwareDataType"]).output().ok();
@@ -194,8 +197,7 @@ fn get_device_type_model() -> (Option<String>, Option<String>) {
             (None, device_model)
         } else { (None, None) }
     }
+
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    {
-        (None, None)
-    }
+    { (None, None) }
 }
