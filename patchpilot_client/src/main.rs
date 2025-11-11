@@ -58,7 +58,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
 
     // ✅ CPUs
     let cpus: Vec<CpuInfo> = sys
-        .get_processors()
+        .cpus()
         .iter()
         .map(|cpu: &Cpu| CpuInfo {
             name: cpu.name().to_string(),
@@ -69,13 +69,13 @@ pub fn get_system_info() -> Result<SystemInfo> {
 
     // ✅ Memory
     let memory = MemoryInfo {
-        total: sys.get_total_memory(),
-        used: sys.get_used_memory(),
+        total: sys.total_memory(),
+        used: sys.used_memory(),
     };
 
-    // ✅ Disks (v0.37.x uses get_disks)
+    // ✅ Disks (no `.list()`)
     let disks: Vec<DiskInfo> = sys
-        .get_disks()
+        .disks()
         .iter()
         .map(|disk| DiskInfo {
             name: disk.name().to_string_lossy().into_owned(),
@@ -85,9 +85,9 @@ pub fn get_system_info() -> Result<SystemInfo> {
         })
         .collect();
 
-    // ✅ Networks (v0.37.x uses get_networks)
+    // ✅ Networks
     let network_interfaces: Vec<NetworkInterfaceInfo> = sys
-        .get_networks()
+        .networks()
         .iter()
         .map(|(name, data)| NetworkInterfaceInfo {
             name: name.clone(),
@@ -98,7 +98,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
 
     // ✅ Processes
     let processes: Vec<ProcessInfo> = sys
-        .get_processes()
+        .processes()
         .iter()
         .map(|(pid, process): (&sysinfo::Pid, &Process)| ProcessInfo {
             pid: pid.as_u32(),
