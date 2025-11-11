@@ -1,6 +1,7 @@
 use std::process::Command;
 use serde::Serialize;
-use sysinfo::{System, SystemExt, CpuExt, DiskExt, ProcessExt, NetworkExt, PidExt};
+use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ProcessExt};
+
 use local_ip_address::local_ip;
 
 /// Disk information
@@ -20,7 +21,6 @@ pub struct NetworkInterfaceInfo {
     pub mac: Option<String>,
     pub received_bytes: u64,
     pub transmitted_bytes: u64,
-    pub errors: u64,
 }
 
 /// Process information
@@ -47,7 +47,6 @@ pub struct SystemInfo {
     pub uptime_seconds: u64,
     pub cpu_usage_total: f32,
     pub cpu_usage_per_core: Vec<f32>,
-    pub cpu_temperature: Option<f32>,
     pub ram_total: u64,
     pub ram_used: u64,
     pub ram_free: u64,
@@ -56,7 +55,6 @@ pub struct SystemInfo {
     pub disks: Vec<DiskInfo>,
     pub network_interfaces: Vec<NetworkInterfaceInfo>,
     pub local_ip: Option<String>,
-    pub public_ip: Option<String>,
     pub top_processes_cpu: Vec<ProcessInfo>,
     pub top_processes_ram: Vec<ProcessInfo>,
     pub battery: Option<BatteryInfo>,
@@ -69,7 +67,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let mut sys = System::new_all();
     sys.refresh_all();
 
-    // CPU usage per core
+    // CPU usage
     let cpu_usage_per_core: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
     let cpu_usage_total = if !cpu_usage_per_core.is_empty() {
         cpu_usage_per_core.iter().sum::<f32>() / cpu_usage_per_core.len() as f32
@@ -86,11 +84,11 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
 
     // Disks
     let disks: Vec<DiskInfo> = sys.disks().iter().map(|d| DiskInfo {
-        name: d.name().to_string_lossy().into_owned(),
+        name: d.name().to_string_lossy().to_string(),
         total: d.total_space() / 1024 / 1024,
         used: (d.total_space() - d.available_space()) / 1024 / 1024,
         free: d.available_space() / 1024 / 1024,
-        mount_point: d.mount_point().to_string_lossy().into_owned(),
+        mount_point: d.mount_point().to_string_lossy().to_string(),
     }).collect();
 
     // Networks
@@ -99,13 +97,12 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         mac: None,
         received_bytes: data.received(),
         transmitted_bytes: data.transmitted(),
-        errors: 0,
     }).collect();
 
     // Processes
     let mut process_list: Vec<ProcessInfo> = sys.processes().values().map(|p| ProcessInfo {
         pid: p.pid().as_u32(),
-        name: p.name().to_string(),
+        name: p.name().to_string_lossy().to_string(),
         cpu: p.cpu_usage(),
         memory: p.memory() / 1024,
     }).collect();
@@ -116,44 +113,18 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     process_list.sort_by(|a, b| b.memory.cmp(&a.memory));
     let top_processes_ram = process_list.iter().take(5).cloned().collect::<Vec<_>>();
 
-    // Battery
-    let battery = {
-        #[cfg(target_os = "macos")]
-        {
-            let output = Command::new("pmset").args(["-g", "batt"]).output().ok();
-            if let Some(output) = output {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                if let Some(line) = stdout.lines().find(|l| l.contains('%')) {
-                    let parts: Vec<&str> = line.split(';').collect();
-                    let percentage = parts.get(0)
-                        .and_then(|v| v.split_whitespace().nth(1))
-                        .and_then(|v| v.trim_end_matches('%').parse::<f32>().ok());
-                    Some(BatteryInfo {
-                        percentage,
-                        status: parts.get(1).map(|s| s.trim().to_string()),
-                    })
-                } else {
-                    None
-                }
-            } else { None }
-        }
-        #[cfg(not(target_os = "macos"))]
-        { None }
-    };
-
     let local_ip = local_ip().ok().map(|ip| ip.to_string());
 
-    // Device information (simplified)
+    // Serial number, type, model
     let serial_number = get_serial_number();
     let (device_type, device_model) = get_device_type_model();
 
     Ok(SystemInfo {
         os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        architecture: sys.long_os_version().unwrap_or_else(|| "Unknown".to_string()),
+        architecture: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
         uptime_seconds: sys.uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
-        cpu_temperature: None,
         ram_total,
         ram_used,
         ram_free,
@@ -162,27 +133,22 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         disks,
         network_interfaces,
         local_ip,
-        public_ip: None,
         top_processes_cpu,
         top_processes_ram,
-        battery,
+        battery: None,
         serial_number,
         device_type,
         device_model,
     })
 }
 
-// Example implementations for serial, device type and model
 fn get_serial_number() -> Option<String> {
     #[cfg(target_os = "linux")]
-    {
-        std::fs::read_to_string("/sys/class/dmi/id/product_serial").ok().map(|s| s.trim().to_string())
-    }
+    { std::fs::read_to_string("/sys/class/dmi/id/product_serial").ok().map(|s| s.trim().to_string()) }
     #[cfg(target_os = "windows")]
     {
         let output = Command::new("wmic").args(["bios", "get", "serialnumber"]).output().ok()?;
-        let out_str = String::from_utf8_lossy(&output.stdout);
-        Some(out_str.lines().nth(1)?.trim().to_string())
+        Some(String::from_utf8_lossy(&output.stdout).lines().nth(1)?.trim().to_string())
     }
     #[cfg(target_os = "macos")]
     {
@@ -195,14 +161,16 @@ fn get_serial_number() -> Option<String> {
         }
         None
     }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    { None }
 }
 
 fn get_device_type_model() -> (Option<String>, Option<String>) {
     #[cfg(target_os = "linux")]
     {
-        let type_str = std::fs::read_to_string("/sys/class/dmi/id/chassis_type").ok().map(|s| s.trim().to_string());
-        let model_str = std::fs::read_to_string("/sys/class/dmi/id/product_name").ok().map(|s| s.trim().to_string());
-        (type_str, model_str)
+        let t = std::fs::read_to_string("/sys/class/dmi/id/chassis_type").ok().map(|s| s.trim().to_string());
+        let m = std::fs::read_to_string("/sys/class/dmi/id/product_name").ok().map(|s| s.trim().to_string());
+        (t, m)
     }
     #[cfg(target_os = "windows")]
     {
@@ -211,9 +179,7 @@ fn get_device_type_model() -> (Option<String>, Option<String>) {
             let lines: Vec<_> = String::from_utf8_lossy(&output.stdout).lines().collect();
             if lines.len() >= 2 {
                 let parts: Vec<_> = lines[1].split_whitespace().collect();
-                if !parts.is_empty() {
-                    return (Some(parts[0].to_string()), Some(parts[1..].join(" ")));
-                }
+                if !parts.is_empty() { return (Some(parts[0].to_string()), Some(parts[1..].join(" "))); }
             }
         }
         (None, None)
@@ -231,12 +197,8 @@ fn get_device_type_model() -> (Option<String>, Option<String>) {
                 }
             }
             (device_type, device_model)
-        } else {
-            (None, None)
-        }
+        } else { (None, None) }
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    {
-        (None, None)
-    }
+    { (None, None) }
 }
