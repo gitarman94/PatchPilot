@@ -125,7 +125,12 @@ pub fn get_system_info() -> Result<SystemInfo> {
 }
 
 fn main() -> Result<()> {
-    let info = get_system_info()?;
-    println!("{}", serde_json::to_string_pretty(&info)?);
+    #[cfg(unix)]
+    service::run_unix_service()?;
+
+    #[cfg(windows)]
+    service::run_service()?;
+
     Ok(())
 }
+
