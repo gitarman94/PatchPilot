@@ -1,4 +1,8 @@
+mod system_info;
 mod service;
+mod commands;
+mod patchpilot_updater;
+mod self_update;
 
 use anyhow::Result;
 use serde::Serialize;
@@ -135,5 +139,6 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
 
 
