@@ -8,6 +8,7 @@ RUST_REPO="https://github.com/gitarman94/PatchPilot.git"
 CLIENT_BINARY="$APP_DIR/patchpilot_client"
 SERVICE_NAME="patchpilot_client.service"
 SYSTEMD_DIR="/etc/systemd/system"
+
 FORCE_INSTALL=false
 UPDATE=false
 
@@ -32,14 +33,14 @@ else
     exit 1
 fi
 
-# --- Move to safe directory ---
+# --- Move to safe working directory before cleanup ---
 cd /tmp || exit 1
 
 # --- Cleanup for force install ---
 if [[ "$FORCE_INSTALL" = true ]]; then
     echo "🧹 Cleaning up old installation..."
-
-    # Stop and remove service if it exists
+    
+    # Stop and disable service if it exists
     if systemctl list-units --full --all | grep -q "$SERVICE_NAME"; then
         systemctl stop "$SERVICE_NAME" || true
         systemctl disable "$SERVICE_NAME" || true
@@ -49,7 +50,7 @@ if [[ "$FORCE_INSTALL" = true ]]; then
         echo "⚠️ Service $SERVICE_NAME not found. Skipping service cleanup."
     fi
 
-    # Remove previous installation
+    # Remove app directory and Rust toolchains
     rm -rf "$APP_DIR" "$HOME/.cargo" "$HOME/.rustup"
 
     # Remove /etc/environment entries
@@ -69,7 +70,9 @@ apt-get install -y -qq curl git build-essential pkg-config libssl-dev
 CARGO_HOME="$APP_DIR/.cargo"
 RUSTUP_HOME="$APP_DIR/.rustup"
 mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
-export CARGO_HOME RUSTUP_HOME PATH="$CARGO_HOME/bin:$PATH"
+
+# Ensure Rust uses APP_DIR as HOME to avoid getcwd issues
+export CARGO_HOME RUSTUP_HOME PATH="$CARGO_HOME/bin:$PATH" HOME="$APP_DIR"
 
 if ! command -v cargo >/dev/null 2>&1; then
     echo "🛠️ Installing Rust..."
@@ -79,7 +82,7 @@ fi
 "$CARGO_HOME/bin/rustup" default stable
 "$CARGO_HOME/bin/cargo" --version
 
-# --- Clone source ---
+# --- Clone and build client ---
 if [[ -d "$SRC_DIR" ]]; then rm -rf "$SRC_DIR"; fi
 mkdir -p "$SRC_DIR"
 git clone "$RUST_REPO" "$SRC_DIR"
@@ -97,12 +100,6 @@ echo "🔨 Building PatchPilot client..."
 # --- Copy binary ---
 cp target/release/rust_patch_client "$CLIENT_BINARY"
 chmod +x "$CLIENT_BINARY"
-
-# --- Copy client_test.sh to project directory ---
-if [[ -f "$SRC_DIR/client_test.sh" ]]; then
-    cp "$SRC_DIR/client_test.sh" "$APP_DIR/"
-    chmod +x "$APP_DIR/client_test.sh"
-fi
 
 # --- Optional: patchpilot user ---
 if ! id -u patchpilot >/dev/null 2>&1; then
@@ -139,8 +136,5 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now "$SERVICE_NAME"
-
-# --- Cleanup source directory after successful build ---
-rm -rf "$SRC_DIR"
 
 echo "✅ Installation complete!"
