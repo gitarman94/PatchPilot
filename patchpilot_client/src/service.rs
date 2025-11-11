@@ -200,3 +200,4 @@ pub use unix_service::run_unix_service;
 
 #[cfg(windows)]
 pub use windows_service::run_service;
+
