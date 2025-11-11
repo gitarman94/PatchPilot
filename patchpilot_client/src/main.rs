@@ -6,7 +6,7 @@ mod self_update;
 
 use anyhow::Result;
 use serde::Serialize;
-use sysinfo::{System, Cpu, Process, Disks, Networks};
+use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ProcessExt, PidExt};
 
 #[derive(Serialize)]
 pub struct CpuInfo {
@@ -59,32 +59,26 @@ pub struct SystemInfo {
 }
 
 pub fn get_system_info() -> Result<SystemInfo> {
-    // System info (CPU, memory, uptime, processes)
     let mut sys = System::new_all();
     sys.refresh_all();
 
-    // ✅ CPUs
-    let cpus: Vec<CpuInfo> = sys
-        .cpus()
-        .iter()
-        .map(|cpu: &Cpu| CpuInfo {
+    // CPUs
+    let cpus: Vec<CpuInfo> = sys.cpus().iter()
+        .map(|cpu| CpuInfo {
             name: cpu.name().to_string(),
             frequency: cpu.frequency(),
             usage: cpu.cpu_usage(),
         })
         .collect();
 
-    // ✅ Memory
+    // Memory
     let memory = MemoryInfo {
         total: sys.total_memory(),
         used: sys.used_memory(),
     };
 
-    // ✅ Disks (must use `Disks` struct directly)
-    let disks_data = Disks::new_with_refreshed_list();
-    let disks: Vec<DiskInfo> = disks_data
-        .list()
-        .iter()
+    // Disks
+    let disks: Vec<DiskInfo> = sys.disks().iter()
         .map(|disk| DiskInfo {
             name: disk.name().to_string_lossy().into_owned(),
             total_space: disk.total_space(),
@@ -93,10 +87,8 @@ pub fn get_system_info() -> Result<SystemInfo> {
         })
         .collect();
 
-    // ✅ Networks (must use `Networks` struct directly)
-    let networks_data = Networks::new_with_refreshed_list();
-    let network_interfaces: Vec<NetworkInterfaceInfo> = networks_data
-        .iter()
+    // Networks
+    let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks().iter()
         .map(|(name, data)| NetworkInterfaceInfo {
             name: name.clone(),
             received: data.received(),
@@ -104,24 +96,22 @@ pub fn get_system_info() -> Result<SystemInfo> {
         })
         .collect();
 
-    // ✅ Processes
-    let processes: Vec<ProcessInfo> = sys
-        .processes()
-        .iter()
-        .map(|(pid, process): (&sysinfo::Pid, &Process)| ProcessInfo {
+    // Processes
+    let processes: Vec<ProcessInfo> = sys.processes().iter()
+        .map(|(pid, process)| ProcessInfo {
             pid: pid.as_u32(),
-            name: process.name().to_string_lossy().into_owned(),
+            name: process.name().to_string(),
             cpu_usage: process.cpu_usage(),
             memory: process.memory(),
         })
         .collect();
 
     Ok(SystemInfo {
-        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: System::os_version().unwrap_or_else(|| "Unknown".to_string()),
-        kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        hostname: System::host_name().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: System::uptime(),
+        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
+        kernel_version: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        hostname: sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: sys.uptime(),
         cpus,
         memory,
         disks,
@@ -139,6 +129,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-
-
-
