@@ -14,9 +14,7 @@ echo "======================================"
 echo "   PatchPilot Client Diagnostic Test  "
 echo "======================================"
 
-###############################################
-# 1. Verify binary & config existence
-###############################################
+# Verify binary & config existence
 echo "🔍 Checking binary and configuration files..."
 if [[ -x "$BINARY" ]]; then
     echo "✔️  Binary found at $BINARY"
@@ -35,11 +33,8 @@ fi
 SERVER_URL=$(<"$CONFIG_FILE")
 echo "ℹ️  Server URL: $SERVER_URL"
 
-###############################################
-# 2. Check systemd service presence
-###############################################
+# Check systemd service presence
 echo "🔍 Checking systemd service: ${SERVICE_NAME}"
-
 if systemctl list-units --all --full | grep -q "$SERVICE_NAME"; then
     echo "✔️  Service is installed and recognized by systemd."
 elif [[ -f "/etc/systemd/system/${SERVICE_NAME}" ]]; then
@@ -50,33 +45,26 @@ else
     exit 1
 fi
 
-###############################################
-# 3. Check service status & restart limit
-###############################################
+# Check service status & restart limit
 echo "🔍 Checking current service status..."
 if systemctl is-active --quiet "$SERVICE_NAME"; then
     echo "✔️  Service is active and running."
 else
     echo "⚠️  Service not running. Gathering failure info..."
     systemctl status "$SERVICE_NAME" --no-pager || true
-    echo ""
     echo "🪵 Last 30 log entries:"
     journalctl -u "$SERVICE_NAME" -n 30 --no-pager || true
 
-    echo ""
     echo "🔍 Checking if systemd hit a restart limit..."
     if journalctl -u "$SERVICE_NAME" | grep -q "start-limit-hit"; then
         echo "❌  Restart limit reached. The service is crashing or exiting too quickly."
     fi
 
-    echo ""
     echo "🔍 Checking service exit codes:"
     journalctl -u "$SERVICE_NAME" | grep -E "code=" | tail -n 10 || true
 fi
 
-###############################################
-# 4. Check permissions & ownership
-###############################################
+# Check permissions & ownership
 echo "🔍 Checking permissions for app directory..."
 ls -ld "$APP_DIR"
 ls -l "$BINARY" "$CONFIG_FILE" || true
@@ -86,12 +74,10 @@ if [[ "$OWNER" != "patchpilot" ]]; then
     echo "⚠️  Binary owned by $OWNER — expected 'patchpilot'"
 fi
 
-###############################################
-# 5. Test direct execution manually
-###############################################
+# Test direct execution manually (without sudo)
 echo "🔍 Testing binary execution manually..."
 set +e
-sudo -u patchpilot "$BINARY" >"${TMP_DIR}/manual_out.txt" 2>"${TMP_DIR}/manual_err.txt"
+su -s /bin/bash patchpilot -c "$BINARY >${TMP_DIR}/manual_out.txt 2>${TMP_DIR}/manual_err.txt"
 status=$?
 set -e
 
@@ -101,7 +87,6 @@ else
     echo "❌  Binary exited with non-zero status: $status"
 fi
 
-echo ""
 if [[ -s "${TMP_DIR}/manual_err.txt" ]]; then
     echo "⚠️  STDERR output detected:"
     cat "${TMP_DIR}/manual_err.txt"
@@ -109,9 +94,7 @@ else
     echo "✔️  No STDERR output from binary."
 fi
 
-###############################################
-# 6. Validate JSON output
-###############################################
+# Validate JSON output
 if [[ -s "${TMP_DIR}/manual_out.txt" ]]; then
     echo "🔍 Checking JSON output structure..."
     head -n 5 "${TMP_DIR}/manual_out.txt"
@@ -124,9 +107,7 @@ else
     echo "❌  No output produced from binary."
 fi
 
-###############################################
-# 7. Connectivity check to server
-###############################################
+# Connectivity check to server
 echo "🔍 Testing basic connectivity to $SERVER_URL..."
 HOST=$(echo "$SERVER_URL" | sed -E 's|https?://||' | cut -d/ -f1)
 if ping -c 1 -W 2 "$HOST" &>/dev/null; then
@@ -135,21 +116,15 @@ else
     echo "❌  Cannot reach host $HOST"
 fi
 
-###############################################
-# 8. Capture running process info (if any)
-###############################################
+# Capture running process info (if any)
 echo "🔍 Capturing patchpilot_client process info..."
 ps -eo pid,user,%cpu,%mem,cmd | grep "[p]atchpilot_client" || echo "⚠️  Process not found."
 
-###############################################
-# 9. Detect crash loops or segfaults
-###############################################
+# Detect crash loops or segfaults
 echo "🔍 Scanning logs for segfaults or panics..."
 journalctl -u "$SERVICE_NAME" | grep -Ei "panic|segfault|abort|core" | tail -n 5 || echo "✔️  No crashes detected."
 
-###############################################
-# 10. Summary
-###############################################
+# Summary
 echo ""
 echo "======================================"
 echo "✅ Diagnostics complete."
