@@ -1,6 +1,6 @@
 use std::process::Command;
 use serde::Serialize;
-use sysinfo::{System, SystemExt, Cpu, Disk, NetworkData, Process};
+use sysinfo::{System, Cpu, Disk, NetworkData, Process, Pid};
 use local_ip_address::local_ip;
 
 /// Disk information
@@ -111,9 +111,9 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let (device_type, device_model) = get_device_type_model();
 
     Ok(SystemInfo {
-        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        architecture: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: sys.uptime(),
+        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
+        architecture: System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: System::uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
         ram_total,
@@ -134,7 +134,9 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
 
 fn get_serial_number() -> Option<String> {
     #[cfg(target_os = "linux")]
-    { std::fs::read_to_string("/sys/class/dmi/id/product_serial").ok().map(|s| s.trim().to_string()) }
+    {
+        std::fs::read_to_string("/sys/class/dmi/id/product_serial").ok().map(|s| s.trim().to_string())
+    }
     #[cfg(target_os = "windows")]
     {
         let output = Command::new("wmic").args(["bios", "get", "serialnumber"]).output().ok()?;
@@ -152,7 +154,9 @@ fn get_serial_number() -> Option<String> {
         None
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    { None }
+    {
+        None
+    }
 }
 
 fn get_device_type_model() -> (Option<String>, Option<String>) {
@@ -169,7 +173,9 @@ fn get_device_type_model() -> (Option<String>, Option<String>) {
             let lines: Vec<_> = String::from_utf8_lossy(&output.stdout).lines().collect();
             if lines.len() >= 2 {
                 let parts: Vec<_> = lines[1].split_whitespace().collect();
-                if !parts.is_empty() { return (Some(parts[0].to_string()), Some(parts[1..].join(" "))); }
+                if !parts.is_empty() {
+                    return (Some(parts[0].to_string()), Some(parts[1..].join(" ")));
+                }
             }
         }
         (None, None)
@@ -189,5 +195,7 @@ fn get_device_type_model() -> (Option<String>, Option<String>) {
         } else { (None, None) }
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    { (None, None) }
+    {
+        (None, None)
+    }
 }
