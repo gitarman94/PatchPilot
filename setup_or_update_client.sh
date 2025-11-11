@@ -8,7 +8,6 @@ RUST_REPO="https://github.com/gitarman94/PatchPilot.git"
 CLIENT_BINARY="$APP_DIR/patchpilot_client"
 SERVICE_NAME="patchpilot_client.service"
 SYSTEMD_DIR="/etc/systemd/system"
-
 FORCE_INSTALL=false
 UPDATE=false
 
@@ -33,23 +32,30 @@ else
     exit 1
 fi
 
-# --- Cleanup for force install or prior run ---
-if [[ "$FORCE_INSTALL" = true || "$UPDATE" = true ]]; then
+# --- Move to safe directory ---
+cd /tmp || exit 1
+
+# --- Cleanup for force install ---
+if [[ "$FORCE_INSTALL" = true ]]; then
     echo "🧹 Cleaning up old installation..."
-    
-    # Stop and remove service if exists
+
+    # Stop and remove service if it exists
     if systemctl list-units --full --all | grep -q "$SERVICE_NAME"; then
         systemctl stop "$SERVICE_NAME" || true
         systemctl disable "$SERVICE_NAME" || true
         rm -f "${SYSTEMD_DIR}/${SERVICE_NAME}"
         systemctl daemon-reload
+    else
+        echo "⚠️ Service $SERVICE_NAME not found. Skipping service cleanup."
     fi
 
-    # Remove application directory
-    rm -rf "$APP_DIR"
+    # Remove previous installation
+    rm -rf "$APP_DIR" "$HOME/.cargo" "$HOME/.rustup"
 
-    # Remove prior source directory
-    rm -rf "$SRC_DIR"
+    # Remove /etc/environment entries
+    sed -i '/CARGO_HOME/d' /etc/environment || true
+    sed -i '/RUSTUP_HOME/d' /etc/environment || true
+    sed -i "/PATH=.*\/opt\/patchpilot_client\/.cargo\/bin/d" /etc/environment || true
 fi
 
 mkdir -p "$APP_DIR"
@@ -73,8 +79,11 @@ fi
 "$CARGO_HOME/bin/rustup" default stable
 "$CARGO_HOME/bin/cargo" --version
 
-# --- Clone and build client ---
+# --- Clone source ---
+if [[ -d "$SRC_DIR" ]]; then rm -rf "$SRC_DIR"; fi
+mkdir -p "$SRC_DIR"
 git clone "$RUST_REPO" "$SRC_DIR"
+
 cd "$SRC_DIR/patchpilot_client"
 
 export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
@@ -89,7 +98,7 @@ echo "🔨 Building PatchPilot client..."
 cp target/release/rust_patch_client "$CLIENT_BINARY"
 chmod +x "$CLIENT_BINARY"
 
-# --- Move client_test.sh into project directory ---
+# --- Copy client_test.sh to project directory ---
 if [[ -f "$SRC_DIR/client_test.sh" ]]; then
     cp "$SRC_DIR/client_test.sh" "$APP_DIR/"
     chmod +x "$APP_DIR/client_test.sh"
@@ -131,7 +140,7 @@ EOF
 systemctl daemon-reload
 systemctl enable --now "$SERVICE_NAME"
 
-# --- Cleanup temporary source directory ---
+# --- Cleanup source directory after successful build ---
 rm -rf "$SRC_DIR"
 
 echo "✅ Installation complete!"
