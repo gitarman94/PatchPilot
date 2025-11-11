@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde::Serialize;
-use sysinfo::{System, Disks, Networks, Cpu, Process};
+use sysinfo::{System, Cpu, Process};
 
 #[derive(Serialize)]
 pub struct CpuInfo {
@@ -56,6 +56,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
     let mut sys = System::new_all();
     sys.refresh_all();
 
+    // ✅ CPUs
     let cpus: Vec<CpuInfo> = sys
         .cpus()
         .iter()
@@ -66,15 +67,15 @@ pub fn get_system_info() -> Result<SystemInfo> {
         })
         .collect();
 
+    // ✅ Memory
     let memory = MemoryInfo {
         total: sys.total_memory(),
         used: sys.used_memory(),
     };
 
-    // ✅ Disks
+    // ✅ Disks (fixed: removed `.list()`)
     let disks: Vec<DiskInfo> = sys
         .disks()
-        .list()
         .iter()
         .map(|disk| DiskInfo {
             name: disk.name().to_string_lossy().into_owned(),
@@ -84,7 +85,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
         })
         .collect();
 
-    // ✅ Networks
+    // ✅ Networks (fixed: `.networks()` returns an iterable map)
     let network_interfaces: Vec<NetworkInterfaceInfo> = sys
         .networks()
         .iter()
