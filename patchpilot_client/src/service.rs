@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use serde_json::json;
 use std::{fs, thread, time::Duration};
-use crate::system_info; // Updated import for system_info
+use crate::system_info::{get_system_info, SystemInfo};
 
 // Reads the server URL from a file
 fn read_server_url() -> Result<String> {
@@ -13,16 +13,13 @@ fn read_server_url() -> Result<String> {
 
 // Retrieves device-specific information (ID, type, and model)
 fn get_device_info() -> (String, String, String) {
-    let device_info = system_info::get_system_info().unwrap_or_default();
+    let device_info = get_system_info().unwrap_or_default();
     let device_id = device_info
-        .get("serial_number")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
+        .serial_number
+        .unwrap_or_else(|| "unknown".to_string());
 
-    // Fetch device type and model using the centralized system_info
-    let device_type = system_info::get_device_type().unwrap_or("unknown".to_string());
-    let device_model = system_info::get_device_model().unwrap_or("unknown".to_string());
+    let device_type = device_info.device_type.unwrap_or_else(|| "unknown".to_string());
+    let device_model = device_info.device_model.unwrap_or_else(|| "unknown".to_string());
 
     (device_id, device_type, device_model)
 }
@@ -62,27 +59,56 @@ fn check_adoption_status(
 
 // Sends system information update to the server
 fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
-    let sys_info = match system_info::get_system_info() {
+    let sys_info = match get_system_info() {
         Ok(info) => info,
         Err(e) => {
             log::error!("Failed to gather system info: {:?}", e);
-            json!({}) // Sending empty JSON if system info fetch fails
+            SystemInfo::default()
         }
     };
 
-    log::info!("Sending system update: {}", sys_info);
+    log::info!("Sending system update: {:?}", sys_info);
 
-    let response = client
+    if let Err(e) = client
         .post(format!("{}/api/devices/update_status", server_url))
         .json(&json!({
             "device_id": device_id,
             "status": "active",
             "system_info": sys_info,
         }))
-        .send();
-
-    if let Err(e) = response {
+        .send()
+    {
         log::error!("Failed to send system update: {:?}", e);
+    }
+}
+
+#[cfg(unix)]
+mod unix_service {
+    use super::*;
+
+    pub fn run_unix_service() -> Result<()> {
+        log::info!("Starting Unix service...");
+
+        let client = Client::new();
+        let server_url = read_server_url()?;
+        let (device_id, device_type, device_model) = get_device_info();
+
+        // Adoption check loop
+        loop {
+            log::info!("Checking adoption status for device...");
+            if check_adoption_status(&client, &server_url, &device_id, &device_type, &device_model)? {
+                log::info!("Device approved. Starting system updates...");
+                break;
+            }
+            log::info!("Waiting for approval...");
+            thread::sleep(Duration::from_secs(30));
+        }
+
+        // Regular system update loop
+        loop {
+            send_system_update(&client, &server_url, &device_id);
+            thread::sleep(Duration::from_secs(600));
+        }
     }
 }
 
@@ -91,7 +117,6 @@ mod windows_service {
     use super::*;
     use std::sync::{Arc, Mutex};
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::{thread, time::Duration};
     use windows_service::{
         define_windows_service, service_dispatcher,
         service_control_handler::{self, ServiceControl, ServiceControlHandlerResult},
@@ -106,7 +131,7 @@ mod windows_service {
 
     pub fn run_service() -> Result<()> {
         log::info!("Starting Windows service...");
-        service_dispatcher::start("RustPatchDeviceService", ffi_service_main)?; // Starting the service dispatcher
+        service_dispatcher::start("RustPatchDeviceService", ffi_service_main)?;
         Ok(())
     }
 
@@ -153,13 +178,13 @@ mod windows_service {
                 break;
             }
             log::info!("Waiting for approval...");
-            thread::sleep(Duration::from_secs(30)); // Sleep for 30 seconds before checking adoption again
+            thread::sleep(Duration::from_secs(30));
         }
 
         // Regular system update loop
         while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
             send_system_update(&client, &server_url, &device_id);
-            thread::sleep(Duration::from_secs(600)); // Send updates every 10 minutes
+            thread::sleep(Duration::from_secs(600));
         }
 
         log::info!("Service stopping...");
@@ -171,38 +196,7 @@ mod windows_service {
 }
 
 #[cfg(unix)]
-mod unix_service {
-    use super::*;
-    use std::{thread, time::Duration};
-
-    pub fn run_unix_service() -> Result<()> {
-        log::info!("Starting Unix service...");
-
-        let client = Client::new();
-        let server_url = read_server_url()?;
-        let (device_id, device_type, device_model) = get_device_info();
-
-        // Adoption check loop
-        loop {
-            log::info!("Checking adoption status for device...");
-            if check_adoption_status(&client, &server_url, &device_id, &device_type, &device_model)? {
-                log::info!("Device approved. Starting system updates...");
-                break;
-            }
-            log::info!("Waiting for approval...");
-            thread::sleep(Duration::from_secs(30)); // Sleep for 30 seconds before checking adoption again
-        }
-
-        // Regular system update loop
-        loop {
-            send_system_update(&client, &server_url, &device_id);
-            thread::sleep(Duration::from_secs(600)); // Send updates every 10 minutes
-        }
-    }
-}
+pub use unix_service::run_unix_service;
 
 #[cfg(windows)]
 pub use windows_service::run_service;
-
-#[cfg(unix)]
-pub use unix_service::run_unix_service;
