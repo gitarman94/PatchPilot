@@ -33,27 +33,23 @@ else
     exit 1
 fi
 
-# --- Cleanup for force install ---
-if [[ "$FORCE_INSTALL" = true ]]; then
+# --- Cleanup for force install or prior run ---
+if [[ "$FORCE_INSTALL" = true || "$UPDATE" = true ]]; then
     echo "🧹 Cleaning up old installation..."
     
-    # Check if the service exists before stopping or disabling
+    # Stop and remove service if exists
     if systemctl list-units --full --all | grep -q "$SERVICE_NAME"; then
         systemctl stop "$SERVICE_NAME" || true
         systemctl disable "$SERVICE_NAME" || true
         rm -f "${SYSTEMD_DIR}/${SERVICE_NAME}"
         systemctl daemon-reload
-    else
-        echo "⚠️ Service $SERVICE_NAME not found. Skipping service cleanup."
     fi
 
-    # Remove Rust and Cargo installed under APP_DIR
-    rm -rf "$APP_DIR" "$HOME/.cargo" "$HOME/.rustup"
+    # Remove application directory
+    rm -rf "$APP_DIR"
 
-    # Remove /etc/environment entries
-    sed -i '/CARGO_HOME/d' /etc/environment || true
-    sed -i '/RUSTUP_HOME/d' /etc/environment || true
-    sed -i "/PATH=.*\/opt\/patchpilot_client\/.cargo\/bin/d" /etc/environment || true
+    # Remove prior source directory
+    rm -rf "$SRC_DIR"
 fi
 
 mkdir -p "$APP_DIR"
@@ -78,10 +74,7 @@ fi
 "$CARGO_HOME/bin/cargo" --version
 
 # --- Clone and build client ---
-if [[ -d "$SRC_DIR" ]]; then rm -rf "$SRC_DIR"; fi
-mkdir -p "$SRC_DIR"
 git clone "$RUST_REPO" "$SRC_DIR"
-
 cd "$SRC_DIR/patchpilot_client"
 
 export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
@@ -95,6 +88,12 @@ echo "🔨 Building PatchPilot client..."
 # --- Copy binary ---
 cp target/release/rust_patch_client "$CLIENT_BINARY"
 chmod +x "$CLIENT_BINARY"
+
+# --- Move client_test.sh into project directory ---
+if [[ -f "$SRC_DIR/client_test.sh" ]]; then
+    cp "$SRC_DIR/client_test.sh" "$APP_DIR/"
+    chmod +x "$APP_DIR/client_test.sh"
+fi
 
 # --- Optional: patchpilot user ---
 if ! id -u patchpilot >/dev/null 2>&1; then
@@ -131,5 +130,8 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now "$SERVICE_NAME"
+
+# --- Cleanup temporary source directory ---
+rm -rf "$SRC_DIR"
 
 echo "✅ Installation complete!"
