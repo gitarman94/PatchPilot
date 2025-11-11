@@ -17,17 +17,16 @@ mkdir -p "$TMP_DIR"
 # 1. Check systemd service
 ###############################################
 echo "🔍 Checking systemd service: ${SERVICE_NAME}"
-if systemctl list-units --full -all | grep -q "^${SERVICE_NAME}"; then
-    status=$(systemctl is-active "${SERVICE_NAME}")
-    if [[ "$status" == "active" ]]; then
-        echo "✔️  Service is active."
-    else
-        echo "❌  Service exists but is not active: $status"
-        journalctl -u "${SERVICE_NAME}" -n 30 --no-pager
-        exit 1
-    fi
+if systemctl is-active --quiet "${SERVICE_NAME}"; then
+    echo "✔️  Service is active."
 else
-    echo "❌  Service not found: ${SERVICE_NAME}"
+    if systemctl list-units --full -all | grep -q "${SERVICE_NAME}"; then
+        status=$(systemctl is-active "${SERVICE_NAME}")
+        echo "❌  Service exists but is not active: $status"
+    else
+        echo "❌  Service not found: ${SERVICE_NAME}"
+    fi
+    journalctl -u "${SERVICE_NAME}" -n 30 --no-pager || true
     exit 1
 fi
 
