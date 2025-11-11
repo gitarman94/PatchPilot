@@ -1,3 +1,5 @@
+mod service;
+
 use anyhow::Result;
 use serde::Serialize;
 use sysinfo::{System, Cpu, Process, Disks, Networks};
@@ -133,4 +135,5 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
 
