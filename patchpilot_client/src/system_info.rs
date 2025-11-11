@@ -1,16 +1,15 @@
 use serde::Serialize;
-use std::process::Command;
-use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ProcessExt};
+use sysinfo::{System, Cpu, Disk, NetworkData, Process, Pid, RefreshKind};
 use local_ip_address::local_ip;
-use reqwest;
+use std::process::Command;
 
 /// Disk information
 #[derive(Debug, Clone, Serialize)]
 pub struct DiskInfo {
     pub name: String,
-    pub total_mb: u64,
-    pub used_mb: u64,
-    pub free_mb: u64,
+    pub total: u64,
+    pub used: u64,
+    pub free: u64,
     pub mount_point: String,
 }
 
@@ -29,8 +28,8 @@ pub struct NetworkInterfaceInfo {
 pub struct ProcessInfo {
     pub pid: u32,
     pub name: String,
-    pub cpu_percent: f32,
-    pub memory_mb: u64,
+    pub cpu: f32,
+    pub memory: u64,
 }
 
 /// Battery information
@@ -41,7 +40,7 @@ pub struct BatteryInfo {
 }
 
 /// All system information
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct SystemInfo {
     pub os_name: String,
     pub architecture: String,
@@ -49,11 +48,11 @@ pub struct SystemInfo {
     pub cpu_usage_total: f32,
     pub cpu_usage_per_core: Vec<f32>,
     pub cpu_temperature: Option<f32>,
-    pub ram_total_mb: u64,
-    pub ram_used_mb: u64,
-    pub ram_free_mb: u64,
-    pub swap_total_mb: u64,
-    pub swap_used_mb: u64,
+    pub ram_total: u64,
+    pub ram_used: u64,
+    pub ram_free: u64,
+    pub swap_total: u64,
+    pub swap_used: u64,
     pub disks: Vec<DiskInfo>,
     pub network_interfaces: Vec<NetworkInterfaceInfo>,
     pub local_ip: Option<String>,
@@ -64,10 +63,19 @@ pub struct SystemInfo {
 }
 
 pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
-    let mut sys = System::new_all();
+    let mut sys = System::new_with_specifics(
+        RefreshKind::new()
+            .with_cpu()
+            .with_memory()
+            .with_disks()
+            .with_disks_list()
+            .with_networks()
+            .with_processes()
+    );
+
     sys.refresh_all();
 
-    // CPU usage
+    // CPU usage per core
     let cpu_usage_per_core: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
     let cpu_usage_total = if !cpu_usage_per_core.is_empty() {
         cpu_usage_per_core.iter().sum::<f32>() / cpu_usage_per_core.len() as f32
@@ -76,22 +84,22 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     };
 
     // Memory
-    let ram_total_mb = sys.total_memory() / 1024;
-    let ram_used_mb = sys.used_memory() / 1024;
-    let ram_free_mb = ram_total_mb.saturating_sub(ram_used_mb);
-    let swap_total_mb = sys.total_swap() / 1024;
-    let swap_used_mb = sys.used_swap() / 1024;
+    let ram_total = sys.total_memory() / 1024;
+    let ram_used = sys.used_memory() / 1024;
+    let ram_free = ram_total.saturating_sub(ram_used);
+    let swap_total = sys.total_swap() / 1024;
+    let swap_used = sys.used_swap() / 1024;
 
     // Disks
     let disks: Vec<DiskInfo> = sys.disks().iter().map(|d| DiskInfo {
         name: d.name().to_string_lossy().into_owned(),
-        total_mb: d.total_space() / 1024 / 1024,
-        used_mb: (d.total_space() - d.available_space()) / 1024 / 1024,
-        free_mb: d.available_space() / 1024 / 1024,
+        total: d.total_space() / 1024 / 1024,
+        used: (d.total_space() - d.available_space()) / 1024 / 1024,
+        free: d.available_space() / 1024 / 1024,
         mount_point: d.mount_point().to_string_lossy().into_owned(),
     }).collect();
 
-    // Network interfaces
+    // Networks
     let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
         name: name.clone(),
         mac: None,
@@ -104,18 +112,18 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let mut process_list: Vec<ProcessInfo> = sys.processes().values().map(|p| ProcessInfo {
         pid: p.pid().as_u32(),
         name: p.name().to_string(),
-        cpu_percent: p.cpu_usage(),
-        memory_mb: p.memory() / 1024,
+        cpu: p.cpu_usage(),
+        memory: p.memory() / 1024,
     }).collect();
 
-    process_list.sort_by(|a, b| b.cpu_percent.partial_cmp(&a.cpu_percent).unwrap_or(std::cmp::Ordering::Equal));
+    process_list.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
     let top_processes_cpu = process_list.iter().take(5).cloned().collect::<Vec<_>>();
 
-    process_list.sort_by(|a, b| b.memory_mb.cmp(&a.memory_mb));
+    process_list.sort_by(|a, b| b.memory.cmp(&a.memory));
     let top_processes_ram = process_list.iter().take(5).cloned().collect::<Vec<_>>();
 
-    // Battery (only macOS supported for now)
-    let battery: Option<BatteryInfo> = {
+    // Battery (macOS example)
+    let battery = {
         #[cfg(target_os = "macos")]
         {
             let output = Command::new("pmset").args(["-g", "batt"]).output().ok();
@@ -130,43 +138,33 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
                         percentage,
                         status: parts.get(1).map(|s| s.trim().to_string()),
                     })
-                } else { None }
+                } else {
+                    None
+                }
             } else { None }
         }
         #[cfg(not(target_os = "macos"))]
-        {
-            None
-        }
+        { None }
     };
 
-    // Local IP
     let local_ip = local_ip().ok().map(|ip| ip.to_string());
-
-    // Public IP (optional, using reqwest)
-    let public_ip = match reqwest::blocking::get("https://api.ipify.org") {
-        Ok(resp) => resp.text().ok(),
-        Err(_) => None,
-    };
-
-    // CPU temperature (if available)
-    let cpu_temperature = sys.cpus().get(0).and_then(|_| None); // Extend with platform-specific crate if needed
 
     Ok(SystemInfo {
         os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        architecture: sys.long_os_version().unwrap_or_else(|| "Unknown".to_string()),
+        architecture: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
         uptime_seconds: sys.uptime(),
         cpu_usage_total,
         cpu_usage_per_core,
-        cpu_temperature,
-        ram_total_mb,
-        ram_used_mb,
-        ram_free_mb,
-        swap_total_mb,
-        swap_used_mb,
+        cpu_temperature: None,
+        ram_total,
+        ram_used,
+        ram_free,
+        swap_total,
+        swap_used,
         disks,
         network_interfaces,
         local_ip,
-        public_ip,
+        public_ip: None,
         top_processes_cpu,
         top_processes_ram,
         battery,
