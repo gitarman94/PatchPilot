@@ -1,284 +1,200 @@
-use std::process::Command;
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result};
+use reqwest::blocking::Client;
 use serde_json::json;
-use log::{info, error};
-use crate::models::{DeviceInfo, SystemInfo}; // Add imports for DeviceInfo and SystemInfo
+use std::{fs, thread, time::Duration};
+use crate::system_info::{get_system_info, SystemInfo};
 
-#[cfg(windows)]
-mod windows {
-    use super::*;
-    use crate::system_info;
+// Reads the server URL from a file
+fn read_server_url() -> Result<String> {
+    let url = fs::read_to_string("/opt/patchpilot_client/server_url.txt")
+        .context("Failed to read the server URL from file")?;
+    Ok(url.trim().to_string())
+}
 
-    pub fn get_system_info() -> Result<DeviceInfo> {
-        info!("Retrieving system information for Windows...");
+// Retrieves device-specific information (ID, type, and model)
+fn get_device_info() -> (String, String, String) {
+    let info: SystemInfo = get_system_info().unwrap_or_default();
+    let device_id = info.serial_number.unwrap_or_else(|| "unknown".to_string());
+    let device_type = info.device_type.unwrap_or_else(|| "unknown".to_string());
+    let device_model = info.device_model.unwrap_or_else(|| "unknown".to_string());
+    (device_id, device_type, device_model)
+}
 
-        // Call to system_info.rs for detailed system data
-        let system_info = system_info::get_system_info()?; // Centralized logic call
+// Checks the adoption status of the device on the server
+fn check_adoption_status(
+    client: &Client,
+    server_url: &str,
+    device_id: &str,
+    device_type: &str,
+    device_model: &str,
+) -> Result<bool> {
+    let response = client
+        .post(format!("{}/api/devices/heartbeat", server_url))
+        .json(&json!({
+            "device_id": device_id,
+            "device_type": device_type,
+            "device_model": device_model,
+        }))
+        .send();
 
-        Ok(DeviceInfo {
-            system_info,
-            device_type: get_device_type()?,
-            device_model: get_device_model()?,
-        })
-    }
-
-    fn get_device_type() -> Result<String> {
-        info!("Getting device type for Windows...");
-        // Windows-specific logic for device type
-        Ok("Desktop".to_string()) // Placeholder value
-    }
-
-    fn get_device_model() -> Result<String> {
-        info!("Getting device model for Windows...");
-        // Windows-specific logic for device model
-        Ok("Surface Pro 7".to_string()) // Placeholder value
+    match response {
+        Ok(resp) if resp.status().is_success() => {
+            let status_json: serde_json::Value = resp.json()?;
+            Ok(status_json["adopted"].as_bool() == Some(true))
+        }
+        Ok(_) => {
+            log::error!("Unexpected response received while checking adoption status.");
+            Ok(false)
+        }
+        Err(e) => {
+            log::error!("Error checking adoption status: {:?}", e);
+            Ok(false)
+        }
     }
 }
 
-#[cfg(unix)]
-mod unix {
-    use super::*;
-    use crate::system_info;
+// Sends system information update to the server
+fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
+    let sys_info: SystemInfo = match get_system_info() {
+        Ok(info) => info,
+        Err(e) => {
+            log::error!("Failed to gather system info: {:?}", e);
+            SystemInfo::default()
+        }
+    };
 
-    pub fn get_system_info() -> Result<DeviceInfo> {
-        info!("Retrieving system information for Unix...");
+    log::info!("Sending system update: {:?}", sys_info);
 
-        // Call to system_info.rs for detailed system data
-        let system_info = system_info::get_system_info()?; // Centralized logic call
-
-        Ok(DeviceInfo {
-            system_info,
-            device_type: get_device_type()?,
-            device_model: get_device_model()?,
-        })
-    }
-
-    fn get_device_type() -> Result<String> {
-        info!("Getting device type for Unix...");
-        // Unix-specific logic for device type
-        Ok("Laptop".to_string()) // Placeholder value
-    }
-
-    fn get_device_model() -> Result<String> {
-        info!("Getting device model for Unix...");
-        // Unix-specific logic for device model
-        Ok("Dell XPS 13".to_string()) // Placeholder value
-    }
-}
-
-#[cfg(target_os = "macos")]
-mod macos {
-    use super::*;
-    use crate::system_info;
-
-    pub fn get_system_info() -> Result<DeviceInfo> {
-        info!("Retrieving system information for macOS...");
-
-        // Call to system_info.rs for detailed system data
-        let system_info = system_info::get_system_info()?; // Centralized logic call
-
-        Ok(DeviceInfo {
-            system_info,
-            device_type: get_device_type()?,
-            device_model: get_device_model()?,
-        })
-    }
-
-    fn get_device_type() -> Result<String> {
-        info!("Getting device type for macOS...");
-        // macOS-specific logic for device type
-        Ok("Laptop".to_string()) // Placeholder value
-    }
-
-    fn get_device_model() -> Result<String> {
-        info!("Getting device model for macOS...");
-        // macOS-specific logic for device model
-        Ok("MacBook Pro".to_string()) // Placeholder value
+    if let Err(e) = client
+        .post(format!("{}/api/devices/update_status", server_url))
+        .json(&json!({
+            "device_id": device_id,
+            "status": "active",
+            "system_info": sys_info,
+        }))
+        .send()
+    {
+        log::error!("Failed to send system update: {:?}", e);
     }
 }
 
 #[cfg(windows)]
-mod windows_info {
+mod windows_service {
     use super::*;
-    use std::process::Command;
+    use std::sync::{Arc, Mutex};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use windows_service::{
+        define_windows_service, service_dispatcher,
+        service_control_handler::{self, ServiceControl, ServiceControlHandlerResult},
+        service::{ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType},
+    };
+    use std::thread;
+    use std::time::Duration;
 
-    fn get_cpu_info() -> Result<f32> {
-        info!("Getting CPU info for Windows...");
-        let output = Command::new("wmic")
-            .args(&["cpu", "get", "loadpercentage"])
-            .output()
-            .map_err(|e| anyhow!("Failed to execute WMIC for CPU info: {}", e))?;
+    define_windows_service!(ffi_service_main, my_service_main);
 
-        if !output.status.success() {
-            error!("Failed to retrieve CPU load using WMIC");
-            return Err(anyhow!("Failed to retrieve CPU load"));
-        }
-
-        let cpu_load_str = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .last()
-            .unwrap_or("0")
-            .trim();
-
-        let cpu_load: f32 = cpu_load_str.parse().unwrap_or(0.0);
-        info!("CPU load retrieved: {}%", cpu_load);
-        Ok(cpu_load)
+    lazy_static::lazy_static! {
+        static ref SERVICE_RUNNING: Arc<Mutex<AtomicBool>> = Arc::new(Mutex::new(AtomicBool::new(true)));
     }
 
-    fn get_memory_info() -> Result<SystemInfo> {
-        info!("Getting memory info for Windows...");
-        let output = Command::new("systeminfo")
-            .arg("/fo")
-            .arg("CSV")
-            .output()
-            .map_err(|e| anyhow!("Failed to execute systeminfo for memory: {}", e))?;
-
-        if !output.status.success() {
-            error!("Failed to retrieve memory info using systeminfo");
-            return Err(anyhow!("Failed to retrieve memory info"));
-        }
-
-        let output_str = String::from_utf8_lossy(&output.stdout);
-        let total_memory = output_str.lines()
-            .filter(|line| line.contains("Total Physical Memory"))
-            .map(|line| line.split(":").nth(1).unwrap_or("").trim())
-            .next()
-            .unwrap_or("0")
-            .parse::<u64>()
-            .unwrap_or(0);
-
-        let free_memory = output_str.lines()
-            .filter(|line| line.contains("Available Physical Memory"))
-            .map(|line| line.split(":").nth(1).unwrap_or("").trim())
-            .next()
-            .unwrap_or("0")
-            .parse::<u64>()
-            .unwrap_or(0);
-
-        info!("Memory info retrieved: total_memory: {}, free_memory: {}", total_memory, free_memory);
-
-        Ok(SystemInfo {
-            os_name: "Windows".to_string(),
-            architecture: "x86_64".to_string(),
-            cpu: 0.0, // Placeholder
-            ram_total: total_memory as i64,
-            ram_used: (total_memory - free_memory) as i64,
-            ram_free: free_memory as i64,
-            disk_total: 0,
-            disk_free: 0,
-            disk_health: "Healthy".to_string(),
-            network_throughput: 0,
-            ping_latency: None,
-            network_interfaces: None,
-            ip_address: None,
-        })
+    pub fn run_service() -> Result<()> {
+        log::info!("Starting Windows service...");
+        service_dispatcher::start("RustPatchDeviceService", ffi_service_main)?;
+        Ok(())
     }
 
-    fn get_serial_number() -> Result<String> {
-        info!("Getting serial number for Windows...");
-        let output = Command::new("wmic")
-            .args(&["bios", "get", "serialnumber"])
-            .output()
-            .map_err(|e| anyhow!("Failed to execute WMIC for serial number: {}", e))?;
+    fn my_service_main(_argc: u32, _argv: *mut *mut u16) {
+        if let Err(e) = run() {
+            log::error!("Service error: {:?}", e);
+        }
+    }
 
-        if !output.status.success() {
-            error!("Failed to retrieve serial number using WMIC");
-            return Err(anyhow!("Failed to retrieve serial number"));
+    fn run() -> Result<()> {
+        let status_handle = service_control_handler::register(
+            "RustPatchDeviceService",
+            move |control_event| match control_event {
+                ServiceControl::Stop | ServiceControl::Shutdown => {
+                    log::info!("Service stopping...");
+                    SERVICE_RUNNING.lock().unwrap().store(false, Ordering::SeqCst);
+                    ServiceControlHandlerResult::NoError
+                }
+                _ => ServiceControlHandlerResult::NotImplemented,
+            },
+        )?;
+
+        let mut status = ServiceStatus {
+            service_type: ServiceType::OWN_PROCESS,
+            current_state: ServiceState::Running,
+            controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
+            exit_code: ServiceExitCode::Win32(0),
+            checkpoint: 0,
+            wait_hint: Duration::from_secs(0),
+            process_id: None,
+        };
+        status_handle.set_service_status(status)?;
+
+        let client = Client::new();
+        let server_url = read_server_url()?;
+        let (device_id, device_type, device_model) = get_device_info();
+
+        // Adoption check loop
+        while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
+            log::info!("Checking adoption status for device...");
+            if check_adoption_status(&client, &server_url, &device_id, &device_type, &device_model)? {
+                log::info!("Device approved. Starting regular updates...");
+                break;
+            }
+            log::info!("Waiting for approval...");
+            thread::sleep(Duration::from_secs(30));
         }
 
-        let serial_number = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .last()
-            .unwrap_or("")
-            .trim()
-            .to_string();
+        // Regular system update loop
+        while SERVICE_RUNNING.lock().unwrap().load(Ordering::SeqCst) {
+            send_system_update(&client, &server_url, &device_id);
+            thread::sleep(Duration::from_secs(600));
+        }
 
-        info!("Serial number retrieved: {}", serial_number);
-        Ok(serial_number)
+        log::info!("Service stopping...");
+        status.current_state = ServiceState::Stopped;
+        status_handle.set_service_status(status)?;
+        Ok(())
     }
 }
 
 #[cfg(unix)]
-mod unix_info {
+mod unix_service {
     use super::*;
-    use std::process::Command;
+    use std::thread;
+    use std::time::Duration;
 
-    fn get_cpu_info() -> Result<f32> {
-        info!("Getting CPU info for Unix...");
-        let output = Command::new("top")
-            .args(&["-bn1"])
-            .output()
-            .map_err(|e| anyhow!("Failed to execute top for CPU info: {}", e))?;
+    pub fn run_unix_service() -> Result<()> {
+        log::info!("Starting Unix service...");
 
-        if !output.status.success() {
-            error!("Failed to retrieve CPU info using top");
-            return Err(anyhow!("Failed to retrieve CPU load"));
+        let client = Client::new();
+        let server_url = read_server_url()?;
+        let (device_id, device_type, device_model) = get_device_info();
+
+        // Adoption check loop
+        loop {
+            log::info!("Checking adoption status for device...");
+            if check_adoption_status(&client, &server_url, &device_id, &device_type, &device_model)? {
+                log::info!("Device approved. Starting system updates...");
+                break;
+            }
+            log::info!("Waiting for approval...");
+            thread::sleep(Duration::from_secs(30));
         }
 
-        let cpu_info = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .find(|line| line.contains("Cpu(s)"))
-            .map(|line| {
-                line.split('%')
-                    .next()
-                    .unwrap_or("0")
-                    .trim()
-                    .parse::<f32>()
-                    .unwrap_or(0.0)
-            })
-            .unwrap_or(0.0);
-
-        info!("CPU load retrieved: {}%", cpu_info);
-        Ok(cpu_info)
-    }
-
-    fn get_memory_info() -> Result<SystemInfo> {
-        info!("Getting memory info for Unix...");
-        let output = Command::new("free")
-            .arg("-b")
-            .output()
-            .map_err(|e| anyhow!("Failed to execute free for memory: {}", e))?;
-
-        if !output.status.success() {
-            error!("Failed to retrieve memory info using free");
-            return Err(anyhow!("Failed to retrieve memory info"));
+        // Regular system update loop
+        loop {
+            send_system_update(&client, &server_url, &device_id);
+            thread::sleep(Duration::from_secs(600));
         }
-
-        let output_str = String::from_utf8_lossy(&output.stdout);
-        let total_memory = output_str
-            .lines()
-            .filter(|line| line.starts_with("Mem:"))
-            .map(|line| line.split_whitespace().nth(1).unwrap_or("0"))
-            .next()
-            .unwrap_or("0")
-            .parse::<u64>()
-            .unwrap_or(0);
-
-        let free_memory = output_str
-            .lines()
-            .filter(|line| line.starts_with("Mem:"))
-            .map(|line| line.split_whitespace().nth(3).unwrap_or("0"))
-            .next()
-            .unwrap_or("0")
-            .parse::<u64>()
-            .unwrap_or(0);
-
-        Ok(SystemInfo {
-            os_name: "Linux".to_string(),
-            architecture: "x86_64".to_string(),
-            cpu: 0.0, // Placeholder for CPU info
-            ram_total: total_memory as i64,
-            ram_used: (total_memory - free_memory) as i64,
-            ram_free: free_memory as i64,
-            disk_total: 0,
-            disk_free: 0,
-            disk_health: "Healthy".to_string(),
-            network_throughput: 0,
-            ping_latency: None,
-            network_interfaces: None,
-            ip_address: None,
-        })
     }
 }
+
+#[cfg(windows)]
+pub use windows_service::run_service;
+
+#[cfg(unix)]
+pub use unix_service::run_unix_service;
