@@ -33,14 +33,10 @@ else
     exit 1
 fi
 
-# --- Move to safe working directory before cleanup ---
-cd /tmp || exit 1
-
 # --- Cleanup for force install ---
 if [[ "$FORCE_INSTALL" = true ]]; then
     echo "🧹 Cleaning up old installation..."
     
-    # Stop and disable service if it exists
     if systemctl list-units --full --all | grep -q "$SERVICE_NAME"; then
         systemctl stop "$SERVICE_NAME" || true
         systemctl disable "$SERVICE_NAME" || true
@@ -50,13 +46,8 @@ if [[ "$FORCE_INSTALL" = true ]]; then
         echo "⚠️ Service $SERVICE_NAME not found. Skipping service cleanup."
     fi
 
-    # Remove app directory and Rust toolchains
-    rm -rf "$APP_DIR" "$HOME/.cargo" "$HOME/.rustup"
-
-    # Remove /etc/environment entries
-    sed -i '/CARGO_HOME/d' /etc/environment || true
-    sed -i '/RUSTUP_HOME/d' /etc/environment || true
-    sed -i "/PATH=.*\/opt\/patchpilot_client\/.cargo\/bin/d" /etc/environment || true
+    rm -rf "$APP_DIR"
+    rm -rf "$SRC_DIR"
 fi
 
 mkdir -p "$APP_DIR"
@@ -70,12 +61,11 @@ apt-get install -y -qq curl git build-essential pkg-config libssl-dev
 CARGO_HOME="$APP_DIR/.cargo"
 RUSTUP_HOME="$APP_DIR/.rustup"
 mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
-
-# Ensure Rust uses APP_DIR as HOME to avoid getcwd issues
-export CARGO_HOME RUSTUP_HOME PATH="$CARGO_HOME/bin:$PATH" HOME="$APP_DIR"
+export CARGO_HOME RUSTUP_HOME PATH="$CARGO_HOME/bin:$PATH"
 
 if ! command -v cargo >/dev/null 2>&1; then
     echo "🛠️ Installing Rust..."
+    # Run rustup installer without overriding HOME
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
@@ -109,6 +99,12 @@ chown -R patchpilot:patchpilot "$APP_DIR"
 chmod -R 755 "$APP_DIR"
 find "$APP_DIR" -type f -exec chmod 755 {} \;
 
+# --- Move test script into app dir ---
+if [[ -f "$SRC_DIR/client_test.sh" ]]; then
+    cp "$SRC_DIR/client_test.sh" "$APP_DIR/"
+    chmod +x "$APP_DIR/client_test.sh"
+fi
+
 # --- Prompt for server URL ---
 read -rp "Enter the PatchPilot server IP (e.g., 192.168.1.100): " input_ip
 input_ip="${input_ip#http://}"
@@ -136,5 +132,8 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now "$SERVICE_NAME"
+
+# --- Cleanup source directory ---
+rm -rf "$SRC_DIR"
 
 echo "✅ Installation complete!"
