@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde::Serialize;
-use sysinfo::{System, Cpu, Disk, NetworkData, Process};
+use sysinfo::{System, Disks, Networks, Cpu, Process};
 
 #[derive(Serialize)]
 pub struct CpuInfo {
@@ -20,7 +20,7 @@ pub struct DiskInfo {
     pub name: String,
     pub total_space: u64,
     pub available_space: u64,
-    pub file_system: String,
+    pub mount_point: String,
 }
 
 #[derive(Serialize)]
@@ -53,7 +53,7 @@ pub struct SystemInfo {
 }
 
 pub fn get_system_info() -> Result<SystemInfo> {
-    let mut sys = System::new();
+    let mut sys = System::new_all();
     sys.refresh_all();
 
     let cpus: Vec<CpuInfo> = sys
@@ -71,27 +71,31 @@ pub fn get_system_info() -> Result<SystemInfo> {
         used: sys.used_memory(),
     };
 
+    // ✅ Disks
     let disks: Vec<DiskInfo> = sys
         .disks()
+        .list()
         .iter()
-        .map(|disk: &Disk| DiskInfo {
+        .map(|disk| DiskInfo {
             name: disk.name().to_string_lossy().into_owned(),
             total_space: disk.total_space(),
             available_space: disk.available_space(),
-            file_system: String::from_utf8_lossy(disk.file_system()).into_owned(),
+            mount_point: disk.mount_point().to_string_lossy().into_owned(),
         })
         .collect();
 
+    // ✅ Networks
     let network_interfaces: Vec<NetworkInterfaceInfo> = sys
         .networks()
         .iter()
-        .map(|(name, data): (&String, &NetworkData)| NetworkInterfaceInfo {
+        .map(|(name, data)| NetworkInterfaceInfo {
             name: name.clone(),
             received: data.received(),
             transmitted: data.transmitted(),
         })
         .collect();
 
+    // ✅ Processes
     let processes: Vec<ProcessInfo> = sys
         .processes()
         .iter()
@@ -117,7 +121,6 @@ pub fn get_system_info() -> Result<SystemInfo> {
     })
 }
 
-// Optional: provide a main() so you can run and test it
 fn main() -> Result<()> {
     let info = get_system_info()?;
     println!("{}", serde_json::to_string_pretty(&info)?);
