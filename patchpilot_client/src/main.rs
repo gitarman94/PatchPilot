@@ -6,7 +6,7 @@ mod self_update;
 
 use anyhow::Result;
 use serde::Serialize;
-use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ProcessExt, PidExt};
+use sysinfo::{System, Cpu, Disk, Process, NetworkData, Pid};
 
 #[derive(Serialize)]
 pub struct CpuInfo {
@@ -107,11 +107,11 @@ pub fn get_system_info() -> Result<SystemInfo> {
         .collect();
 
     Ok(SystemInfo {
-        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
-        kernel_version: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        hostname: sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: sys.uptime(),
+        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: System::os_version().unwrap_or_else(|| "Unknown".to_string()),
+        kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        hostname: System::host_name().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: System::uptime(),
         cpus,
         memory,
         disks,
