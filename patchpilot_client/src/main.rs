@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde::Serialize;
-use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ProcessExt};
+use sysinfo::{System, Cpu, Disk, NetworkData, Process};
 
 #[derive(Serialize)]
 pub struct CpuInfo {
@@ -32,7 +32,7 @@ pub struct NetworkInterfaceInfo {
 
 #[derive(Serialize)]
 pub struct ProcessInfo {
-    pub pid: i32,
+    pub pid: u32,
     pub name: String,
     pub cpu_usage: f32,
     pub memory: u64,
@@ -53,50 +53,73 @@ pub struct SystemInfo {
 }
 
 pub fn get_system_info() -> Result<SystemInfo> {
-    let mut sys = System::new_all();
+    let mut sys = System::new();
     sys.refresh_all();
 
-    let cpus = sys.cpus().iter().map(|cpu| CpuInfo {
-        name: cpu.name().to_string(),
-        frequency: cpu.frequency(),
-        usage: cpu.cpu_usage(),
-    }).collect();
+    let cpus: Vec<CpuInfo> = sys
+        .cpus()
+        .iter()
+        .map(|cpu: &Cpu| CpuInfo {
+            name: cpu.name().to_string(),
+            frequency: cpu.frequency(),
+            usage: cpu.cpu_usage(),
+        })
+        .collect();
 
     let memory = MemoryInfo {
         total: sys.total_memory(),
         used: sys.used_memory(),
     };
 
-    let disks = sys.disks().iter().map(|disk| DiskInfo {
-        name: disk.name().to_string_lossy().into_owned(),
-        total_space: disk.total_space(),
-        available_space: disk.available_space(),
-        file_system: String::from_utf8_lossy(disk.file_system()).into_owned(),
-    }).collect();
+    let disks: Vec<DiskInfo> = sys
+        .disks()
+        .iter()
+        .map(|disk: &Disk| DiskInfo {
+            name: disk.name().to_string_lossy().into_owned(),
+            total_space: disk.total_space(),
+            available_space: disk.available_space(),
+            file_system: String::from_utf8_lossy(disk.file_system()).into_owned(),
+        })
+        .collect();
 
-    let network_interfaces = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
-        name: name.clone(),
-        received: data.received(),
-        transmitted: data.transmitted(),
-    }).collect();
+    let network_interfaces: Vec<NetworkInterfaceInfo> = sys
+        .networks()
+        .iter()
+        .map(|(name, data): (&String, &NetworkData)| NetworkInterfaceInfo {
+            name: name.clone(),
+            received: data.received(),
+            transmitted: data.transmitted(),
+        })
+        .collect();
 
-    let processes = sys.processes().iter().map(|(pid, process)| ProcessInfo {
-        pid: pid.as_u32() as i32,
-        name: process.name().to_string(),
-        cpu_usage: process.cpu_usage(),
-        memory: process.memory(),
-    }).collect();
+    let processes: Vec<ProcessInfo> = sys
+        .processes()
+        .iter()
+        .map(|(pid, process): (&sysinfo::Pid, &Process)| ProcessInfo {
+            pid: pid.as_u32(),
+            name: process.name().to_string_lossy().into_owned(),
+            cpu_usage: process.cpu_usage(),
+            memory: process.memory(),
+        })
+        .collect();
 
     Ok(SystemInfo {
-        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
-        kernel_version: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        hostname: sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: sys.uptime(),
+        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: System::os_version().unwrap_or_else(|| "Unknown".to_string()),
+        kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        hostname: System::host_name().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: System::uptime(),
         cpus,
         memory,
         disks,
         network_interfaces,
         processes,
     })
+}
+
+// Optional: provide a main() so you can run and test it
+fn main() -> Result<()> {
+    let info = get_system_info()?;
+    println!("{}", serde_json::to_string_pretty(&info)?);
+    Ok(())
 }
