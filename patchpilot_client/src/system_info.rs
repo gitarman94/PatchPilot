@@ -1,4 +1,4 @@
-use sysinfo::{System, SystemExt};
+use sysinfo::{System, Process, Disk, NetworkData};
 use serde::Serialize;
 
 #[derive(Debug, Serialize, Default)]
@@ -39,7 +39,7 @@ pub fn get_system_info() -> anyhow::Result<SystemInfo> {
     sys.refresh_all();
 
     // --- Disks ---
-    let disks = sys.disks().iter().map(|disk| DiskInfo {
+    let disks = sys.disks().iter().map(|disk: &Disk| DiskInfo {
         name: disk.name().to_string_lossy().to_string(),
         total_space: disk.total_space(),
         available_space: disk.available_space(),
@@ -47,18 +47,18 @@ pub fn get_system_info() -> anyhow::Result<SystemInfo> {
     }).collect::<Vec<_>>();
 
     // --- Processes ---
-    let processes = sys.processes().iter().map(|(pid, process)| ProcessInfo {
+    let processes = sys.processes().iter().map(|(pid, process): (&sysinfo::Pid, &Process)| ProcessInfo {
         pid: pid.as_u32(),
-        name: process.name().to_string(),
+        name: process.name().to_string_lossy().to_string(),
         cpu_usage: process.cpu_usage(),
         memory: process.memory(),
     }).collect::<Vec<_>>();
 
     // --- Network Interfaces ---
-    let networks = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
+    let networks = sys.networks().iter().map(|(name, data): (&String, &NetworkData)| NetworkInterfaceInfo {
         name: name.clone(),
-        received: data.received,
-        transmitted: data.transmitted,
+        received: data.received(),
+        transmitted: data.transmitted(),
     }).collect::<Vec<_>>();
 
     // --- Device info placeholders ---
