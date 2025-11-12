@@ -95,8 +95,8 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
     // Network info
     let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
         name: name.clone(),
-        received: data.received,
-        transmitted: data.transmitted,
+        received: data.received(),
+        transmitted: data.transmitted(),
     }).collect();
 
     // Process info
