@@ -1,11 +1,10 @@
 use serde::Serialize;
-use sysinfo::{System, RefreshKind, CpuRefreshKind, Disks, Networks};
+use sysinfo::{System, SystemExt, CpuRefreshKind, RefreshKind, DiskExt, NetworkExt, ProcessExt};
 use local_ip_address::local_ip;
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::process::Command;
 
-/// Disk information
 #[derive(Debug, Clone, Serialize)]
 pub struct DiskInfo {
     pub name: String,
@@ -15,7 +14,6 @@ pub struct DiskInfo {
     pub mount_point: String,
 }
 
-/// Network interface information
 #[derive(Debug, Clone, Serialize)]
 pub struct NetworkInterfaceInfo {
     pub name: String,
@@ -24,7 +22,6 @@ pub struct NetworkInterfaceInfo {
     pub transmitted_bytes: u64,
 }
 
-/// Process information
 #[derive(Debug, Clone, Serialize)]
 pub struct ProcessInfo {
     pub pid: u32,
@@ -33,7 +30,6 @@ pub struct ProcessInfo {
     pub memory: u64,
 }
 
-/// Full system snapshot
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct SystemInfo {
     pub os_name: String,
@@ -61,9 +57,11 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let mut sys = System::new_with_specifics(refresh_kind);
     sys.refresh_all();
 
+    // CPU
     let cpu_usage_per_core: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
     let cpu_usage_total = cpu_usage_per_core.iter().copied().sum::<f32>() / cpu_usage_per_core.len().max(1) as f32;
 
+    // Memory
     let ram_total = sys.total_memory();
     let ram_used = sys.used_memory();
     let ram_free = ram_total.saturating_sub(ram_used);
@@ -71,8 +69,8 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     let swap_used = sys.used_swap();
 
     // Disks
-    let disks = Disks::new_with_refreshed_list();
-    let disks: Vec<DiskInfo> = disks
+    let disks: Vec<DiskInfo> = sys
+        .disks()
         .iter()
         .map(|d| DiskInfo {
             name: d.name().to_string_lossy().into_owned(),
@@ -84,8 +82,8 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         .collect();
 
     // Networks
-    let networks = Networks::new_with_refreshed_list();
-    let network_interfaces: Vec<NetworkInterfaceInfo> = networks
+    let network_interfaces: Vec<NetworkInterfaceInfo> = sys
+        .networks()
         .iter()
         .map(|(name, data)| NetworkInterfaceInfo {
             name: name.clone(),
@@ -101,7 +99,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         .values()
         .map(|p| ProcessInfo {
             pid: p.pid().as_u32(),
-            name: p.name().to_string_lossy().into_owned(),
+            name: p.name().to_string(),
             cpu: p.cpu_usage(),
             memory: p.memory(),
         })
@@ -139,16 +137,14 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     })
 }
 
+// --- Serial number and device info ---
 #[cfg(target_os = "linux")]
 fn get_serial_number() -> Option<String> {
-    std::fs::read_to_string("/sys/class/dmi/id/product_serial")
-        .ok()
-        .map(|s| s.trim().to_string())
+    std::fs::read_to_string("/sys/class/dmi/id/product_serial").ok().map(|s| s.trim().to_string())
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn get_serial_number() -> Option<String> {
-    use std::process::Command;
     if cfg!(target_os = "windows") {
         let output = Command::new("wmic")
             .args(["bios", "get", "serialnumber"])
