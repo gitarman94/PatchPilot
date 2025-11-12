@@ -1,4 +1,4 @@
-use sysinfo::{System, SystemExt, ProcessExt, DiskExt, NetworkExt};
+use sysinfo::{System, SystemExt};
 use serde::Serialize;
 
 #[derive(Debug, Serialize, Default)]
@@ -47,7 +47,7 @@ pub fn get_system_info() -> anyhow::Result<SystemInfo> {
     }).collect::<Vec<_>>();
 
     // --- Processes ---
-    let processes = sys.processes().iter().map(|(&pid, process)| ProcessInfo {
+    let processes = sys.processes().iter().map(|(pid, process)| ProcessInfo {
         pid: pid.as_u32(),
         name: process.name().to_string(),
         cpu_usage: process.cpu_usage(),
@@ -57,8 +57,8 @@ pub fn get_system_info() -> anyhow::Result<SystemInfo> {
     // --- Network Interfaces ---
     let networks = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
         name: name.clone(),
-        received: data.received(),
-        transmitted: data.transmitted(),
+        received: data.received,
+        transmitted: data.transmitted,
     }).collect::<Vec<_>>();
 
     // --- Device info placeholders ---
