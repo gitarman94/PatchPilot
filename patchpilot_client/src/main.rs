@@ -5,7 +5,7 @@ mod self_update;
 
 use anyhow::Result;
 use serde::Serialize;
-use sysinfo::{System, SystemExt, CpuRefreshKind, RefreshKind, DiskExt, NetworkExt, ProcessExt};
+use sysinfo::{System, CpuRefreshKind, RefreshKind};
 
 use crate::system_info::get_system_info;
 
@@ -61,7 +61,7 @@ pub struct LocalSystemInfo {
     pub cpus: Vec<CpuInfo>,
     pub memory: MemoryInfo,
     pub disks: Vec<DiskInfo>,
-    pub network_interfaces: Vec<NetworkInterfaceInfo>,
+    pub networks: Vec<NetworkInterfaceInfo>,
     pub processes: Vec<ProcessInfo>,
 }
 
@@ -72,9 +72,7 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
     sys.refresh_all();
 
     // CPU info
-    let cpus: Vec<CpuInfo> = sys
-        .cpus()
-        .iter()
+    let cpus: Vec<CpuInfo> = sys.cpus().iter()
         .map(|cpu| CpuInfo {
             name: cpu.name().to_string(),
             frequency: cpu.frequency(),
@@ -89,9 +87,7 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
     };
 
     // Disk info
-    let disks: Vec<DiskInfo> = sys
-        .disks()
-        .iter()
+    let disks: Vec<DiskInfo> = sys.disks().iter()
         .map(|disk| DiskInfo {
             name: disk.name().to_string_lossy().into_owned(),
             total_space: disk.total_space(),
@@ -101,9 +97,7 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
         .collect();
 
     // Network info
-    let network_interfaces: Vec<NetworkInterfaceInfo> = sys
-        .networks()
-        .iter()
+    let networks: Vec<NetworkInterfaceInfo> = sys.networks().iter()
         .map(|(name, data)| NetworkInterfaceInfo {
             name: name.clone(),
             received: data.received(),
@@ -112,10 +106,8 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
         .collect();
 
     // Process info
-    let processes: Vec<ProcessInfo> = sys
-        .processes()
-        .iter()
-        .map(|(pid, process)| ProcessInfo {
+    let processes: Vec<ProcessInfo> = sys.processes().iter()
+        .map(|(&pid, process)| ProcessInfo {
             pid: pid.as_u32(),
             name: process.name().to_string(),
             cpu_usage: process.cpu_usage(),
@@ -124,15 +116,15 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
         .collect();
 
     Ok(LocalSystemInfo {
-        os_name: sysinfo::System::name().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: sysinfo::System::os_version().unwrap_or_else(|| "Unknown".to_string()),
-        kernel_version: sysinfo::System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        hostname: sysinfo::System::host_name().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: sysinfo::System::uptime(),
+        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
+        kernel_version: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        hostname: sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: sys.uptime(),
         cpus,
         memory,
         disks,
-        network_interfaces,
+        networks,
         processes,
     })
 }
@@ -163,8 +155,8 @@ fn main() -> Result<()> {
             println!(
                 "Full info gathered: {} disks, {} network interfaces, {} processes",
                 full_info.disks.len(),
-                full_info.network_interfaces.len(),
-                full_info.top_processes_cpu.len()
+                full_info.networks.len(),
+                full_info.processes.len()
             );
         }
         Err(e) => eprintln!("Error gathering system info: {e}"),
