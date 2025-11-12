@@ -86,10 +86,10 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
 
     // Disk info
     let disks: Vec<DiskInfo> = sys.disks().iter().map(|disk| DiskInfo {
-        name: disk.name().to_string_lossy().to_string(), // Use to_string_lossy() here
+        name: disk.name().to_string_lossy().to_string(),
         total_space: disk.total_space(),
         available_space: disk.available_space(),
-        mount_point: disk.mount_point().to_string_lossy().to_string(), // Use to_string_lossy() here
+        mount_point: disk.mount_point().to_string_lossy().to_string(),
     }).collect();
 
     // Network info
@@ -102,7 +102,7 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
     // Process info
     let processes: Vec<ProcessInfo> = sys.processes().iter().map(|(pid, process)| ProcessInfo {
         pid: pid.as_u32(),
-        name: process.name().to_string(),
+        name: process.name().to_string_lossy().to_string(),
         cpu_usage: process.cpu_usage(),
         memory: process.memory(),
     }).collect();
@@ -158,13 +158,13 @@ fn main() -> Result<()> {
     #[cfg(unix)]
     {
         println!("Starting PatchPilot service (Unix)...");
-        service::run_unix_service()?;
+        service::run_unix();
     }
-
+    
     #[cfg(windows)]
     {
         println!("Starting PatchPilot service (Windows)...");
-        service::run_service()?;
+        service::run_windows();
     }
 
     Ok(())
