@@ -101,18 +101,18 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
 
     // Process info
     let processes: Vec<ProcessInfo> = sys.processes().iter().map(|(pid, process)| ProcessInfo {
-        pid: pid.as_u32(), // or pid.as_usize() as u32 if needed
+        pid: pid.as_u32(),
         name: process.name().to_string(),
         cpu_usage: process.cpu_usage(),
         memory: process.memory(),
     }).collect();
 
     Ok(LocalSystemInfo {
-        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
-        kernel_version: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        hostname: sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: sys.uptime(),
+        os_name: sysinfo::System::name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: sysinfo::System::os_version().unwrap_or_else(|| "Unknown".to_string()),
+        kernel_version: sysinfo::System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        hostname: sysinfo::System::host_name().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: sysinfo::System::uptime(),
         cpus,
         memory,
         disks,
