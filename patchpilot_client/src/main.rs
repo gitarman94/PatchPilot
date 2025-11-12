@@ -7,7 +7,7 @@ mod self_update;
 use anyhow::Result;
 use serde::Serialize;
 use sysinfo::{System, CpuRefreshKind, RefreshKind, Networks};
-use sysinfo::Pid;
+use crate::system_info::{SystemInfo, get_system_info};
 
 /// Information about a single CPU core.
 #[derive(Serialize)]
@@ -52,7 +52,7 @@ pub struct ProcessInfo {
 
 /// System information snapshot.
 #[derive(Serialize)]
-pub struct SystemInfo {
+pub struct LocalSystemInfo {
     pub os_name: String,
     pub os_version: String,
     pub kernel_version: String,
@@ -66,7 +66,9 @@ pub struct SystemInfo {
 }
 
 /// Gather system information into a structured object.
-pub fn get_system_info() -> Result<SystemInfo> {
+/// This version calls into sysinfo directly for quick health summaries,
+/// but the full data is available via system_info::get_system_info().
+pub fn get_local_system_info() -> Result<LocalSystemInfo> {
     // Initialize system with all refresh kinds enabled
     let refresh_kind = RefreshKind::everything().with_cpu(CpuRefreshKind::everything());
     let mut sys = System::new_with_specifics(refresh_kind);
@@ -89,9 +91,9 @@ pub fn get_system_info() -> Result<SystemInfo> {
         used: sys.used_memory(),
     };
 
-    // Disks
-    let disks: Vec<DiskInfo> = sys
-        .disks()
+    // Disks (sysinfo 0.37.2 requires Disks::new_with_refreshed_list)
+    let disks_list = sysinfo::Disks::new_with_refreshed_list();
+    let disks: Vec<DiskInfo> = disks_list
         .iter()
         .map(|disk| DiskInfo {
             name: disk.name().to_string_lossy().into_owned(),
@@ -101,7 +103,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
         })
         .collect();
 
-    // Networks
+    // Networks (sysinfo 0.37.2 requires Networks::new_with_refreshed_list)
     let networks = Networks::new_with_refreshed_list();
     let network_interfaces: Vec<NetworkInterfaceInfo> = networks
         .iter()
@@ -124,7 +126,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
         })
         .collect();
 
-    Ok(SystemInfo {
+    Ok(LocalSystemInfo {
         os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
         os_version: System::os_version().unwrap_or_else(|| "Unknown".to_string()),
         kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
@@ -139,6 +141,33 @@ pub fn get_system_info() -> Result<SystemInfo> {
 }
 
 fn main() -> Result<()> {
+    println!("Starting PatchPilot...");
+
+    // Example: Get summarized system info for startup logging
+    if let Ok(info) = get_local_system_info() {
+        println!(
+            "System: {} ({}) | Uptime: {}s | {} CPU cores | {:.1}% avg usage",
+            info.hostname,
+            info.os_name,
+            info.uptime_seconds,
+            info.cpus.len(),
+            info.cpus.iter().map(|c| c.usage).sum::<f32>() / info.cpus.len().max(1) as f32,
+        );
+    }
+
+    // Example: Call full system info collection from module
+    match get_system_info() {
+        Ok(full_info) => {
+            println!(
+                "Full info gathered: {} disks, {} network interfaces, {} processes",
+                full_info.disks.len(),
+                full_info.network_interfaces.len(),
+                full_info.top_processes_cpu.len()
+            );
+        }
+        Err(e) => eprintln!("Error gathering system info: {e}"),
+    }
+
     // Run as a system service depending on OS
     #[cfg(unix)]
     {
