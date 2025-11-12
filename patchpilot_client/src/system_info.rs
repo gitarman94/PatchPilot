@@ -61,17 +61,12 @@ pub fn get_system_info() -> anyhow::Result<SystemInfo> {
         transmitted: data.transmitted(),
     }).collect::<Vec<_>>();
 
-    // --- Device info placeholders ---
-    let device_type = Some("unknown".to_string());
-    let device_model = Some("unknown".to_string());
-    let serial_number = Some("unknown".to_string());
-
     Ok(SystemInfo {
-        device_type,
-        device_model,
-        serial_number,
         disks,
         processes,
         networks,
+        device_type: None,
+        device_model: None,
+        serial_number: None,
     })
 }
