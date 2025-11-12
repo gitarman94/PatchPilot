@@ -1,6 +1,5 @@
-use sysinfo::{System, SystemExt, ProcessExt, DiskExt, NetworksExt, NetworkExt};
+use sysinfo::{System, SystemExt};
 use serde::Serialize;
-use std::default::Default;
 
 #[derive(Debug, Serialize, Default)]
 pub struct DiskInfo {
@@ -40,9 +39,7 @@ pub fn get_system_info() -> Result<SystemInfo, anyhow::Error> {
     sys.refresh_all();
 
     // --- Disks ---
-    let disks: Vec<DiskInfo> = sys
-        .disks()
-        .iter()
+    let disks: Vec<DiskInfo> = sys.disks().iter()
         .map(|disk| DiskInfo {
             name: disk.name().to_string_lossy().into_owned(),
             total_space: disk.total_space(),
@@ -52,9 +49,7 @@ pub fn get_system_info() -> Result<SystemInfo, anyhow::Error> {
         .collect();
 
     // --- Processes ---
-    let processes: Vec<ProcessInfo> = sys
-        .processes()
-        .iter()
+    let processes: Vec<ProcessInfo> = sys.processes().iter()
         .map(|(&pid, process)| ProcessInfo {
             pid: pid.as_u32(),
             name: process.name().to_string(),
@@ -64,9 +59,7 @@ pub fn get_system_info() -> Result<SystemInfo, anyhow::Error> {
         .collect();
 
     // --- Network Interfaces ---
-    let networks: Vec<NetworkInterfaceInfo> = sys
-        .networks()
-        .iter()
+    let networks: Vec<NetworkInterfaceInfo> = sys.networks().iter()
         .map(|(name, data)| NetworkInterfaceInfo {
             name: name.clone(),
             received: data.received(),
@@ -75,7 +68,6 @@ pub fn get_system_info() -> Result<SystemInfo, anyhow::Error> {
         .collect();
 
     // --- Device info placeholders ---
-    // You can replace these with real detection if you have a crate for device type/model/serial
     let device_type = Some("unknown".into());
     let device_model = Some("unknown".into());
     let serial_number = Some("unknown".into());
