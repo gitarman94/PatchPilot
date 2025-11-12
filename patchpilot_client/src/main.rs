@@ -1,12 +1,11 @@
 mod system_info;
 mod service;
-mod commands;
 mod patchpilot_updater;
 mod self_update;
 
 use anyhow::Result;
 use serde::Serialize;
-use sysinfo::{System, CpuRefreshKind, RefreshKind, Networks};
+use sysinfo::{System, CpuRefreshKind, RefreshKind};
 use crate::system_info::get_system_info;
 
 /// Information about a single CPU core.
@@ -89,8 +88,8 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
     };
 
     // Disk info
-    let disks_list = sys.disks();
-    let disks: Vec<DiskInfo> = disks_list
+    let disks: Vec<DiskInfo> = sys
+        .disks()
         .iter()
         .map(|disk| DiskInfo {
             name: disk.name().to_string_lossy().into_owned(),
@@ -101,8 +100,8 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
         .collect();
 
     // Network info
-    let networks = sys.networks();
-    let network_interfaces: Vec<NetworkInterfaceInfo> = networks
+    let network_interfaces: Vec<NetworkInterfaceInfo> = sys
+        .networks()
         .iter()
         .map(|(name, data)| NetworkInterfaceInfo {
             name: name.clone(),
@@ -124,11 +123,11 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
         .collect();
 
     Ok(LocalSystemInfo {
-        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: System::os_version().unwrap_or_else(|| "Unknown".to_string()),
-        kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        hostname: System::host_name().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: System::uptime(),
+        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
+        kernel_version: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        hostname: sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: sys.uptime(),
         cpus,
         memory,
         disks,
@@ -140,12 +139,12 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
 fn main() -> Result<()> {
     println!("Starting PatchPilot...");
 
-    // Run self-update before starting
+    // Optional: Run self-update before starting
     if let Err(e) = self_update::check_and_update() {
         eprintln!("Self-update check failed: {:?}", e);
     }
 
-    // Log local summary
+    // Local summary logging
     if let Ok(info) = get_local_system_info() {
         println!(
             "System: {} ({}) | Uptime: {}s | {} CPU cores | {:.1}% avg usage",
@@ -157,29 +156,29 @@ fn main() -> Result<()> {
         );
     }
 
-    // Log full system info
+    // Full system data (from system_info.rs)
     match get_system_info() {
         Ok(full_info) => {
             println!(
-                "Full info gathered: {} disks, {} network interfaces, {} top CPU processes",
+                "Full info gathered: {} disks, {} network interfaces, {} processes",
                 full_info.disks.len(),
                 full_info.network_interfaces.len(),
                 full_info.top_processes_cpu.len()
             );
         }
-        Err(e) => eprintln!("Error gathering full system info: {:?}", e),
+        Err(e) => eprintln!("Error gathering system info: {e}"),
     }
 
-    // Start background service depending on OS
+    // Run as background service depending on OS
     #[cfg(unix)]
     {
-        println!("Starting PatchPilot Unix service...");
+        println!("Starting PatchPilot service (Unix)...");
         service::run_unix_service()?;
     }
 
     #[cfg(windows)]
     {
-        println!("Starting PatchPilot Windows service...");
+        println!("Starting PatchPilot service (Windows)...");
         service::run_service()?;
     }
 
