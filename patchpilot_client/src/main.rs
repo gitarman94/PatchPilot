@@ -86,10 +86,10 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
 
     // Disk info
     let disks: Vec<DiskInfo> = sys.disks().iter().map(|disk| DiskInfo {
-        name: disk.name().to_string_lossy().to_string(),
+        name: disk.name().to_string_lossy().to_string(), // Use to_string_lossy() here
         total_space: disk.total_space(),
         available_space: disk.available_space(),
-        mount_point: disk.mount_point().to_string_lossy().to_string(),
+        mount_point: disk.mount_point().to_string_lossy().to_string(), // Use to_string_lossy() here
     }).collect();
 
     // Network info
