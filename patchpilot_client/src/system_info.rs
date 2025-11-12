@@ -1,4 +1,4 @@
-use sysinfo::{System, SystemExt};
+use sysinfo::{System, SystemExt, ProcessExt, DiskExt, NetworkExt};
 use serde::Serialize;
 
 #[derive(Debug, Serialize, Default)]
@@ -34,43 +34,37 @@ pub struct SystemInfo {
     pub networks: Vec<NetworkInterfaceInfo>,
 }
 
-pub fn get_system_info() -> Result<SystemInfo, anyhow::Error> {
+pub fn get_system_info() -> anyhow::Result<SystemInfo> {
     let mut sys = System::new_all();
     sys.refresh_all();
 
     // --- Disks ---
-    let disks: Vec<DiskInfo> = sys.disks().iter()
-        .map(|disk| DiskInfo {
-            name: disk.name().to_string_lossy().into_owned(),
-            total_space: disk.total_space(),
-            available_space: disk.available_space(),
-            mount_point: disk.mount_point().to_string_lossy().into_owned(),
-        })
-        .collect();
+    let disks = sys.disks().iter().map(|disk| DiskInfo {
+        name: disk.name().to_string_lossy().to_string(),
+        total_space: disk.total_space(),
+        available_space: disk.available_space(),
+        mount_point: disk.mount_point().to_string_lossy().to_string(),
+    }).collect::<Vec<_>>();
 
     // --- Processes ---
-    let processes: Vec<ProcessInfo> = sys.processes().iter()
-        .map(|(&pid, process)| ProcessInfo {
-            pid: pid.as_u32(),
-            name: process.name().to_string(),
-            cpu_usage: process.cpu_usage(),
-            memory: process.memory(),
-        })
-        .collect();
+    let processes = sys.processes().iter().map(|(&pid, process)| ProcessInfo {
+        pid: pid.as_u32(),
+        name: process.name().to_string(),
+        cpu_usage: process.cpu_usage(),
+        memory: process.memory(),
+    }).collect::<Vec<_>>();
 
     // --- Network Interfaces ---
-    let networks: Vec<NetworkInterfaceInfo> = sys.networks().iter()
-        .map(|(name, data)| NetworkInterfaceInfo {
-            name: name.clone(),
-            received: data.received(),
-            transmitted: data.transmitted(),
-        })
-        .collect();
+    let networks = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
+        name: name.clone(),
+        received: data.received(),
+        transmitted: data.transmitted(),
+    }).collect::<Vec<_>>();
 
     // --- Device info placeholders ---
-    let device_type = Some("unknown".into());
-    let device_model = Some("unknown".into());
-    let serial_number = Some("unknown".into());
+    let device_type = Some("unknown".to_string());
+    let device_model = Some("unknown".to_string());
+    let serial_number = Some("unknown".to_string());
 
     Ok(SystemInfo {
         device_type,
