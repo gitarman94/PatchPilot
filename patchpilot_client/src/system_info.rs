@@ -1,6 +1,8 @@
 use serde::Serialize;
 use sysinfo::{System, RefreshKind, CpuRefreshKind, Disks, Networks};
 use local_ip_address::local_ip;
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::process::Command;
 
 /// Disk information
@@ -55,27 +57,20 @@ pub struct SystemInfo {
 }
 
 pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
-    // Initialize system with CPU info
     let refresh_kind = RefreshKind::everything().with_cpu(CpuRefreshKind::everything());
     let mut sys = System::new_with_specifics(refresh_kind);
     sys.refresh_all();
 
-    // CPU usage
     let cpu_usage_per_core: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
-    let cpu_usage_total = if !cpu_usage_per_core.is_empty() {
-        cpu_usage_per_core.iter().sum::<f32>() / cpu_usage_per_core.len() as f32
-    } else {
-        0.0
-    };
+    let cpu_usage_total = cpu_usage_per_core.iter().copied().sum::<f32>() / cpu_usage_per_core.len().max(1) as f32;
 
-    // Memory
     let ram_total = sys.total_memory();
     let ram_used = sys.used_memory();
     let ram_free = ram_total.saturating_sub(ram_used);
     let swap_total = sys.total_swap();
     let swap_used = sys.used_swap();
 
-    // Disks (new API)
+    // Disks
     let disks = Disks::new_with_refreshed_list();
     let disks: Vec<DiskInfo> = disks
         .iter()
@@ -88,7 +83,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         })
         .collect();
 
-    // Networks (new API)
+    // Networks
     let networks = Networks::new_with_refreshed_list();
     let network_interfaces: Vec<NetworkInterfaceInfo> = networks
         .iter()
@@ -101,7 +96,7 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         .collect();
 
     // Processes
-    let mut process_list: Vec<ProcessInfo> = sys
+    let mut processes: Vec<ProcessInfo> = sys
         .processes()
         .values()
         .map(|p| ProcessInfo {
@@ -112,17 +107,13 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
         })
         .collect();
 
-    // Sort for top processes
-    process_list.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
-    let top_processes_cpu = process_list.iter().take(5).cloned().collect::<Vec<_>>();
+    processes.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
+    let top_processes_cpu = processes.iter().take(5).cloned().collect();
 
-    process_list.sort_by(|a, b| b.memory.cmp(&a.memory));
-    let top_processes_ram = process_list.iter().take(5).cloned().collect::<Vec<_>>();
+    processes.sort_by(|a, b| b.memory.cmp(&a.memory));
+    let top_processes_ram = processes.iter().take(5).cloned().collect();
 
-    // Local IP
     let local_ip = local_ip().ok().map(|ip| ip.to_string());
-
-    // Optional identifiers
     let serial_number = get_serial_number();
     let (device_type, device_model) = get_device_type_model();
 
@@ -148,91 +139,66 @@ pub fn get_system_info() -> Result<SystemInfo, Box<dyn std::error::Error>> {
     })
 }
 
-/// Serial number detection
+#[cfg(target_os = "linux")]
 fn get_serial_number() -> Option<String> {
-    #[cfg(target_os = "linux")]
-    {
-        std::fs::read_to_string("/sys/class/dmi/id/product_serial")
-            .ok()
-            .map(|s| s.trim().to_string())
-    }
+    std::fs::read_to_string("/sys/class/dmi/id/product_serial")
+        .ok()
+        .map(|s| s.trim().to_string())
+}
 
-    #[cfg(target_os = "windows")]
-    {
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn get_serial_number() -> Option<String> {
+    use std::process::Command;
+    if cfg!(target_os = "windows") {
         let output = Command::new("wmic")
             .args(["bios", "get", "serialnumber"])
             .output()
             .ok()?;
-        Some(String::from_utf8_lossy(&output.stdout).lines().nth(1)?.trim().to_string())
+        return Some(String::from_utf8_lossy(&output.stdout).lines().nth(1)?.trim().to_string());
     }
-
-    #[cfg(target_os = "macos")]
-    {
+    if cfg!(target_os = "macos") {
         let output = Command::new("ioreg").args(["-l"]).output().ok()?;
-        let out_str = String::from_utf8_lossy(&output.stdout);
-        for line in out_str.lines() {
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
             if line.contains("IOPlatformSerialNumber") {
-                return Some(line.split('"').nth(3)?.to_string());
+                return line.split('"').nth(3).map(|s| s.to_string());
             }
         }
-        None
     }
-
-    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    {
-        None
-    }
+    None
 }
 
-/// Device type/model detection
 fn get_device_type_model() -> (Option<String>, Option<String>) {
     #[cfg(target_os = "linux")]
     {
-        let t =
-            std::fs::read_to_string("/sys/class/dmi/id/chassis_type").ok().map(|s| s.trim().to_string());
-        let m =
-            std::fs::read_to_string("/sys/class/dmi/id/product_name").ok().map(|s| s.trim().to_string());
+        let t = std::fs::read_to_string("/sys/class/dmi/id/chassis_type").ok().map(|s| s.trim().to_string());
+        let m = std::fs::read_to_string("/sys/class/dmi/id/product_name").ok().map(|s| s.trim().to_string());
         (t, m)
     }
-
     #[cfg(target_os = "windows")]
     {
         let output = Command::new("wmic")
             .args(["computersystem", "get", "model,manufacturer"])
             .output()
-            .ok();
-        if let Some(output) = output {
-            let lines: Vec<_> = String::from_utf8_lossy(&output.stdout).lines().collect();
-            if lines.len() >= 2 {
-                let parts: Vec<_> = lines[1].split_whitespace().collect();
-                if !parts.is_empty() {
-                    return (Some(parts[0].to_string()), Some(parts[1..].join(" ")));
-                }
+            .ok()?;
+        let lines: Vec<_> = String::from_utf8_lossy(&output.stdout).lines().collect();
+        if lines.len() >= 2 {
+            let parts: Vec<_> = lines[1].split_whitespace().collect();
+            if !parts.is_empty() {
+                return (Some(parts[0].to_string()), Some(parts[1..].join(" ")));
             }
         }
         (None, None)
     }
-
     #[cfg(target_os = "macos")]
     {
-        let output = Command::new("system_profiler")
-            .args(["SPHardwareDataType"])
-            .output()
-            .ok();
-        if let Some(output) = output {
-            let out_str = String::from_utf8_lossy(&output.stdout);
-            let mut device_model = None;
-            for line in out_str.lines() {
-                if line.contains("Model Identifier:") {
-                    device_model = Some(line.split(':').nth(1)?.trim().to_string());
-                }
-            }
-            (None, device_model)
-        } else {
-            (None, None)
-        }
+        let output = Command::new("system_profiler").args(["SPHardwareDataType"]).output().ok()?;
+        let out_str = String::from_utf8_lossy(&output.stdout);
+        let device_model = out_str
+            .lines()
+            .find(|l| l.contains("Model Identifier:"))
+            .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_string());
+        (None, device_model)
     }
-
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         (None, None)
