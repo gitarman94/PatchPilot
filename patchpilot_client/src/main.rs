@@ -5,7 +5,7 @@ mod self_update;
 
 use anyhow::Result;
 use serde::Serialize;
-use sysinfo::{System, CpuRefreshKind, RefreshKind};
+use sysinfo::{System, SystemExt, CpuRefreshKind, RefreshKind, DiskExt, NetworkExt, ProcessExt};
 
 use crate::system_info::get_system_info;
 
@@ -61,7 +61,7 @@ pub struct LocalSystemInfo {
     pub cpus: Vec<CpuInfo>,
     pub memory: MemoryInfo,
     pub disks: Vec<DiskInfo>,
-    pub networks: Vec<NetworkInterfaceInfo>,
+    pub network_interfaces: Vec<NetworkInterfaceInfo>,
     pub processes: Vec<ProcessInfo>,
 }
 
@@ -72,13 +72,11 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
     sys.refresh_all();
 
     // CPU info
-    let cpus: Vec<CpuInfo> = sys.cpus().iter()
-        .map(|cpu| CpuInfo {
-            name: cpu.name().to_string(),
-            frequency: cpu.frequency(),
-            usage: cpu.cpu_usage(),
-        })
-        .collect();
+    let cpus: Vec<CpuInfo> = sys.cpus().iter().map(|cpu| CpuInfo {
+        name: cpu.name().to_string(),
+        frequency: cpu.frequency(),
+        usage: cpu.cpu_usage(),
+    }).collect();
 
     // Memory info
     let memory = MemoryInfo {
@@ -87,44 +85,38 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
     };
 
     // Disk info
-    let disks: Vec<DiskInfo> = sys.disks().iter()
-        .map(|disk| DiskInfo {
-            name: disk.name().to_string_lossy().into_owned(),
-            total_space: disk.total_space(),
-            available_space: disk.available_space(),
-            mount_point: disk.mount_point().to_string_lossy().into_owned(),
-        })
-        .collect();
+    let disks: Vec<DiskInfo> = sys.disks().iter().map(|disk| DiskInfo {
+        name: disk.name().to_string_lossy().to_string(),
+        total_space: disk.total_space(),
+        available_space: disk.available_space(),
+        mount_point: disk.mount_point().to_string_lossy().to_string(),
+    }).collect();
 
     // Network info
-    let networks: Vec<NetworkInterfaceInfo> = sys.networks().iter()
-        .map(|(name, data)| NetworkInterfaceInfo {
-            name: name.clone(),
-            received: data.received(),
-            transmitted: data.transmitted(),
-        })
-        .collect();
+    let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
+        name: name.clone(),
+        received: data.received(),
+        transmitted: data.transmitted(),
+    }).collect();
 
     // Process info
-    let processes: Vec<ProcessInfo> = sys.processes().iter()
-        .map(|(&pid, process)| ProcessInfo {
-            pid: pid.as_u32(),
-            name: process.name().to_string(),
-            cpu_usage: process.cpu_usage(),
-            memory: process.memory(),
-        })
-        .collect();
+    let processes: Vec<ProcessInfo> = sys.processes().iter().map(|(pid, process)| ProcessInfo {
+        pid: pid.as_u32(),
+        name: process.name().to_string(),
+        cpu_usage: process.cpu_usage(),
+        memory: process.memory(),
+    }).collect();
 
     Ok(LocalSystemInfo {
-        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
-        kernel_version: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        hostname: sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: sys.uptime(),
+        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: System::os_version().unwrap_or_else(|| "Unknown".to_string()),
+        kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        hostname: System::host_name().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: System::uptime(),
         cpus,
         memory,
         disks,
-        networks,
+        network_interfaces,
         processes,
     })
 }
@@ -149,7 +141,7 @@ fn main() -> Result<()> {
         );
     }
 
-    // Full system data (from system_info.rs)
+    // Full system data
     match get_system_info() {
         Ok(full_info) => {
             println!(
