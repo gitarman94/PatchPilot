@@ -89,7 +89,7 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
     };
 
     // Disk info
-    let disks_list = sysinfo::Disks::new_with_refreshed_list();
+    let disks_list = sys.disks();
     let disks: Vec<DiskInfo> = disks_list
         .iter()
         .map(|disk| DiskInfo {
@@ -101,7 +101,7 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
         .collect();
 
     // Network info
-    let networks = Networks::new_with_refreshed_list();
+    let networks = sys.networks();
     let network_interfaces: Vec<NetworkInterfaceInfo> = networks
         .iter()
         .map(|(name, data)| NetworkInterfaceInfo {
@@ -117,7 +117,7 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
         .iter()
         .map(|(pid, process)| ProcessInfo {
             pid: pid.as_u32(),
-            name: process.name().to_string_lossy().into_owned(),
+            name: process.name().to_string(),
             cpu_usage: process.cpu_usage(),
             memory: process.memory(),
         })
@@ -140,12 +140,12 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
 fn main() -> Result<()> {
     println!("Starting PatchPilot...");
 
-    // Optional: Run self-update before starting
+    // Run self-update before starting
     if let Err(e) = self_update::check_and_update() {
         eprintln!("Self-update check failed: {:?}", e);
     }
 
-    // Local summary logging
+    // Log local summary
     if let Ok(info) = get_local_system_info() {
         println!(
             "System: {} ({}) | Uptime: {}s | {} CPU cores | {:.1}% avg usage",
@@ -157,29 +157,29 @@ fn main() -> Result<()> {
         );
     }
 
-    // Full system data (from system_info.rs)
+    // Log full system info
     match get_system_info() {
         Ok(full_info) => {
             println!(
-                "Full info gathered: {} disks, {} network interfaces, {} processes",
+                "Full info gathered: {} disks, {} network interfaces, {} top CPU processes",
                 full_info.disks.len(),
                 full_info.network_interfaces.len(),
                 full_info.top_processes_cpu.len()
             );
         }
-        Err(e) => eprintln!("Error gathering system info: {e}"),
+        Err(e) => eprintln!("Error gathering full system info: {:?}", e),
     }
 
-    // Run as background service depending on OS
+    // Start background service depending on OS
     #[cfg(unix)]
     {
-        println!("Starting PatchPilot service (Unix)...");
+        println!("Starting PatchPilot Unix service...");
         service::run_unix_service()?;
     }
 
     #[cfg(windows)]
     {
-        println!("Starting PatchPilot service (Windows)...");
+        println!("Starting PatchPilot Windows service...");
         service::run_service()?;
     }
 
