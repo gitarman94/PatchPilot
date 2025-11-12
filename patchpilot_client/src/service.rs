@@ -10,11 +10,9 @@ const ADOPTION_CHECK_INTERVAL: u64 = 30;  // seconds
 const SYSTEM_UPDATE_INTERVAL: u64 = 600;  // seconds (10 minutes)
 
 // Reads the server URL from a local configuration file.
-// Uses OS-specific paths for flexibility.
 fn read_server_url() -> Result<String> {
     #[cfg(unix)]
     let path = "/opt/patchpilot_client/server_url.txt";
-
     #[cfg(windows)]
     let path = "C:\\ProgramData\\PatchPilot\\server_url.txt";
 
@@ -23,13 +21,13 @@ fn read_server_url() -> Result<String> {
     Ok(url.trim().to_string())
 }
 
-// Retrieves basic device information (serial, type, model)
+// Retrieves device information (serial, type, model)
 fn get_device_info() -> (String, String, String) {
     match get_system_info() {
-        Ok(device_info) => {
-            let device_id = device_info.serial_number.unwrap_or_else(|| "unknown".into());
-            let device_type = device_info.device_type.unwrap_or_else(|| "unknown".into());
-            let device_model = device_info.device_model.unwrap_or_else(|| "unknown".into());
+        Ok(info) => {
+            let device_id = info.serial_number.unwrap_or_else(|| "unknown".into());
+            let device_type = info.device_type.unwrap_or_else(|| "unknown".into());
+            let device_model = info.device_model.unwrap_or_else(|| "unknown".into());
             (device_id, device_type, device_model)
         }
         Err(e) => {
@@ -79,39 +77,35 @@ fn check_adoption_status(
     }
 }
 
-// Sends detailed system status updates to the server periodically.
+// Sends detailed system status updates to the server.
 fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
     let sys_info = match get_system_info() {
         Ok(info) => info,
         Err(e) => {
-            error!("Failed to gather full system info: {:?}", e);
+            error!("Failed to gather system info: {:?}", e);
             SystemInfo::default()
         }
     };
 
     info!("Sending system update for device {}...", device_id);
 
-    let res = client
+    if let Err(e) = client
         .post(format!("{}/api/devices/update_status", server_url))
         .json(&json!({
             "device_id": device_id,
             "status": "active",
             "system_info": sys_info,
         }))
-        .send();
-
-    if let Err(e) = res {
+        .send()
+    {
         error!("Failed to send system update: {:?}", e);
     }
 }
 
-// ---------------------------------------------------------------------------
 // --- Unix Service Implementation ---
-// ---------------------------------------------------------------------------
 #[cfg(unix)]
 mod unix_service {
     use super::*;
-
     pub fn run_unix_service() -> Result<()> {
         info!("Starting PatchPilot Unix service...");
 
@@ -149,9 +143,7 @@ mod unix_service {
     }
 }
 
-// ---------------------------------------------------------------------------
 // --- Windows Service Implementation ---
-// ---------------------------------------------------------------------------
 #[cfg(windows)]
 mod windows_service {
     use super::*;
@@ -212,8 +204,7 @@ mod windows_service {
         // --- Adoption Loop ---
         while SERVICE_RUNNING.load(Ordering::SeqCst) {
             info!("Checking adoption status...");
-            match check_adoption_status(&client, &server_url, &device_id, &device_type, &device_model)
-            {
+            match check_adoption_status(&client, &server_url, &device_id, &device_type, &device_model) {
                 Ok(true) => {
                     info!("Device adopted successfully. Starting update loop...");
                     break;
