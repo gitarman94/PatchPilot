@@ -1,4 +1,4 @@
-use sysinfo::{System, Process, Disk, NetworkData};
+use sysinfo::{System, Disk, NetworkData};
 use serde::Serialize;
 
 #[derive(Debug, Serialize, Default)]
@@ -40,22 +40,22 @@ pub fn get_system_info() -> anyhow::Result<SystemInfo> {
 
     // --- Disks ---
     let disks = sys.disks().iter().map(|disk: &Disk| DiskInfo {
-        name: disk.name().to_string_lossy().to_string(),
+        name: disk.name().to_string_lossy().to_string(), // Use to_string_lossy()
         total_space: disk.total_space(),
         available_space: disk.available_space(),
-        mount_point: disk.mount_point().to_string_lossy().to_string(),
+        mount_point: disk.mount_point().to_string_lossy().to_string(), // Use to_string_lossy()
     }).collect::<Vec<_>>();
 
     // --- Processes ---
-    let processes = sys.processes().iter().map(|(pid, process): (&sysinfo::Pid, &Process)| ProcessInfo {
+    let processes = sys.processes().iter().map(|(pid, process)| ProcessInfo {
         pid: pid.as_u32(),
-        name: process.name().to_string_lossy().to_string(),
+        name: process.name().to_string_lossy().to_string(), // Use to_string_lossy()
         cpu_usage: process.cpu_usage(),
         memory: process.memory(),
     }).collect::<Vec<_>>();
 
     // --- Network Interfaces ---
-    let networks = sys.networks().iter().map(|(name, data): (&String, &NetworkData)| NetworkInterfaceInfo {
+    let networks = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
         name: name.clone(),
         received: data.received(),
         transmitted: data.transmitted(),
