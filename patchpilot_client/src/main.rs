@@ -5,7 +5,8 @@ mod self_update;
 
 use anyhow::Result;
 use serde::Serialize;
-use sysinfo::{System, CpuRefreshKind, RefreshKind};
+use sysinfo::{System, SystemExt, CpuRefreshKind, RefreshKind, DiskExt, NetworkExt, ProcessExt};
+
 use crate::system_info::get_system_info;
 
 /// Information about a single CPU core.
@@ -123,11 +124,11 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
         .collect();
 
     Ok(LocalSystemInfo {
-        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
-        kernel_version: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        hostname: sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: sys.uptime(),
+        os_name: sysinfo::System::name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: sysinfo::System::os_version().unwrap_or_else(|| "Unknown".to_string()),
+        kernel_version: sysinfo::System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        hostname: sysinfo::System::host_name().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: sysinfo::System::uptime(),
         cpus,
         memory,
         disks,
