@@ -5,7 +5,7 @@ mod self_update;
 
 use anyhow::Result;
 use serde::Serialize;
-use sysinfo::{System, SystemExt, CpuRefreshKind, RefreshKind, DiskExt, NetworkExt, ProcessExt};
+use sysinfo::{System, RefreshKind, CpuRefreshKind};
 
 use crate::system_info::get_system_info;
 
@@ -95,24 +95,24 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
     // Network info
     let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
         name: name.clone(),
-        received: data.received(),
-        transmitted: data.transmitted(),
+        received: data.received,
+        transmitted: data.transmitted,
     }).collect();
 
     // Process info
     let processes: Vec<ProcessInfo> = sys.processes().iter().map(|(pid, process)| ProcessInfo {
-        pid: pid.as_u32(),
+        pid: pid.as_u32(), // or pid.as_usize() as u32 if needed
         name: process.name().to_string(),
         cpu_usage: process.cpu_usage(),
         memory: process.memory(),
     }).collect();
 
     Ok(LocalSystemInfo {
-        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: System::os_version().unwrap_or_else(|| "Unknown".to_string()),
-        kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        hostname: System::host_name().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: System::uptime(),
+        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
+        kernel_version: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        hostname: sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: sys.uptime(),
         cpus,
         memory,
         disks,
