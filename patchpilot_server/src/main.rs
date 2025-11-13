@@ -9,6 +9,7 @@ use log::{info, error};
 use serde_json::json;
 use chrono::Utc;
 use local_ip_address::local_ip;
+use sysinfo::{System, SystemExt};  // Updated sysinfo import
 
 mod schema;
 mod models;
@@ -34,7 +35,6 @@ fn init_logger() {
     // Start the logger
     logger.start().unwrap_or_else(|e| panic!("Failed to start logger: {}", e));
 }
-
 
 // --- Custom error type ---
 #[derive(Debug)]
@@ -100,7 +100,7 @@ async fn register_or_update_device(
     device_info: Json<DeviceInfo>,
 ) -> Result<Json<Device>, String> {
     validate_device_info(&device_info).map_err(|e| e.message())?;
-    let mut conn = establish_connection(pool).map_err(|e| e.message())?;
+    let mut conn = establish_connection(pool).map_err(|e| e.message())?; 
     match insert_or_update_device(&mut conn, device_id, &device_info) {
         Ok(device) => {
             info!("Device {} registered/updated successfully", device_id);
@@ -250,7 +250,3 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
-
-
-
-
