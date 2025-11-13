@@ -5,9 +5,10 @@ mod self_update;
 
 use anyhow::Result;
 use serde::Serialize;
-use sysinfo::{System, RefreshKind, CpuRefreshKind, Disks, Networks};
+use sysinfo::{System, RefreshKind, CpuRefreshKind};
 
 use crate::system_info::get_system_info;
+use service::init_logger;
 
 /// Information about a single CPU core.
 #[derive(Serialize)]
@@ -84,18 +85,16 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
         used: sys.used_memory(),
     };
 
-    // Disk info – using Disks struct per new API
-    let disks_collection = Disks::new_with_refreshed_list();
-    let disks: Vec<DiskInfo> = disks_collection.list().iter().map(|disk| DiskInfo {
+    // Disk info
+    let disks: Vec<DiskInfo> = sys.disks().iter().map(|disk| DiskInfo {
         name: disk.name().to_string_lossy().to_string(),
         total_space: disk.total_space(),
         available_space: disk.available_space(),
         mount_point: disk.mount_point().to_string_lossy().to_string(),
     }).collect();
 
-    // Network info – using Networks struct per new API
-    let networks_collection = Networks::new_with_refreshed_list();
-    let network_interfaces: Vec<NetworkInterfaceInfo> = networks_collection.iter().map(|(name, data)| NetworkInterfaceInfo {
+    // Network info
+    let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
         name: name.clone(),
         received: data.total_received(),
         transmitted: data.total_transmitted(),
@@ -104,17 +103,17 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
     // Process info
     let processes: Vec<ProcessInfo> = sys.processes().iter().map(|(pid, process)| ProcessInfo {
         pid: pid.as_u32(),
-        name: process.name().to_string_lossy().to_string(),
+        name: process.name().to_string(),
         cpu_usage: process.cpu_usage(),
         memory: process.memory(),
     }).collect();
 
     Ok(LocalSystemInfo {
-        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: System::os_version().unwrap_or_else(|| "Unknown".to_string()),
-        kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        hostname: System::host_name().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: System::uptime(),
+        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
+        kernel_version: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        hostname: sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: sys.uptime(),
         cpus,
         memory,
         disks,
@@ -124,16 +123,18 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
 }
 
 fn main() -> Result<()> {
-    println!("Starting PatchPilot...");
+    // Initialize logger with rotation
+    init_logger()?;
+    log::info!("Starting PatchPilot...");
 
     // Optional: Run self-update before starting
     if let Err(e) = self_update::check_and_update() {
-        eprintln!("Self-update check failed: {:?}", e);
+        log::error!("Self-update check failed: {:?}", e);
     }
 
     // Local summary logging
     if let Ok(info) = get_local_system_info() {
-        println!(
+        log::info!(
             "System: {} ({}) | Uptime: {}s | {} CPU cores | {:.1}% avg usage",
             info.hostname,
             info.os_name,
@@ -146,27 +147,27 @@ fn main() -> Result<()> {
     // Full system data
     match get_system_info() {
         Ok(full_info) => {
-            println!(
+            log::info!(
                 "Full info gathered: {} disks, {} network interfaces, {} processes",
                 full_info.disks.len(),
                 full_info.networks.len(),
                 full_info.processes.len()
             );
         }
-        Err(e) => eprintln!("Error gathering system info: {e}"),
+        Err(e) => log::error!("Error gathering system info: {e}"),
     }
 
     // Run as background service depending on OS
     #[cfg(unix)]
     {
-        println!("Starting PatchPilot service (Unix)...");
-        service::run_unix_service();
+        log::info!("Starting PatchPilot service (Unix)...");
+        service::run_unix_service()?;
     }
 
     #[cfg(windows)]
     {
-        println!("Starting PatchPilot service (Windows)...");
-        service::run_service();
+        log::info!("Starting PatchPilot service (Windows)...");
+        service::run_service()?;
     }
 
     Ok(())
