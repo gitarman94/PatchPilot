@@ -90,9 +90,50 @@ fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
     }
 }
 
+/// Shared function for adoption + system update loop
+fn run_adoption_and_update_loop(client: &Client, server_url: &str, device_id: &str, device_type: &str, device_model: &str, running_flag: Option<&std::sync::atomic::AtomicBool>) {
+    // Adoption check loop
+    loop {
+        if let Some(flag) = running_flag {
+            if !flag.load(std::sync::atomic::Ordering::SeqCst) {
+                info!("Stopping adoption loop due to service stop signal.");
+                return;
+            }
+        }
+
+        match check_adoption_status(client, server_url, device_id, device_type, device_model) {
+            Ok(true) => {
+                info!("Device adopted.");
+                break;
+            }
+            Ok(false) => {
+                info!("Device not adopted yet, retrying in {} seconds...", ADOPTION_CHECK_INTERVAL);
+            }
+            Err(e) => {
+                error!("Adoption check failed: {:?}", e);
+            }
+        }
+        thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL));
+    }
+
+    // System update loop
+    loop {
+        if let Some(flag) = running_flag {
+            if !flag.load(std::sync::atomic::Ordering::SeqCst) {
+                info!("Stopping system update loop due to service stop signal.");
+                break;
+            }
+        }
+
+        send_system_update(client, server_url, device_id);
+        thread::sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL));
+    }
+}
+
 #[cfg(unix)]
 mod unix_service {
     use super::*;
+
     pub fn run_unix_service() -> Result<()> {
         info!("Starting PatchPilot Unix service...");
 
@@ -100,18 +141,9 @@ mod unix_service {
         let server_url = read_server_url()?;
         let (device_id, device_type, device_model) = get_device_info();
 
-        loop {
-            match check_adoption_status(&client, &server_url, &device_id, &device_type, &device_model) {
-                Ok(true) => { info!("Device adopted."); break; }
-                Ok(false) => { info!("Not adopted, retrying..."); thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)); }
-                Err(e) => { error!("Adoption check failed: {:?}", e); thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)); }
-            }
-        }
+        run_adoption_and_update_loop(&client, &server_url, &device_id, &device_type, &device_model, None);
 
-        loop {
-            send_system_update(&client, &server_url, &device_id);
-            thread::sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL));
-        }
+        Ok(())
     }
 }
 
@@ -124,7 +156,6 @@ mod windows_service {
         service_control_handler::{ServiceControl, ServiceControlHandlerResult},
         service::{ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType},
     };
-    use std::time::Duration;
 
     define_windows_service!(ffi_service_main, service_entry);
 
@@ -161,7 +192,7 @@ mod windows_service {
             controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
             exit_code: ServiceExitCode::Win32(0),
             checkpoint: 0,
-            wait_hint: Duration::from_secs(0),
+            wait_hint: std::time::Duration::from_secs(0),
             process_id: None,
         };
         status_handle.set_service_status(status)?;
@@ -170,18 +201,14 @@ mod windows_service {
         let server_url = read_server_url()?;
         let (device_id, device_type, device_model) = get_device_info();
 
-        while SERVICE_RUNNING.load(Ordering::SeqCst) {
-            match check_adoption_status(&client, &server_url, &device_id, &device_type, &device_model) {
-                Ok(true) => { info!("Device adopted."); break; }
-                Ok(false) => { thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)); }
-                Err(e) => { error!("Adoption check error: {:?}", e); thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)); }
-            }
-        }
-
-        while SERVICE_RUNNING.load(Ordering::SeqCst) {
-            send_system_update(&client, &server_url, &device_id);
-            thread::sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL));
-        }
+        run_adoption_and_update_loop(
+            &client,
+            &server_url,
+            &device_id,
+            &device_type,
+            &device_model,
+            Some(&SERVICE_RUNNING),
+        );
 
         info!("Service stopped.");
         status.current_state = ServiceState::Stopped;
