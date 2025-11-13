@@ -1,5 +1,6 @@
-use sysinfo::{System, Disk, NetworkData};
+use sysinfo::{System, Disks, Networks, Processes};
 use serde::Serialize;
+use anyhow::Result;
 
 #[derive(Debug, Serialize, Default)]
 pub struct DiskInfo {
@@ -34,39 +35,42 @@ pub struct SystemInfo {
     pub networks: Vec<NetworkInterfaceInfo>,
 }
 
-pub fn get_system_info() -> anyhow::Result<SystemInfo> {
+pub fn get_system_info() -> Result<SystemInfo> {
+    // Initialize a System instance to collect basic system data
     let mut sys = System::new_all();
     sys.refresh_all();
 
     // --- Disks ---
-    let disks = sys.disks().iter().map(|disk: &Disk| DiskInfo {
-        name: disk.name().to_string_lossy().to_string(), // Use to_string_lossy()
+    let disks_collection = Disks::new_with_refreshed_list();
+    let disks = disks_collection.list().iter().map(|disk| DiskInfo {
+        name: disk.name().to_string_lossy().to_string(),
         total_space: disk.total_space(),
         available_space: disk.available_space(),
-        mount_point: disk.mount_point().to_string_lossy().to_string(), // Use to_string_lossy()
+        mount_point: disk.mount_point().to_string_lossy().to_string(),
     }).collect::<Vec<_>>();
 
     // --- Processes ---
     let processes = sys.processes().iter().map(|(pid, process)| ProcessInfo {
         pid: pid.as_u32(),
-        name: process.name().to_string_lossy().to_string(), // Use to_string_lossy()
+        name: process.name().to_string_lossy().to_string(),
         cpu_usage: process.cpu_usage(),
         memory: process.memory(),
     }).collect::<Vec<_>>();
 
-    // --- Network Interfaces ---
-    let networks = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
+    // --- Networks ---
+    let networks_collection = Networks::new_with_refreshed_list();
+    let networks = networks_collection.iter().map(|(name, data)| NetworkInterfaceInfo {
         name: name.clone(),
-        received: data.received(),
-        transmitted: data.transmitted(),
+        received: data.total_received(),
+        transmitted: data.total_transmitted(),
     }).collect::<Vec<_>>();
 
     Ok(SystemInfo {
-        disks,
-        processes,
-        networks,
         device_type: None,
         device_model: None,
         serial_number: None,
+        disks,
+        processes,
+        networks,
     })
 }
