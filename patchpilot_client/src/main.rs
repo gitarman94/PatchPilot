@@ -5,7 +5,7 @@ mod self_update;
 
 use anyhow::Result;
 use serde::Serialize;
-use sysinfo::{System, RefreshKind, CpuRefreshKind};
+use sysinfo::{System, SystemExt, CpuExt};
 
 use crate::system_info::get_system_info;
 use service::init_logger;
@@ -68,24 +68,20 @@ pub struct LocalSystemInfo {
 
 /// Gather system information into a structured object.
 pub fn get_local_system_info() -> Result<LocalSystemInfo> {
-    let refresh_kind = RefreshKind::everything().with_cpu(CpuRefreshKind::everything());
-    let mut sys = System::new_with_specifics(refresh_kind);
+    let mut sys = System::new_all();
     sys.refresh_all();
 
-    // CPU info
     let cpus: Vec<CpuInfo> = sys.cpus().iter().map(|cpu| CpuInfo {
         name: cpu.name().to_string(),
         frequency: cpu.frequency(),
         usage: cpu.cpu_usage(),
     }).collect();
 
-    // Memory info
     let memory = MemoryInfo {
         total: sys.total_memory(),
         used: sys.used_memory(),
     };
 
-    // Disk info
     let disks: Vec<DiskInfo> = sys.disks().iter().map(|disk| DiskInfo {
         name: disk.name().to_string_lossy().to_string(),
         total_space: disk.total_space(),
@@ -93,14 +89,12 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
         mount_point: disk.mount_point().to_string_lossy().to_string(),
     }).collect();
 
-    // Network info
     let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
         name: name.clone(),
         received: data.total_received(),
         transmitted: data.total_transmitted(),
     }).collect();
 
-    // Process info
     let processes: Vec<ProcessInfo> = sys.processes().iter().map(|(pid, process)| ProcessInfo {
         pid: pid.as_u32(),
         name: process.name().to_string(),
