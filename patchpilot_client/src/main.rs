@@ -5,7 +5,7 @@ mod self_update;
 
 use anyhow::Result;
 use serde::Serialize;
-use sysinfo::{System, RefreshKind, CpuRefreshKind};
+use sysinfo::{System, RefreshKind, CpuRefreshKind, Disks, Networks};
 
 use crate::system_info::get_system_info;
 
@@ -84,19 +84,21 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
         used: sys.used_memory(),
     };
 
-    // Disk info
-    let disks: Vec<DiskInfo> = sys.disks().iter().map(|disk| DiskInfo {
+    // Disk info – using Disks struct per new API
+    let disks_collection = Disks::new_with_refreshed_list();
+    let disks: Vec<DiskInfo> = disks_collection.list().iter().map(|disk| DiskInfo {
         name: disk.name().to_string_lossy().to_string(),
         total_space: disk.total_space(),
         available_space: disk.available_space(),
         mount_point: disk.mount_point().to_string_lossy().to_string(),
     }).collect();
 
-    // Network info
-    let network_interfaces: Vec<NetworkInterfaceInfo> = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
+    // Network info – using Networks struct per new API
+    let networks_collection = Networks::new_with_refreshed_list();
+    let network_interfaces: Vec<NetworkInterfaceInfo> = networks_collection.iter().map(|(name, data)| NetworkInterfaceInfo {
         name: name.clone(),
-        received: data.received(),
-        transmitted: data.transmitted(),
+        received: data.total_received(),
+        transmitted: data.total_transmitted(),
     }).collect();
 
     // Process info
@@ -108,11 +110,11 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
     }).collect();
 
     Ok(LocalSystemInfo {
-        os_name: sysinfo::System::name().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: sysinfo::System::os_version().unwrap_or_else(|| "Unknown".to_string()),
-        kernel_version: sysinfo::System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        hostname: sysinfo::System::host_name().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: sysinfo::System::uptime(),
+        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: System::os_version().unwrap_or_else(|| "Unknown".to_string()),
+        kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        hostname: System::host_name().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: System::uptime(),
         cpus,
         memory,
         disks,
@@ -158,13 +160,13 @@ fn main() -> Result<()> {
     #[cfg(unix)]
     {
         println!("Starting PatchPilot service (Unix)...");
-        service::run_unix();
+        service::run_unix_service();
     }
-    
+
     #[cfg(windows)]
     {
         println!("Starting PatchPilot service (Windows)...");
-        service::run_windows();
+        service::run_service();
     }
 
     Ok(())
