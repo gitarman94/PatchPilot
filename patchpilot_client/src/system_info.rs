@@ -1,4 +1,4 @@
-use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ProcessExt};
+use sysinfo::{System, Cpu, Disk, NetworkData, Process, SystemExt, CpuExt, DiskExt, ProcessExt};
 
 #[derive(Debug)]
 pub struct CpuInfo {
@@ -27,7 +27,7 @@ pub struct ProcessInfo {
     pub memory: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SystemInfo {
     pub os_name: String,
     pub os_version: String,
@@ -68,8 +68,8 @@ pub fn collect_system_info() -> SystemInfo {
     }).collect();
 
     SystemInfo {
-        os_name: sys.long_os_version().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: sys.long_os_version().unwrap_or_else(|| "Unknown".to_string()),
+        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
         kernel_version: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
         hostname: sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
         uptime_seconds: sys.uptime(),
