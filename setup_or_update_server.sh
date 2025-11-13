@@ -7,7 +7,8 @@ INSTALL_LOG="${LOG_DIR}/install.log"
 SERVICE_NAME="patchpilot_server.service"
 SYSTEMD_DIR="/etc/systemd/system"
 
-mkdir -p "$APP_DIR" "$LOG_DIR"
+mkdir -p "$APP_DIR" "$LOG_DIR" /opt/patchpilot_install
+
 # Redirect all output (stdout+stderr) to install.log
 exec > >(tee -a "$INSTALL_LOG") 2>&1
 
@@ -49,9 +50,8 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
 
     pkill -f "^${APP_DIR}/target/release/patchpilot_server$" || true
     rm -rf "${APP_DIR}" /opt/patchpilot_install*
+    mkdir -p /opt/patchpilot_install "$APP_DIR"
 fi
-
-mkdir -p /opt/patchpilot_install "$APP_DIR"
 
 # Download & unpack latest release
 cd /opt/patchpilot_install
