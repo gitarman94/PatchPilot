@@ -1,10 +1,11 @@
-use std::process::Command;
-use std::fs;
-use std::{thread, time::Duration};
+#![allow(dead_code)] // prevents unused warnings when this binary isn't run directly
+
+use std::{process::Command, fs, thread, time::Duration};
+use chrono::Local;
 
 /// Simple console logger
 fn log(level: &str, message: &str) {
-    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     println!("{} [{}] {}", timestamp, level, message);
 }
 
@@ -36,10 +37,13 @@ fn main() {
             }
             Err(e) => {
                 retries -= 1;
-                log("WARN", &format!(
-                    "Failed to replace binary ({:?}). Retries left: {}...",
-                    e, retries
-                ));
+                log(
+                    "WARN",
+                    &format!(
+                        "Failed to replace binary ({:?}). Retries left: {}...",
+                        e, retries
+                    ),
+                );
                 thread::sleep(Duration::from_secs(1));
             }
         }
