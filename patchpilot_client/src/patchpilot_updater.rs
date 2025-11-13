@@ -1,28 +1,39 @@
-#![allow(dead_code)] // prevents unused warnings when this binary isn't run directly
-
-use std::{process::Command, fs, thread, time::Duration};
+use std::process::Command;
+use std::fs;
+use std::{thread, time::Duration};
+use log::{info, warn, error};
+use flexi_logger::{Logger, Duplicate, Age, Cleanup};
 use chrono::Local;
 
-/// Simple console logger
-fn log(level: &str, message: &str) {
-    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    println!("{} [{}] {}", timestamp, level, message);
+/// Initialize logger (same as main.rs)
+fn init_logger() {
+    Logger::try_with_str("info")
+        .unwrap()
+        .log_to_file()
+        .directory("logs")
+        .duplicate_to_stderr(Duplicate::Info)
+        .rotate(Age::Day, Cleanup::KeepLogFiles(7))
+        .start()
+        .unwrap_or_else(|e| panic!("Logger initialization failed: {}", e));
 }
 
 /// Entry point for the updater binary.
 /// Replaces the running binary with a new one and restarts it.
 fn main() {
+    // Initialize logger
+    init_logger();
+    info!("PatchPilot updater started.");
+
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 3 {
-        log("ERROR", "Usage: patchpilot_updater <old_exe_path> <new_exe_path>");
+        error!("Usage: patchpilot_updater <old_exe_path> <new_exe_path>");
         std::process::exit(1);
     }
 
     let old_path = &args[1];
     let new_path = &args[2];
 
-    log("INFO", "PatchPilot updater started.");
-    log("INFO", "Waiting 2 seconds for main process to exit...");
+    info!("Waiting 2 seconds for main process to exit...");
     thread::sleep(Duration::from_secs(2));
 
     const MAX_RETRIES: u32 = 5;
@@ -32,37 +43,31 @@ fn main() {
     while retries > 0 {
         match fs::rename(new_path, old_path) {
             Ok(_) => {
-                log("INFO", "✔ Successfully replaced binary.");
+                info!("✔ Successfully replaced binary.");
                 break;
             }
             Err(e) => {
                 retries -= 1;
-                log(
-                    "WARN",
-                    &format!(
-                        "Failed to replace binary ({:?}). Retries left: {}...",
-                        e, retries
-                    ),
-                );
+                warn!("Failed to replace binary ({:?}). Retries left: {}...", e, retries);
                 thread::sleep(Duration::from_secs(1));
             }
         }
     }
 
     if retries == 0 {
-        log("ERROR", "✖ Failed to replace binary after max retries.");
+        error!("✖ Failed to replace binary after max retries.");
         std::process::exit(1);
     }
 
     // Restart the updated binary
-    log("INFO", "Attempting to restart updated application...");
+    info!("Attempting to restart updated application...");
     match Command::new(old_path).spawn() {
-        Ok(_) => log("INFO", "✔ Update complete. Application restarted successfully."),
+        Ok(_) => info!("✔ Update complete. Application restarted successfully."),
         Err(e) => {
-            log("ERROR", &format!("✖ Failed to restart application: {:?}", e));
+            error!("✖ Failed to restart application: {:?}", e);
             std::process::exit(1);
         }
     }
 
-    log("INFO", "PatchPilot update process completed successfully.");
+    info!("PatchPilot update process completed successfully.");
 }
