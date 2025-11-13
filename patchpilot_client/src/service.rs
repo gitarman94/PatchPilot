@@ -4,10 +4,25 @@ use serde_json::json;
 use std::{fs, thread, time::Duration};
 use crate::system_info::{get_system_info, SystemInfo};
 use log::{info, error};
+use flexi_logger::{Logger, Duplicate, Age, Cleanup};
 
 // --- Configuration constants ---
 const ADOPTION_CHECK_INTERVAL: u64 = 30;  // seconds
 const SYSTEM_UPDATE_INTERVAL: u64 = 600;  // seconds (10 minutes)
+
+// --- Initialize logger with rotation ---
+pub fn init_logger() -> Result<()> {
+    Logger::try_with_str("info")?
+        .log_to_file()
+        .directory("logs")
+        .duplicate_to_stdout(Duplicate::Info)
+        .rotate(
+            Age::Day,     // Rotate daily
+            Cleanup::KeepLogFiles(7) // Keep last 7 log files
+        )
+        .start()?;
+    Ok(())
+}
 
 // Reads the server URL from a local configuration file.
 fn read_server_url() -> Result<String> {
@@ -106,7 +121,9 @@ fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
 #[cfg(unix)]
 mod unix_service {
     use super::*;
+
     pub fn run_unix_service() -> Result<()> {
+        init_logger()?;
         info!("Starting PatchPilot Unix service...");
 
         let client = Client::new();
@@ -122,10 +139,7 @@ mod unix_service {
                     break;
                 }
                 Ok(false) => {
-                    info!(
-                        "Device not yet adopted. Retrying in {} seconds...",
-                        ADOPTION_CHECK_INTERVAL
-                    );
+                    info!("Device not yet adopted. Retrying in {} seconds...", ADOPTION_CHECK_INTERVAL);
                     thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL));
                 }
                 Err(e) => {
@@ -162,6 +176,7 @@ mod windows_service {
     static SERVICE_RUNNING: AtomicBool = AtomicBool::new(true);
 
     pub fn run_service() -> Result<()> {
+        init_logger()?;
         info!("Starting PatchPilot Windows service...");
         service_dispatcher::start("PatchPilotService", ffi_service_main)?;
         Ok(())
@@ -201,7 +216,6 @@ mod windows_service {
         let server_url = read_server_url()?;
         let (device_id, device_type, device_model) = get_device_info();
 
-        // --- Adoption Loop ---
         while SERVICE_RUNNING.load(Ordering::SeqCst) {
             info!("Checking adoption status...");
             match check_adoption_status(&client, &server_url, &device_id, &device_type, &device_model) {
@@ -219,7 +233,6 @@ mod windows_service {
             }
         }
 
-        // --- Regular Update Loop ---
         while SERVICE_RUNNING.load(Ordering::SeqCst) {
             send_system_update(&client, &server_url, &device_id);
             thread::sleep(Duration::from_secs(super::SYSTEM_UPDATE_INTERVAL));
