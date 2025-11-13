@@ -23,8 +23,8 @@ pub struct Device {
     pub disk_health: String,
     pub network_throughput: i64,
     pub ping_latency: Option<f32>,
-    pub device_type: String,
-    pub device_model: String,
+    pub device_type: String,   // Updated to non-optional
+    pub device_model: String,  // Updated to non-optional
     pub uptime: Option<String>,
     pub updates_available: bool,
     pub network_interfaces: Option<String>,
@@ -49,8 +49,8 @@ pub struct NewDevice {
     pub disk_health: String,
     pub network_throughput: i64,
     pub ping_latency: Option<f32>,
-    pub device_type: String,
-    pub device_model: String,
+    pub device_type: String,   // Updated to non-optional
+    pub device_model: String,  // Updated to non-optional
     pub uptime: Option<String>,
     pub updates_available: bool,
     pub network_interfaces: Option<String>,
@@ -77,8 +77,8 @@ pub struct SystemInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
     pub system_info: SystemInfo,
-    pub device_type: Option<String>,
-    pub device_model: Option<String>,
+    pub device_type: Option<String>,   // Optional in input data
+    pub device_model: Option<String>,  // Optional in input data
 }
 
 impl Device {
