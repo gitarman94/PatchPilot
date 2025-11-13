@@ -6,9 +6,9 @@ mod self_update;
 use anyhow::Result;
 use serde::Serialize;
 use sysinfo::{System, SystemExt, CpuExt};
+use flexi_logger::{Logger, Duplicate, Age, Cleanup};
 
 use crate::system_info::get_system_info;
-use service::init_logger;
 
 /// Information about a single CPU core.
 #[derive(Serialize)]
@@ -117,8 +117,14 @@ pub fn get_local_system_info() -> Result<LocalSystemInfo> {
 }
 
 fn main() -> Result<()> {
-    // Initialize logger with rotation
-    init_logger()?;
+    // Initialize global logger
+    Logger::try_with_str("info")?
+        .log_to_file()
+        .directory("logs")
+        .duplicate_to_stdout(Duplicate::Info)
+        .rotate(Age::Day, Cleanup::KeepLogFiles(7))
+        .start()?;
+
     log::info!("Starting PatchPilot...");
 
     // Optional: Run self-update before starting
