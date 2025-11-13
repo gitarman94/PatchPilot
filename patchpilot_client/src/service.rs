@@ -4,20 +4,9 @@ use serde_json::json;
 use std::{fs, thread, time::Duration};
 use crate::system_info::{get_system_info, SystemInfo};
 use log::{info, error};
-use flexi_logger::{Logger, Duplicate, Age, Cleanup};
 
 const ADOPTION_CHECK_INTERVAL: u64 = 30;  
 const SYSTEM_UPDATE_INTERVAL: u64 = 600;  
-
-pub fn init_logger() -> Result<()> {
-    Logger::try_with_str("info")?
-        .log_to_file()
-        .directory("logs")
-        .duplicate_to_stdout(Duplicate::Info)
-        .rotate(Age::Day, Cleanup::KeepLogFiles(7))
-        .start()?;
-    Ok(())
-}
 
 fn read_server_url() -> Result<String> {
     #[cfg(unix)]
@@ -105,7 +94,6 @@ fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
 mod unix_service {
     use super::*;
     pub fn run_unix_service() -> Result<()> {
-        init_logger()?;
         info!("Starting PatchPilot Unix service...");
 
         let client = Client::new();
@@ -143,7 +131,6 @@ mod windows_service {
     static SERVICE_RUNNING: AtomicBool = AtomicBool::new(true);
 
     pub fn run_service() -> Result<()> {
-        init_logger()?;
         info!("Starting PatchPilot Windows service...");
         service_dispatcher::start("PatchPilotService", ffi_service_main)?;
         Ok(())
