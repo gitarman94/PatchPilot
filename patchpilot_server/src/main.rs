@@ -9,7 +9,7 @@ use log::{info, error};
 use serde_json::json;
 use chrono::Utc;
 use local_ip_address::local_ip;
-use sysinfo::{System, SystemExt};  // Updated sysinfo import
+use sysinfo::System; // ✅ Updated: removed SystemExt (no longer needed)
 
 mod schema;
 mod models;
@@ -22,17 +22,15 @@ type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
 // --- Logging initialization ---
 fn init_logger() {
-    // Create the logger
     let logger = Logger::try_with_str("info")
         .unwrap_or_else(|e| panic!("Failed to create logger: {}", e))
-        .log_to_file(FileSpec::default().directory("logs")) // Logs go to ./logs
+        .log_to_file(FileSpec::default().directory("logs"))
         .rotate(
-            Criterion::Age(Age::Day), // Rotate logs daily
-            Naming::Numbers,           // Use numbered filenames
-            Cleanup::KeepLogFiles(7),  // Keep last 7 log files
+            Criterion::Age(Age::Day),
+            Naming::Numbers,
+            Cleanup::KeepLogFiles(7),
         );
 
-    // Start the logger
     logger.start().unwrap_or_else(|e| panic!("Failed to start logger: {}", e));
 }
 
