@@ -1,4 +1,4 @@
-use sysinfo::{System, Disks, Networks};
+use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ProcessExt};
 use serde::Serialize;
 use anyhow::Result;
 
@@ -36,30 +36,24 @@ pub struct SystemInfo {
 }
 
 pub fn get_system_info() -> Result<SystemInfo> {
-    // Initialize and refresh everything
     let mut sys = System::new_all();
     sys.refresh_all();
 
-    // --- Disks ---
-    let disks_collection = Disks::new_with_refreshed_list();
-    let disks = disks_collection.list().iter().map(|disk| DiskInfo {
+    let disks = sys.disks().iter().map(|disk| DiskInfo {
         name: disk.name().to_string_lossy().to_string(),
         total_space: disk.total_space(),
         available_space: disk.available_space(),
         mount_point: disk.mount_point().to_string_lossy().to_string(),
     }).collect::<Vec<_>>();
 
-    // --- Processes (via System::processes) ---
     let processes = sys.processes().iter().map(|(pid, process)| ProcessInfo {
         pid: pid.as_u32(),
-        name: process.name().to_string_lossy().to_string(),
+        name: process.name().to_string(),
         cpu_usage: process.cpu_usage(),
         memory: process.memory(),
     }).collect::<Vec<_>>();
 
-    // --- Networks ---
-    let networks_collection = Networks::new_with_refreshed_list();
-    let networks = networks_collection.iter().map(|(name, data)| NetworkInterfaceInfo {
+    let networks = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
         name: name.clone(),
         received: data.total_received(),
         transmitted: data.total_transmitted(),
