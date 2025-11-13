@@ -25,7 +25,11 @@ fn init_logger() {
         .unwrap()
         .log_to_file(FileSpec::default().directory("logs"))
         .duplicate_to_stderr(Duplicate::Info)
-        .rotate(Age::Day, Cleanup::KeepLogFiles(7))
+        .rotate(
+            Criterion::Age(Age::Day),
+            Naming::Numbers,
+            Cleanup::KeepLogFiles(7)
+        )
         .start()
         .unwrap_or_else(|e| panic!("Logger initialization failed: {}", e));
 }
@@ -244,4 +248,5 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
+
 
