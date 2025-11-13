@@ -6,25 +6,19 @@ use crate::system_info::{get_system_info, SystemInfo};
 use log::{info, error};
 use flexi_logger::{Logger, Duplicate, Age, Cleanup};
 
-// --- Configuration constants ---
-const ADOPTION_CHECK_INTERVAL: u64 = 30;  // seconds
-const SYSTEM_UPDATE_INTERVAL: u64 = 600;  // seconds (10 minutes)
+const ADOPTION_CHECK_INTERVAL: u64 = 30;  
+const SYSTEM_UPDATE_INTERVAL: u64 = 600;  
 
-// --- Initialize logger with rotation ---
 pub fn init_logger() -> Result<()> {
     Logger::try_with_str("info")?
         .log_to_file()
         .directory("logs")
         .duplicate_to_stdout(Duplicate::Info)
-        .rotate(
-            Age::Day,     // Rotate daily
-            Cleanup::KeepLogFiles(7) // Keep last 7 log files
-        )
+        .rotate(Age::Day, Cleanup::KeepLogFiles(7))
         .start()?;
     Ok(())
 }
 
-// Reads the server URL from a local configuration file.
 fn read_server_url() -> Result<String> {
     #[cfg(unix)]
     let path = "/opt/patchpilot_client/server_url.txt";
@@ -36,7 +30,6 @@ fn read_server_url() -> Result<String> {
     Ok(url.trim().to_string())
 }
 
-// Retrieves device information (serial, type, model)
 fn get_device_info() -> (String, String, String) {
     match get_system_info() {
         Ok(info) => {
@@ -52,7 +45,6 @@ fn get_device_info() -> (String, String, String) {
     }
 }
 
-// Checks whether the device has been adopted by the PatchPilot server.
 fn check_adoption_status(
     client: &Client,
     server_url: &str,
@@ -72,17 +64,10 @@ fn check_adoption_status(
     match resp {
         Ok(resp) if resp.status().is_success() => {
             let status_json: serde_json::Value = resp.json()?;
-            Ok(status_json
-                .get("adopted")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false))
+            Ok(status_json.get("adopted").and_then(|v| v.as_bool()).unwrap_or(false))
         }
         Ok(resp) => {
-            error!(
-                "Unexpected HTTP {} from adoption check: {:?}",
-                resp.status(),
-                resp.text().unwrap_or_default()
-            );
+            error!("Unexpected HTTP {} from adoption check: {:?}", resp.status(), resp.text().unwrap_or_default());
             Ok(false)
         }
         Err(e) => {
@@ -92,7 +77,6 @@ fn check_adoption_status(
     }
 }
 
-// Sends detailed system status updates to the server.
 fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
     let sys_info = match get_system_info() {
         Ok(info) => info,
@@ -117,11 +101,9 @@ fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
     }
 }
 
-// --- Unix Service Implementation ---
 #[cfg(unix)]
 mod unix_service {
     use super::*;
-
     pub fn run_unix_service() -> Result<()> {
         init_logger()?;
         info!("Starting PatchPilot Unix service...");
@@ -130,26 +112,14 @@ mod unix_service {
         let server_url = read_server_url()?;
         let (device_id, device_type, device_model) = get_device_info();
 
-        // --- Adoption Loop ---
         loop {
-            info!("Checking device adoption status...");
             match check_adoption_status(&client, &server_url, &device_id, &device_type, &device_model) {
-                Ok(true) => {
-                    info!("Device adopted successfully. Entering active update mode...");
-                    break;
-                }
-                Ok(false) => {
-                    info!("Device not yet adopted. Retrying in {} seconds...", ADOPTION_CHECK_INTERVAL);
-                    thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL));
-                }
-                Err(e) => {
-                    error!("Adoption check failed: {:?}", e);
-                    thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL));
-                }
+                Ok(true) => { info!("Device adopted."); break; }
+                Ok(false) => { info!("Not adopted, retrying..."); thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)); }
+                Err(e) => { error!("Adoption check failed: {:?}", e); thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)); }
             }
         }
 
-        // --- Regular Update Loop ---
         loop {
             send_system_update(&client, &server_url, &device_id);
             thread::sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL));
@@ -157,19 +127,16 @@ mod unix_service {
     }
 }
 
-// --- Windows Service Implementation ---
 #[cfg(windows)]
 mod windows_service {
     use super::*;
-    use std::sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    };
+    use std::sync::atomic::{AtomicBool, Ordering};
     use windows_service::{
         define_windows_service, service_dispatcher,
-        service_control_handler::{self, ServiceControl, ServiceControlHandlerResult},
+        service_control_handler::{ServiceControl, ServiceControlHandlerResult},
         service::{ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType},
     };
+    use std::time::Duration;
 
     define_windows_service!(ffi_service_main, service_entry);
 
@@ -189,7 +156,7 @@ mod windows_service {
     }
 
     fn run() -> Result<()> {
-        let status_handle = service_control_handler::register(
+        let status_handle = windows_service::service_control_handler::register(
             "PatchPilotService",
             move |control_event| match control_event {
                 ServiceControl::Stop | ServiceControl::Shutdown => {
@@ -217,25 +184,16 @@ mod windows_service {
         let (device_id, device_type, device_model) = get_device_info();
 
         while SERVICE_RUNNING.load(Ordering::SeqCst) {
-            info!("Checking adoption status...");
             match check_adoption_status(&client, &server_url, &device_id, &device_type, &device_model) {
-                Ok(true) => {
-                    info!("Device adopted successfully. Starting update loop...");
-                    break;
-                }
-                Ok(false) => {
-                    thread::sleep(Duration::from_secs(super::ADOPTION_CHECK_INTERVAL));
-                }
-                Err(e) => {
-                    error!("Adoption check error: {:?}", e);
-                    thread::sleep(Duration::from_secs(super::ADOPTION_CHECK_INTERVAL));
-                }
+                Ok(true) => { info!("Device adopted."); break; }
+                Ok(false) => { thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)); }
+                Err(e) => { error!("Adoption check error: {:?}", e); thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)); }
             }
         }
 
         while SERVICE_RUNNING.load(Ordering::SeqCst) {
             send_system_update(&client, &server_url, &device_id);
-            thread::sleep(Duration::from_secs(super::SYSTEM_UPDATE_INTERVAL));
+            thread::sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL));
         }
 
         info!("Service stopped.");
@@ -245,9 +203,7 @@ mod windows_service {
     }
 }
 
-// Re-export correct function based on platform
 #[cfg(unix)]
 pub use unix_service::run_unix_service;
-
 #[cfg(windows)]
 pub use windows_service::run_service;
