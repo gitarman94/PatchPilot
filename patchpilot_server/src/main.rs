@@ -4,7 +4,7 @@ use r2d2::Pool;
 use rocket::{get, post, routes, launch, State};
 use rocket::serde::json::Json;
 use rocket::fs::{FileServer, NamedFile};
-use flexi_logger::{Logger, FileSpec, Duplicate, Age, Cleanup, Criterion, Naming};
+use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use log::{info, error};
 use serde_json::json;
 use chrono::Utc;
@@ -250,6 +250,7 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
+
 
 
 
