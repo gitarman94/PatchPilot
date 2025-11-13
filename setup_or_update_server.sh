@@ -51,7 +51,7 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
     rm -rf "${APP_DIR}" /opt/patchpilot_install*
 fi
 
-mkdir -p /opt/patchpilot_install
+mkdir -p /opt/patchpilot_install "$APP_DIR"
 
 # Download & unpack latest release
 cd /opt/patchpilot_install
