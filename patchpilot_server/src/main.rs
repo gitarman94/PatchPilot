@@ -4,7 +4,7 @@ use r2d2::Pool;
 use rocket::{get, post, routes, launch, State};
 use rocket::serde::json::Json;
 use rocket::fs::{FileServer, NamedFile};
-use flexi_logger::{Logger, FileSpec, Duplicate, Age, Cleanup};
+use flexi_logger::{Logger, FileSpec, Duplicate, Age, Cleanup, Criterion, Naming};
 use log::{info, error};
 use serde_json::json;
 use chrono::Utc;
@@ -21,18 +21,20 @@ type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
 // --- Logging initialization ---
 fn init_logger() {
-    Logger::try_with_str("info")
-        .unwrap()
-        .log_to_file(FileSpec::default().directory("logs"))
-        .duplicate_to_stderr(Duplicate::Info)
+    // Create the logger
+    let logger = Logger::try_with_str("info")
+        .unwrap_or_else(|e| panic!("Failed to create logger: {}", e))
+        .log_to_file(FileSpec::default().directory("logs")) // Logs go to ./logs
         .rotate(
-            Criterion::Age(Age::Day),
-            Naming::Numbers,
-            Cleanup::KeepLogFiles(7)
-        )
-        .start()
-        .unwrap_or_else(|e| panic!("Logger initialization failed: {}", e));
+            Criterion::Age(Age::Day), // Rotate logs daily
+            Naming::Numbers,           // Use numbered filenames
+            Cleanup::KeepLogFiles(7),  // Keep last 7 log files
+        );
+
+    // Start the logger
+    logger.start().unwrap_or_else(|e| panic!("Failed to start logger: {}", e));
 }
+
 
 // --- Custom error type ---
 #[derive(Debug)]
@@ -248,5 +250,6 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
+
 
 
