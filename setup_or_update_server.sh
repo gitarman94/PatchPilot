@@ -1,35 +1,43 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+APP_DIR="/opt/patchpilot_server"
+LOG_DIR="${APP_DIR}/logs"
+INSTALL_LOG="${LOG_DIR}/install.log"
+SERVICE_NAME="patchpilot_server.service"
+SYSTEMD_DIR="/etc/systemd/system"
+
+mkdir -p "$APP_DIR" "$LOG_DIR"
+# Redirect all output (stdout+stderr) to install.log
+exec > >(tee -a "$INSTALL_LOG") 2>&1
+
+echo "🛠️ Starting PatchPilot server setup at $(date)..."
+
 GITHUB_USER="gitarman94"
 GITHUB_REPO="PatchPilot"
 BRANCH="main"
 ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.zip"
 
-APP_DIR="/opt/patchpilot_server"
-SERVICE_NAME="patchpilot_server.service"
-SYSTEMD_DIR="/etc/systemd/system"
-
 FORCE_REINSTALL=false
 UPGRADE=false
 
-# Parse command-line arguments
+# Parse args
 for arg in "$@"; do
     case "$arg" in
-        --force)   FORCE_REINSTALL=true ;;
+        --force) FORCE_REINSTALL=true ;;
         --upgrade) UPGRADE=true ;;
     esac
 done
 
-# Check OS
+# OS check
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
         debian|ubuntu|linuxmint|pop|raspbian) ;;
-        *) echo "❌ This installer works only on Debian-based systems."; exit 1 ;;
+        *) echo "❌ Only Debian-based systems supported."; exit 1 ;;
     esac
 else
-    echo "❌ Cannot determine OS – /etc/os-release missing."
+    echo "❌ Cannot determine OS."
     exit 1
 fi
 
@@ -39,21 +47,13 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
     systemctl stop "${SERVICE_NAME}" || true
     systemctl disable "${SERVICE_NAME}" || true
 
-    sed -i '/CARGO_HOME/d' /etc/environment
-    sed -i '/RUSTUP_HOME/d' /etc/environment
-    sed -i '/PATH=.*\/opt\/patchpilot_server\/.cargo\/bin/d' /etc/environment
-
     pkill -f "^${APP_DIR}/target/release/patchpilot_server$" || true
-
     rm -rf "${APP_DIR}" /opt/patchpilot_install*
-    rm -rf "$HOME/.cargo" "$HOME/.rustup"
-    rm -f /usr/local/bin/cargo /usr/local/bin/rustup
 fi
 
 mkdir -p /opt/patchpilot_install
-mkdir -p "$APP_DIR"
 
-# Download latest release
+# Download & unpack latest release
 cd /opt/patchpilot_install
 curl -L "$ZIP_URL" -o latest.zip
 unzip -o latest.zip
@@ -69,64 +69,30 @@ rm -rf /opt/patchpilot_install
 # Install required packages
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlite3-dev logrotate
+apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlite3-dev
 
-# Create logrotate configuration for PatchPilot server
-cat <<EOF >/etc/logrotate.d/patchpilot_server
-${APP_DIR}/server.log {
-    size 5M
-    rotate 3
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-}
-EOF
-
-# Set variables for current session
+# Rust environment
 export CARGO_HOME="${APP_DIR}/.cargo"
 export RUSTUP_HOME="${APP_DIR}/.rustup"
 export PATH="${CARGO_HOME}/bin:$PATH"
 mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
 
-# Install Rust if needed (to /opt/patchpilot_server/.cargo)
 if [[ ! -x "${CARGO_HOME}/bin/cargo" ]]; then
     echo "🛠️ Installing Rust..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
-# Persist Rust environment for all users
-if ! grep -q "CARGO_HOME=${APP_DIR}/.cargo" /etc/environment; then
-    echo "CARGO_HOME=${APP_DIR}/.cargo" >> /etc/environment
-fi
-
-if ! grep -q "RUSTUP_HOME=${APP_DIR}/.rustup" /etc/environment; then
-    echo "RUSTUP_HOME=${APP_DIR}/.rustup" >> /etc/environment
-fi
-
-if ! grep -q "${APP_DIR}/.cargo/bin" /etc/environment; then
-    echo "PATH=\$PATH:${APP_DIR}/.cargo/bin" >> /etc/environment
-fi
-
-# Verify Rust install
-"${CARGO_HOME}/bin/rustup" default stable
-"${CARGO_HOME}/bin/cargo" --version
-# --- END FIXED SECTION ---
-
-# SQLite database setup
+# DB setup
 SQLITE_DB="${APP_DIR}/patchpilot.db"
 touch "$SQLITE_DB"
-chown patchpilot:patchpilot "$SQLITE_DB"
 chmod 600 "$SQLITE_DB"
 
 # Build Rust app
 cd "$APP_DIR"
-echo "🔨 Building the Rust application..."
 "${CARGO_HOME}/bin/cargo" build --release
 
-# Rocket configuration
+# Rocket config
 cat > "${APP_DIR}/Rocket.toml" <<EOF
 [default]
 address = "0.0.0.0"
@@ -182,8 +148,8 @@ EnvironmentFile=${APP_ENV_FILE}
 ExecStart=${APP_DIR}/target/release/patchpilot_server
 Restart=always
 RestartSec=10
-StandardOutput=append:${APP_DIR}/server.log
-StandardError=append:${APP_DIR}/server.log
+StandardOutput=append:${LOG_DIR}/server.log
+StandardError=append:${LOG_DIR}/server.log
 
 [Install]
 WantedBy=multi-user.target
@@ -195,4 +161,4 @@ systemctl enable --now "$SERVICE_NAME"
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete!"
 echo "🌐 Dashboard: http://${SERVER_IP}:8080"
-echo "🔑 Admin token is stored at ${TOKEN_FILE}"
+echo "🔑 Admin token stored at ${TOKEN_FILE}"
