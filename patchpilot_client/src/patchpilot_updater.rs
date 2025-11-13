@@ -1,9 +1,6 @@
-use std::process::Command;
-use std::fs;
-use std::{thread, time::Duration};
+use std::{fs, process::Command, thread, time::Duration};
 use log::{info, warn, error};
 use flexi_logger::{Logger, Duplicate, Age, Cleanup};
-use chrono::Local;
 
 /// Initialize logger (same as main.rs)
 fn init_logger() {
@@ -17,8 +14,6 @@ fn init_logger() {
         .unwrap_or_else(|e| panic!("Logger initialization failed: {}", e));
 }
 
-/// Entry point for the updater binary.
-/// Replaces the running binary with a new one and restarts it.
 fn main() {
     // Initialize logger
     init_logger();
@@ -39,7 +34,6 @@ fn main() {
     const MAX_RETRIES: u32 = 5;
     let mut retries = MAX_RETRIES;
 
-    // Try replacing binary with retries
     while retries > 0 {
         match fs::rename(new_path, old_path) {
             Ok(_) => {
