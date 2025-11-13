@@ -1,4 +1,4 @@
-use sysinfo::{System, Disks, Networks, Processes};
+use sysinfo::{System, Disks, Networks};
 use serde::Serialize;
 use anyhow::Result;
 
@@ -36,7 +36,7 @@ pub struct SystemInfo {
 }
 
 pub fn get_system_info() -> Result<SystemInfo> {
-    // Initialize a System instance to collect basic system data
+    // Initialize and refresh everything
     let mut sys = System::new_all();
     sys.refresh_all();
 
@@ -49,7 +49,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
         mount_point: disk.mount_point().to_string_lossy().to_string(),
     }).collect::<Vec<_>>();
 
-    // --- Processes ---
+    // --- Processes (via System::processes) ---
     let processes = sys.processes().iter().map(|(pid, process)| ProcessInfo {
         pid: pid.as_u32(),
         name: process.name().to_string_lossy().to_string(),
