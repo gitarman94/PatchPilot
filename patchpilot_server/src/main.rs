@@ -4,6 +4,7 @@ use r2d2::Pool;
 use rocket::{get, post, routes, launch, State};
 use rocket::serde::json::Json;
 use rocket::fs::{FileServer, NamedFile};
+use flexi_logger::{Logger, Duplicate, Age, Cleanup};
 use log::{info, error};
 use serde_json::json;
 use chrono::Utc;
@@ -18,7 +19,19 @@ use diesel::sqlite::SqliteConnection;
 // Type alias for SQLite connection pool
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
-// Custom error type
+// --- Logging initialization ---
+fn init_logger() {
+    Logger::try_with_str("info")
+        .unwrap()
+        .log_to_file()
+        .directory("logs")
+        .duplicate_to_stderr(Duplicate::Info)
+        .rotate(Age::Day, Cleanup::KeepLogFiles(7))
+        .start()
+        .unwrap_or_else(|e| panic!("Logger initialization failed: {}", e));
+}
+
+// --- Custom error type ---
 #[derive(Debug)]
 pub enum ApiError {
     DbError(diesel::result::Error),
@@ -40,11 +53,11 @@ impl ApiError {
     }
 }
 
+// --- DB helpers ---
 fn establish_connection(pool: &DbPool) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, ApiError> {
     pool.get().map_err(|e| ApiError::ValidationError(format!("Failed to get DB connection: {}", e)))
 }
 
-// Basic validation for the incoming device info
 fn validate_device_info(info: &DeviceInfo) -> Result<(), ApiError> {
     if info.system_info.cpu < 0.0 {
         return Err(ApiError::ValidationError("CPU usage cannot be negative".into()));
@@ -55,7 +68,6 @@ fn validate_device_info(info: &DeviceInfo) -> Result<(), ApiError> {
     Ok(())
 }
 
-// Insert or update a device based on device ID and info
 fn insert_or_update_device(conn: &mut SqliteConnection, device_id: &str, info: &DeviceInfo) -> Result<Device, ApiError> {
     use crate::schema::devices::dsl::*;
 
@@ -76,8 +88,6 @@ fn insert_or_update_device(conn: &mut SqliteConnection, device_id: &str, info: &
 }
 
 // --- REST API endpoints ---
-
-// Register or update a device with the provided device ID and info
 #[post("/devices/<device_id>", format = "json", data = "<device_info>")]
 async fn register_or_update_device(
     pool: &State<DbPool>,
@@ -85,7 +95,6 @@ async fn register_or_update_device(
     device_info: Json<DeviceInfo>,
 ) -> Result<Json<Device>, String> {
     validate_device_info(&device_info).map_err(|e| e.message())?;
-
     let mut conn = establish_connection(pool).map_err(|e| e.message())?;
     match insert_or_update_device(&mut conn, device_id, &device_info) {
         Ok(device) => {
@@ -99,7 +108,6 @@ async fn register_or_update_device(
     }
 }
 
-// Device heartbeat endpoint, updates last check-in and other details
 #[post("/devices/heartbeat", format = "json", data = "<payload>")]
 async fn heartbeat(
     pool: &State<DbPool>,
@@ -115,7 +123,6 @@ async fn heartbeat(
     let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str());
     let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str());
 
-    // Insert or update with approved=true by default
     let _ = diesel::insert_into(devices)
         .values((
             device_name.eq(device_id),
@@ -138,7 +145,6 @@ async fn heartbeat(
     Json(json!({"adopted": true}))
 }
 
-// Get list of all devices
 #[get("/devices")]
 async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> {
     use crate::schema::devices::dsl::*;
@@ -154,7 +160,6 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
     Ok(Json(results))
 }
 
-// Check server status
 #[get("/status")]
 fn status() -> Json<serde_json::Value> {
     Json(json!({
@@ -175,8 +180,6 @@ async fn favicon() -> Option<NamedFile> {
 }
 
 // --- DB initialization ---
-
-// Initialize DB schema
 fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS devices (
@@ -207,7 +210,7 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
     Ok(())
 }
 
-// Get server IP for LAN usage
+// --- Network helpers ---
 fn get_server_ip() -> String {
     match local_ip() {
         Ok(ip) => ip.to_string(),
@@ -215,14 +218,12 @@ fn get_server_ip() -> String {
     }
 }
 
-// Rocket server entry point
+// --- Rocket server entry point ---
 #[launch]
 fn rocket() -> _ {
-    use std::env;
+    init_logger();
 
-    env_logger::init();
-
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
     let pool = Pool::builder()
         .build(manager)
