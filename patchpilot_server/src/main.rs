@@ -9,7 +9,7 @@ use log::{info, error};
 use serde_json::json;
 use chrono::Utc;
 use local_ip_address::local_ip;
-use sysinfo::System; // ✅ Updated: removed SystemExt (no longer needed)
+use sysinfo::System; // ✅ keep this — now used for live stats
 
 mod schema;
 mod models;
@@ -163,11 +163,32 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
     Ok(Json(results))
 }
 
+// --- Enhanced /status endpoint ---
 #[get("/status")]
 fn status() -> Json<serde_json::Value> {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let uptime = sys.uptime();
+    let total_memory = sys.total_memory();
+    let used_memory = sys.used_memory();
+    let total_swap = sys.total_swap();
+    let used_swap = sys.used_swap();
+
     Json(json!({
         "server_time": Utc::now().to_rfc3339(),
-        "status": "ok"
+        "status": "ok",
+        "uptime_seconds": uptime,
+        "total_memory": total_memory,
+        "used_memory": used_memory,
+        "total_swap": total_swap,
+        "used_swap": used_swap,
+        "cpu_count": sys.cpus().len(),
+        "load_avg": {
+            "one": sys.load_average().one,
+            "five": sys.load_average().five,
+            "fifteen": sys.load_average().fifteen
+        }
     }))
 }
 
