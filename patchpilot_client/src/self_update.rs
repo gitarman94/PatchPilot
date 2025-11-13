@@ -34,7 +34,7 @@ const UPDATER_NAME: &str = "patchpilot_updater.exe";
 #[cfg(not(windows))]
 const UPDATER_NAME: &str = "patchpilot_updater";
 
-/// Checks if an update is available and performs it if necessary.
+/// Checks for a newer release on GitHub and launches updater if needed
 pub fn check_and_update() -> Result<()> {
     let client = Client::builder()
         .timeout(Duration::from_secs(15))
@@ -57,17 +57,16 @@ pub fn check_and_update() -> Result<()> {
 
     let latest_version = resp.tag_name.as_str();
     if latest_version == current_version {
-        log::info!("Already on latest version: {}", latest_version);
+        log::info!("Already on the latest version: {}", latest_version);
         return Ok(());
     }
 
-    log::info!("Found new version: {}", latest_version);
+    log::info!("New version found: {}", latest_version);
 
-    let asset = resp
-        .assets
-        .iter()
+    // Find the correct executable asset
+    let asset = resp.assets.iter()
         .find(|a| a.name == EXE_NAME)
-        .ok_or_else(|| anyhow::anyhow!("Executable asset not found"))?;
+        .ok_or_else(|| anyhow::anyhow!("Executable asset not found in release"))?;
 
     log::info!("Downloading new executable: {}", asset.browser_download_url);
 
@@ -75,6 +74,7 @@ pub fn check_and_update() -> Result<()> {
     let new_exe_path = tmp_dir.join(EXE_NAME);
     download_file(&client, &asset.browser_download_url, &new_exe_path)?;
 
+    // Determine updater path
     let updater_path = env::current_exe()?
         .parent()
         .expect("Executable must have a parent directory")
@@ -88,16 +88,17 @@ pub fn check_and_update() -> Result<()> {
         .status()?;
 
     if !status.success() {
-        bail!("Updater helper failed");
+        bail!("Updater helper failed to launch");
     }
 
-    log::info!("Update launched — exiting current version.");
+    log::info!("Update launched successfully — exiting current version.");
     exit(0);
 }
 
-/// Downloads a file from the given URL and saves it to the specified path
+/// Download a file to a local path
 fn download_file(client: &Client, url: &str, dest: &PathBuf) -> Result<()> {
-    log::info!("Downloading file from: {}", url);
+    log::info!("Downloading from: {}", url);
+
     let mut resp = client
         .get(url)
         .header("User-Agent", "PatchPilotUpdater")
