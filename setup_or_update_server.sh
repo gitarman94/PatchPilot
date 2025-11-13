@@ -2,15 +2,11 @@
 set -euo pipefail
 
 APP_DIR="/opt/patchpilot_server"
-LOG_DIR="${APP_DIR}/logs"
-INSTALL_LOG="${LOG_DIR}/install.log"
+INSTALL_LOG="${APP_DIR}/install.log"
 SERVICE_NAME="patchpilot_server.service"
 SYSTEMD_DIR="/etc/systemd/system"
 
-mkdir -p "$APP_DIR" "$LOG_DIR" /opt/patchpilot_install
-
-# Redirect all output (stdout+stderr) to install.log
-exec > >(tee -a "$INSTALL_LOG") 2>&1
+mkdir -p "$APP_DIR" /opt/patchpilot_install
 
 echo "🛠️ Starting PatchPilot server setup at $(date)..."
 
@@ -148,8 +144,6 @@ EnvironmentFile=${APP_ENV_FILE}
 ExecStart=${APP_DIR}/target/release/patchpilot_server
 Restart=always
 RestartSec=10
-StandardOutput=append:${LOG_DIR}/server.log
-StandardError=append:${LOG_DIR}/server.log
 
 [Install]
 WantedBy=multi-user.target
