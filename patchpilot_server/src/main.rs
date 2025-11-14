@@ -200,7 +200,7 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     Json(json!({
         "server_time": Utc::now().to_rfc3339(),
         "status": "ok",
-        "uptime_seconds": sys.uptime(),
+        "uptime_seconds": System::uptime(),
         "cpu_count": sys.cpus().len(),
         "cpu_usage_per_core_percent": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
         "total_memory_bytes": total_memory,
@@ -291,3 +291,4 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
+
