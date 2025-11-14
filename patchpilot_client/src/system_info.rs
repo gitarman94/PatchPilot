@@ -1,4 +1,4 @@
-use sysinfo::{System, CpuRefreshKind, DiskRefreshKind, Networks, Processes};
+use sysinfo::{System, Cpu, Disk, NetworkData, Process};
 
 #[derive(Debug)]
 pub struct CpuInfo {
@@ -44,46 +44,54 @@ pub fn collect_system_info() -> SystemInfo {
     let mut sys = System::new_all();
     sys.refresh_all();
 
-    // CPUs
-    let cpus = sys.cpus().iter().map(|cpu| {
-        CpuInfo {
+    // --- CPUs ---
+    let cpus = sys
+        .cpus()
+        .iter()
+        .map(|cpu| CpuInfo {
             name: cpu.brand().to_string(),
-            cores: sys.physical_core_count().unwrap_or(1),
-        }
-    }).collect();
+            cores: System::physical_core_count().unwrap_or(1),
+        })
+        .collect();
 
-    // Disks
-    let disks = sys.disks().iter().map(|disk| {
-        DiskInfo {
-            name: disk.name().to_string_lossy().into_owned(),
+    // --- Disks ---
+    let disks = sys
+        .disks()
+        .iter()
+        .map(|disk| DiskInfo {
+            name: disk.name().to_string_lossy().to_string(),
             total_space: disk.total_space(),
             available_space: disk.available_space(),
-        }
-    }).collect();
+        })
+        .collect();
 
-    // Networks
-    let network_interfaces = sys.networks().iter().map(|(name, data)| {
-        NetworkInterfaceInfo {
+    // --- Networks ---
+    let network_interfaces = sys
+        .networks()
+        .iter()
+        .map(|(name, data)| NetworkInterfaceInfo {
             name: name.clone(),
             received: data.received(),
             transmitted: data.transmitted(),
-        }
-    }).collect();
+        })
+        .collect();
 
-    // Processes
-    let processes = sys.processes().values().map(|process| {
-        ProcessInfo {
+    // --- Processes ---
+    let processes = sys
+        .processes()
+        .values()
+        .map(|process| ProcessInfo {
             pid: process.pid().as_u32() as i32,
             name: process.name().to_string_lossy().to_string(),
             memory: process.memory(),
-        }
-    }).collect();
+        })
+        .collect();
 
     SystemInfo {
-        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: System::os_version().unwrap_or_else(|| "Unknown".to_string()),
-        kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        hostname: System::host_name().unwrap_or_else(|| "Unknown".to_string()),
+        os_name: System::name().unwrap_or_else(|| "Unknown".into()),
+        os_version: System::os_version().unwrap_or_else(|| "Unknown".into()),
+        kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".into()),
+        hostname: System::host_name().unwrap_or_else(|| "Unknown".into()),
         uptime_seconds: System::uptime(),
         cpus,
         disks,
