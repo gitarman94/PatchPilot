@@ -9,6 +9,7 @@ use log::info;
 use serde_json::json;
 use chrono::Utc;
 use local_ip_address::local_ip;
+use std::sync::Mutex;
 
 use sysinfo::System; // sysinfo v0.37: only System is imported
 
@@ -17,7 +18,6 @@ mod models;
 
 use models::{Device, NewDevice, DeviceInfo};
 use diesel::sqlite::SqliteConnection;
-use std::sync::Mutex;
 
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
@@ -104,15 +104,19 @@ async fn register_or_update_device(
 ) -> Result<Json<Device>, String> {
     validate_device_info(&device_info).map_err(|e| e.message())?;
 
-    let mut conn = establish_connection(pool).map_err(|e| e.message())?;
+    let pool = pool.clone();
+    let device_info = device_info.into_inner();
+    let device_id = device_id.to_string();
 
-    match insert_or_update_device(&mut conn, device_id, &device_info) {
-        Ok(device) => {
-            info!("Device {} registered/updated successfully", device_id);
-            Ok(Json(device))
-        }
-        Err(e) => Err(e.message()),
-    }
+    // Run Diesel blocking operations in a separate thread
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
+        insert_or_update_device(&mut conn, &device_id, &device_info)
+            .map(Json)
+            .map_err(|e| e.message())
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("Task join error: {}", e)))
 }
 
 #[post("/devices/heartbeat", format = "json", data = "<payload>")]
@@ -122,51 +126,62 @@ async fn heartbeat(
 ) -> Json<serde_json::Value> {
     use crate::schema::devices::dsl::*;
 
-    let mut conn = pool.get().expect("DB connection failed");
+    let pool = pool.clone();
+    let payload = payload.into_inner();
 
-    let device_id = payload.get("device_id").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("unknown");
+    rocket::tokio::task::spawn_blocking(move || {
+        if let Ok(mut conn) = pool.get() {
+            let device_id = payload.get("device_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("unknown");
 
-    let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str());
-    let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str());
+            let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("");
+            let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("");
 
-    let _ = diesel::insert_into(devices)
-        .values((
-            device_name.eq(device_id),
-            device_type.eq(device_type_val),
-            device_model.eq(device_model_val),
-            network_interfaces.eq(network_interfaces_val),
-            ip_address.eq(ip_address_val),
-            approved.eq(true),
-            last_checkin.eq(Utc::now().naive_utc())
-        ))
-        .on_conflict(device_name)
-        .do_update()
-        .set((
-            last_checkin.eq(Utc::now().naive_utc()),
-            network_interfaces.eq(network_interfaces_val),
-            ip_address.eq(ip_address_val)
-        ))
-        .execute(&mut conn);
+            let _ = diesel::insert_into(devices)
+                .values((
+                    device_name.eq(device_id),
+                    device_type.eq(device_type_val),
+                    device_model.eq(device_model_val),
+                    network_interfaces.eq(network_interfaces_val),
+                    ip_address.eq(ip_address_val),
+                    approved.eq(true),
+                    last_checkin.eq(Utc::now().naive_utc())
+                ))
+                .on_conflict(device_name)
+                .do_update()
+                .set((
+                    last_checkin.eq(Utc::now().naive_utc()),
+                    network_interfaces.eq(network_interfaces_val),
+                    ip_address.eq(ip_address_val)
+                ))
+                .execute(&mut conn);
+        }
+    })
+    .await
+    .ok(); // ignore errors silently
 
     Json(json!({"adopted": true}))
 }
 
 #[get("/devices")]
 async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> {
-    use crate::schema::devices::dsl::*;
+    let pool = pool.clone();
 
-    let mut conn = establish_connection(pool).map_err(|e| e.message())?;
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
 
-    let results = devices
-        .load::<Device>(&mut conn)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .map(|d| d.enrich_for_dashboard())
-        .collect::<Vec<_>>();
+        let results = crate::schema::devices::dsl::devices
+            .load::<Device>(&mut conn)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|d| d.enrich_for_dashboard())
+            .collect::<Vec<_>>();
 
-    Ok(Json(results))
+        Ok(Json(results))
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("Task join error: {}", e)))
 }
 
 #[get("/status")]
@@ -177,28 +192,24 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     Json(json!({
         "server_time": Utc::now().to_rfc3339(),
         "status": "ok",
-        "uptime_seconds": System::uptime(),
+        "uptime_seconds": sys.uptime(),
         "cpu_count": sys.cpus().len(),
         "cpu_usage_per_core": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
-        "total_memory": System::total_memory(),
-        "used_memory": System::used_memory(),
-        "total_swap": System::total_swap(),
-        "used_swap": System::used_swap(),
+        "total_memory": sys.total_memory(),
+        "used_memory": sys.used_memory(),
+        "total_swap": sys.total_swap(),
+        "used_swap": sys.used_swap(),
     }))
 }
 
 #[get("/")]
 async fn dashboard() -> Option<NamedFile> {
-    NamedFile::open("/opt/patchpilot_server/templates/dashboard.html")
-        .await
-        .ok()
+    NamedFile::open("/opt/patchpilot_server/templates/dashboard.html").await.ok()
 }
 
 #[get("/favicon.ico")]
 async fn favicon() -> Option<NamedFile> {
-    NamedFile::open("/opt/patchpilot_server/static/favicon.ico")
-        .await
-        .ok()
+    NamedFile::open("/opt/patchpilot_server/static/favicon.ico").await.ok()
 }
 
 fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
@@ -206,19 +217,19 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
         CREATE TABLE IF NOT EXISTS devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             device_name TEXT NOT NULL UNIQUE,
-            hostname TEXT NOT NULL,
-            os_name TEXT NOT NULL,
-            architecture TEXT NOT NULL,
+            hostname TEXT,
+            os_name TEXT,
+            architecture TEXT,
             last_checkin TIMESTAMP NOT NULL,
             approved BOOLEAN NOT NULL,
-            cpu FLOAT NOT NULL,
-            ram_total BIGINT NOT NULL,
-            ram_used BIGINT NOT NULL,
-            ram_free BIGINT NOT NULL,
-            disk_total BIGINT NOT NULL,
-            disk_free BIGINT NOT NULL,
-            disk_health TEXT NOT NULL,
-            network_throughput BIGINT NOT NULL,
+            cpu FLOAT NOT NULL DEFAULT 0.0,
+            ram_total BIGINT NOT NULL DEFAULT 0,
+            ram_used BIGINT NOT NULL DEFAULT 0,
+            ram_free BIGINT NOT NULL DEFAULT 0,
+            disk_total BIGINT NOT NULL DEFAULT 0,
+            disk_free BIGINT NOT NULL DEFAULT 0,
+            disk_health TEXT,
+            network_throughput BIGINT NOT NULL DEFAULT 0,
             ping_latency FLOAT,
             device_type TEXT NOT NULL,
             device_model TEXT NOT NULL,
@@ -241,7 +252,6 @@ fn rocket() -> _ {
 
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
-
     let pool = Pool::builder().build(manager).expect("Failed to create DB pool");
 
     {
@@ -271,4 +281,3 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
-
