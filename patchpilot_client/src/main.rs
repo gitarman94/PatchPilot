@@ -18,25 +18,24 @@ fn setup_logger() -> Result<(), Box<dyn Error>> {
 }
 
 fn print_system_info(info: &mut SystemInfo) {
-    info.refresh(); // Refresh data before printing
-
+    info.refresh();
     let (disk_total, disk_free) = info.disk_usage();
+    let net = info.network_throughput();
 
     println!("=== System Information ===");
     println!("Hostname: {:?}", info.hostname());
-    println!("OS: {} {}", info.os_name(), info.os_version());
-    println!("Architecture: {}", info.architecture());
+    println!("OS Name: {:?}", info.os_name());
+    println!("OS Version: {:?}", info.os_version());
+    println!("Kernel Version: {:?}", info.kernel_version());
     println!("CPU Usage: {:.2}%", info.cpu_usage());
     println!(
-        "RAM: total {} KB, free {} KB",
+        "RAM: total {} KB, used {} KB, free {} KB",
         info.ram_total(),
+        info.ram_used(),
         info.ram_free()
     );
-    println!(
-        "Disk: total {} B, free {} B",
-        disk_total, disk_free
-    );
-    println!("Network throughput: {} B/s", info.network_throughput());
+    println!("Disk: total {} bytes, free {} bytes", disk_total, disk_free);
+    println!("Network throughput (delta): {} bytes", net);
     println!("IP Address: {:?}", info.ip_address());
 }
 
@@ -45,10 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     log::info!("Starting system info collection...");
 
     let mut sys_info = SystemInfo::new();
-    log::info!("System info object created.");
-
     print_system_info(&mut sys_info);
-    log::info!("System info printed successfully.");
 
     Ok(())
 }
