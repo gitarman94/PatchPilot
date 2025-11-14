@@ -1,96 +1,71 @@
-use sysinfo::{CpuExt, DiskExt, NetworkExt, System, SystemExt};
+use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkData};
 use std::collections::HashMap;
+use std::net::IpAddr;
 use local_ip_address::local_ip;
-use gethostname::gethostname;
+use log::warn;
 
-#[derive(Debug, Clone)]
+/// Structure to hold system info and previous network stats
 pub struct SystemInfo {
-    pub os_name: String,
-    pub os_version: String,
-    pub architecture: String,
-    pub cpu: f32,
-    pub ram_total: u64,
-    pub ram_used: u64,
-    pub ram_free: u64,
-    pub disk_total: u64,
-    pub disk_free: u64,
-    pub disk_health: String,
-    pub network_throughput: u64,
-    pub hostname: String,
-    pub ip_address: Option<String>,
-}
-
-pub struct SystemInfoCollector {
     sys: System,
     prev_network: HashMap<String, u64>,
 }
 
-impl SystemInfoCollector {
+impl SystemInfo {
     pub fn new() -> Self {
-        let sys = System::new_all();
-        Self {
+        let mut sys = System::new();
+        sys.refresh_all(); // refresh everything
+        SystemInfo {
             sys,
             prev_network: HashMap::new(),
         }
     }
 
-    pub fn collect(&mut self) -> SystemInfo {
-        self.sys.refresh_cpu();
-        self.sys.refresh_memory();
-        self.sys.refresh_disks();
-        self.sys.refresh_networks();
+    pub fn refresh(&mut self) {
+        self.sys.refresh_all();
+    }
 
-        // CPU usage (average)
-        let cpu_usage = self.sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>()
-            / self.sys.cpus().len().max(1) as f32;
+    pub fn cpu_usage(&self) -> f32 {
+        // Sum all CPU usage
+        self.sys.cpus().iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / self.sys.cpus().len() as f32
+    }
 
-        // RAM
-        let ram_total = self.sys.total_memory();
-        let ram_used = self.sys.used_memory();
-        let ram_free = ram_total.saturating_sub(ram_used);
+    pub fn total_memory(&self) -> u64 {
+        self.sys.total_memory()
+    }
 
-        // Disks
-        let (disk_total, disk_free) = self.sys.disks().iter().fold((0, 0), |acc, d| {
+    pub fn free_memory(&self) -> u64 {
+        self.sys.free_memory()
+    }
+
+    pub fn disk_usage(&self) -> (u64, u64) {
+        let (total, free) = self.sys.disks().iter().fold((0, 0), |acc, d| {
             (acc.0 + d.total_space(), acc.1 + d.available_space())
         });
-
-        // Network throughput
-        let mut network_throughput = 0u64;
-        for (iface, data) in self.sys.networks() {
-            let prev = self.prev_network.get(iface).copied().unwrap_or(data.received() + data.transmitted());
-            let delta = data.received() + data.transmitted() - prev;
-            network_throughput += delta;
-            self.prev_network.insert(iface.clone(), data.received() + data.transmitted());
-        }
-
-        // OS info
-        let os_name = self.sys.name().unwrap_or_else(|| "Unknown".to_string());
-        let os_version = self.sys.os_version().unwrap_or_else(|| "Unknown".to_string());
-        let architecture = std::env::consts::ARCH.to_string();
-
-        // Hostname and IP
-        let hostname = gethostname().to_string_lossy().to_string();
-        let ip_address = local_ip().ok();
-
-        SystemInfo {
-            os_name,
-            os_version,
-            architecture,
-            cpu: cpu_usage,
-            ram_total,
-            ram_used,
-            ram_free,
-            disk_total,
-            disk_free,
-            disk_health: "Unknown".to_string(),
-            network_throughput,
-            hostname,
-            ip_address,
-        }
+        (total, free)
     }
-}
 
-pub fn collect_system_info() -> SystemInfo {
-    let mut collector = SystemInfoCollector::new();
-    collector.collect()
+    pub fn network_usage(&mut self) -> u64 {
+        let mut total_transferred = 0u64;
+
+        for (iface, data) in self.sys.networks() {
+            let prev = self.prev_network.get(iface).copied().unwrap_or(0);
+            let current = data.received() + data.transmitted();
+            total_transferred += current - prev;
+            self.prev_network.insert(iface.clone(), current);
+        }
+
+        total_transferred
+    }
+
+    pub fn os_name(&self) -> String {
+        sysinfo::System::name().unwrap_or_else(|| "Unknown".to_string())
+    }
+
+    pub fn os_version(&self) -> String {
+        sysinfo::System::os_version().unwrap_or_else(|| "Unknown".to_string())
+    }
+
+    pub fn hostname(&self) -> Option<String> {
+        local_ip().ok().map(|ip: IpAddr| ip.to_string())
+    }
 }
