@@ -6,8 +6,7 @@ use flexi_logger::{Logger, Duplicate, Age, Cleanup};
 fn init_logger() {
     Logger::try_with_str("info")
         .unwrap()
-        .log_to_file()
-        .directory("logs")
+        .log_to_file(FileSpec::default().directory("logs"))
         .duplicate_to_stderr(Duplicate::Info)
         .rotate(Age::Day, Cleanup::KeepLogFiles(7))
         .start()
@@ -65,3 +64,4 @@ fn main() {
 
     info!("PatchPilot update process completed successfully.");
 }
+
