@@ -2,10 +2,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use local_ip_address::local_ip;
-use sysinfo::{
-    System, RefreshKind, CpuRefreshKind,
-    Networks, Disks,
-};
+use sysinfo::{System, RefreshKind, Networks, Disks};
 
 pub struct SystemInfo {
     sys: System,
@@ -14,7 +11,6 @@ pub struct SystemInfo {
 
 impl SystemInfo {
     pub fn new() -> Self {
-        // Create System with all data
         let refresh = RefreshKind::everything();
         let mut sys = System::new_with_specifics(refresh);
         sys.refresh_all();
@@ -29,7 +25,7 @@ impl SystemInfo {
     }
 
     pub fn cpu_usage(&mut self) -> f32 {
-        // Need to refresh CPU usage specifically
+        // Refresh CPU usage
         self.sys.refresh_cpu_all();
 
         let cpus = self.sys.cpus();
@@ -54,11 +50,12 @@ impl SystemInfo {
     }
 
     pub fn disk_usage(&mut self) -> (u64, u64) {
-        // Use Disks struct
         let mut disks = Disks::new_with_refreshed_list();
-        disks.refresh_list();
-        let mut total = 0;
-        let mut free = 0;
+        // Refresh disks, removing ones that no longer exist:
+        disks.refresh(true);
+
+        let mut total = 0u64;
+        let mut free = 0u64;
         for disk in disks.list() {
             total += disk.total_space();
             free += disk.available_space();
@@ -67,9 +64,7 @@ impl SystemInfo {
     }
 
     pub fn network_throughput(&mut self) -> u64 {
-        // Use Networks struct
         let mut networks = Networks::new_with_refreshed_list();
-        // Refresh with argument “true” to remove interfaces no longer listed
         networks.refresh(true);
 
         let mut sum = 0u64;
