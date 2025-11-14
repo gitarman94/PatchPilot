@@ -11,7 +11,7 @@ use chrono::Utc;
 use local_ip_address::local_ip;
 use std::sync::Mutex;
 
-use sysinfo::System; // sysinfo v0.37: only System is imported
+use sysinfo::System; // sysinfo v0.37
 
 mod schema;
 mod models;
@@ -104,11 +104,10 @@ async fn register_or_update_device(
 ) -> Result<Json<Device>, String> {
     validate_device_info(&device_info).map_err(|e| e.message())?;
 
-    let pool = pool.clone();
+    let pool = pool.inner().clone(); // clone the Pool (Arc)
     let device_info = device_info.into_inner();
     let device_id = device_id.to_string();
 
-    // Run Diesel blocking operations in a separate thread
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
         insert_or_update_device(&mut conn, &device_id, &device_info)
@@ -126,7 +125,7 @@ async fn heartbeat(
 ) -> Json<serde_json::Value> {
     use crate::schema::devices::dsl::*;
 
-    let pool = pool.clone();
+    let pool = pool.inner().clone();
     let payload = payload.into_inner();
 
     rocket::tokio::task::spawn_blocking(move || {
@@ -134,7 +133,6 @@ async fn heartbeat(
             let device_id = payload.get("device_id").and_then(|v| v.as_str()).unwrap_or("unknown");
             let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("unknown");
             let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("unknown");
-
             let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("");
             let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -158,26 +156,23 @@ async fn heartbeat(
                 .execute(&mut conn);
         }
     })
-    .await
-    .ok(); // ignore errors silently
+    .await.ok(); // fire-and-forget
 
     Json(json!({"adopted": true}))
 }
 
 #[get("/devices")]
 async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> {
-    let pool = pool.clone();
+    let pool = pool.inner().clone();
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
-
         let results = crate::schema::devices::dsl::devices
             .load::<Device>(&mut conn)
             .map_err(|e| e.to_string())?
             .into_iter()
             .map(|d| d.enrich_for_dashboard())
             .collect::<Vec<_>>();
-
         Ok(Json(results))
     })
     .await
@@ -189,7 +184,6 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     let mut sys = state.system.lock().unwrap();
     sys.refresh_all();
 
-    // Memory percentages
     let total_memory = sys.total_memory();
     let used_memory = sys.used_memory();
     let total_swap = sys.total_swap();
@@ -197,15 +191,11 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
 
     let memory_usage_percent = if total_memory > 0 {
         (used_memory as f32 / total_memory as f32) * 100.0
-    } else {
-        0.0
-    };
+    } else { 0.0 };
 
     let swap_usage_percent = if total_swap > 0 {
         (used_swap as f32 / total_swap as f32) * 100.0
-    } else {
-        0.0
-    };
+    } else { 0.0 };
 
     Json(json!({
         "server_time": Utc::now().to_rfc3339(),
@@ -301,4 +291,3 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
-
