@@ -1,6 +1,6 @@
 use std::{fs, process::Command, thread, time::Duration};
 use log::{info, warn, error};
-use flexi_logger::{Logger, FileSpec, Duplicate, Age, Cleanup};
+use flexi_logger::{Logger, FileSpec, Duplicate, Criterion, Naming, Age, Cleanup};
 
 /// Initialize logger (same as main.rs)
 fn init_logger() {
@@ -8,7 +8,11 @@ fn init_logger() {
         .unwrap()
         .log_to_file(FileSpec::default().directory("logs"))
         .duplicate_to_stderr(Duplicate::Info)
-        .rotate(Age::Day, Cleanup::KeepLogFiles(7))
+        .rotate(
+            Criterion::Age(Age::Day), // rotate daily
+            Naming::Numbers,          // file naming strategy
+            Cleanup::KeepLogFiles(7), // keep last 7 log files
+        )
         .start()
         .unwrap_or_else(|e| panic!("Logger initialization failed: {}", e));
 }
