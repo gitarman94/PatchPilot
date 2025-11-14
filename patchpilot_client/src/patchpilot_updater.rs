@@ -1,6 +1,6 @@
 use std::{fs, process::Command, thread, time::Duration};
 use log::{info, warn, error};
-use flexi_logger::{Logger, Duplicate, Age, Cleanup};
+use flexi_logger::{Logger, FileSpec, Duplicate, Age, Cleanup};
 
 /// Initialize logger (same as main.rs)
 fn init_logger() {
@@ -52,7 +52,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    // Restart the updated binary
+    // Attempt to restart the updated binary
     info!("Attempting to restart updated application...");
     match Command::new(old_path).spawn() {
         Ok(_) => info!("✔ Update complete. Application restarted successfully."),
@@ -64,4 +64,3 @@ fn main() {
 
     info!("PatchPilot update process completed successfully.");
 }
-
