@@ -189,16 +189,36 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     let mut sys = state.system.lock().unwrap();
     sys.refresh_all();
 
+    // Memory percentages
+    let total_memory = sys.total_memory();
+    let used_memory = sys.used_memory();
+    let total_swap = sys.total_swap();
+    let used_swap = sys.used_swap();
+
+    let memory_usage_percent = if total_memory > 0 {
+        (used_memory as f32 / total_memory as f32) * 100.0
+    } else {
+        0.0
+    };
+
+    let swap_usage_percent = if total_swap > 0 {
+        (used_swap as f32 / total_swap as f32) * 100.0
+    } else {
+        0.0
+    };
+
     Json(json!({
         "server_time": Utc::now().to_rfc3339(),
         "status": "ok",
         "uptime_seconds": sys.uptime(),
         "cpu_count": sys.cpus().len(),
-        "cpu_usage_per_core": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
-        "total_memory": sys.total_memory(),
-        "used_memory": sys.used_memory(),
-        "total_swap": sys.total_swap(),
-        "used_swap": sys.used_swap(),
+        "cpu_usage_per_core_percent": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
+        "total_memory_bytes": total_memory,
+        "used_memory_bytes": used_memory,
+        "memory_usage_percent": memory_usage_percent,
+        "total_swap_bytes": total_swap,
+        "used_swap_bytes": used_swap,
+        "swap_usage_percent": swap_usage_percent,
     }))
 }
 
@@ -281,3 +301,4 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
+
