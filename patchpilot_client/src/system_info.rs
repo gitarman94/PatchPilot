@@ -1,4 +1,4 @@
-use sysinfo::{System, Cpu, Disk, NetworkData, Process, SystemExt, CpuExt, DiskExt, ProcessExt};
+use sysinfo::{System, CpuRefreshKind, DiskRefreshKind, Networks, Processes};
 
 #[derive(Debug)]
 pub struct CpuInfo {
@@ -20,7 +20,7 @@ pub struct NetworkInterfaceInfo {
     pub transmitted: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProcessInfo {
     pub pid: i32,
     pub name: String,
@@ -44,35 +44,47 @@ pub fn collect_system_info() -> SystemInfo {
     let mut sys = System::new_all();
     sys.refresh_all();
 
-    let cpus = sys.cpus().iter().map(|cpu| CpuInfo {
-        name: cpu.brand().to_string(),
-        cores: cpu.physical_core_count().unwrap_or(1),
+    // CPUs
+    let cpus = sys.cpus().iter().map(|cpu| {
+        CpuInfo {
+            name: cpu.brand().to_string(),
+            cores: sys.physical_core_count().unwrap_or(1),
+        }
     }).collect();
 
-    let disks = sys.disks().iter().map(|disk| DiskInfo {
-        name: disk.name().to_string_lossy().into_owned(),
-        total_space: disk.total_space(),
-        available_space: disk.available_space(),
+    // Disks
+    let disks = sys.disks().iter().map(|disk| {
+        DiskInfo {
+            name: disk.name().to_string_lossy().into_owned(),
+            total_space: disk.total_space(),
+            available_space: disk.available_space(),
+        }
     }).collect();
 
-    let network_interfaces = sys.networks().iter().map(|(name, data)| NetworkInterfaceInfo {
-        name: name.clone(),
-        received: data.received(),
-        transmitted: data.transmitted(),
+    // Networks
+    let network_interfaces = sys.networks().iter().map(|(name, data)| {
+        NetworkInterfaceInfo {
+            name: name.clone(),
+            received: data.received(),
+            transmitted: data.transmitted(),
+        }
     }).collect();
 
-    let processes = sys.processes().values().map(|process| ProcessInfo {
-        pid: process.pid().as_u32() as i32,
-        name: process.name().to_string(),
-        memory: process.memory(),
+    // Processes
+    let processes = sys.processes().values().map(|process| {
+        ProcessInfo {
+            pid: process.pid().as_u32() as i32,
+            name: process.name().to_string_lossy().to_string(),
+            memory: process.memory(),
+        }
     }).collect();
 
     SystemInfo {
-        os_name: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        os_version: sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
-        kernel_version: sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
-        hostname: sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
-        uptime_seconds: sys.uptime(),
+        os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
+        os_version: System::os_version().unwrap_or_else(|| "Unknown".to_string()),
+        kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+        hostname: System::host_name().unwrap_or_else(|| "Unknown".to_string()),
+        uptime_seconds: System::uptime(),
         cpus,
         disks,
         network_interfaces,
