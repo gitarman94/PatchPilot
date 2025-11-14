@@ -1,24 +1,22 @@
-use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt};
+use sysinfo::{CpuExt, DiskExt, NetworkExt, System, SystemExt};
 use std::collections::HashMap;
-use std::net::IpAddr;
+use local_ip_address::local_ip;
 use gethostname::gethostname;
 
-/// Structs matching `models.rs` SystemInfo expectations
 #[derive(Debug, Clone)]
 pub struct SystemInfo {
-    pub hostname: String,
     pub os_name: String,
+    pub os_version: String,
     pub architecture: String,
     pub cpu: f32,
-    pub ram_total: i64,
-    pub ram_used: i64,
-    pub ram_free: i64,
-    pub disk_total: i64,
-    pub disk_free: i64,
+    pub ram_total: u64,
+    pub ram_used: u64,
+    pub ram_free: u64,
+    pub disk_total: u64,
+    pub disk_free: u64,
     pub disk_health: String,
-    pub network_throughput: i64,
-    pub ping_latency: Option<f32>,
-    pub network_interfaces: Option<String>,
+    pub network_throughput: u64,
+    pub hostname: String,
     pub ip_address: Option<String>,
 }
 
@@ -29,88 +27,69 @@ pub struct SystemInfoCollector {
 
 impl SystemInfoCollector {
     pub fn new() -> Self {
+        let sys = System::new_all();
         Self {
-            sys: System::new_all(),
+            sys,
             prev_network: HashMap::new(),
         }
     }
 
     pub fn collect(&mut self) -> SystemInfo {
-        // Refresh system info
-        self.sys.refresh_all();
-
-        // Hostname
-        let hostname = gethostname().to_string_lossy().to_string();
-
-        // OS and architecture
-        let os_name = self.sys.name().unwrap_or_else(|| "Unknown".to_string());
-        let architecture = std::env::consts::ARCH.to_string();
+        self.sys.refresh_cpu();
+        self.sys.refresh_memory();
+        self.sys.refresh_disks();
+        self.sys.refresh_networks();
 
         // CPU usage (average)
-        let cpus = self.sys.cpus();
-        let total_cpu = if !cpus.is_empty() {
-            cpus.iter().map(|c| c.cpu_usage()).sum::<f32>() / cpus.len() as f32
-        } else {
-            0.0
-        };
+        let cpu_usage = self.sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>()
+            / self.sys.cpus().len().max(1) as f32;
 
         // RAM
-        let ram_total = self.sys.total_memory() as i64;
-        let ram_used = self.sys.used_memory() as i64;
-        let ram_free = ram_total - ram_used;
+        let ram_total = self.sys.total_memory();
+        let ram_used = self.sys.used_memory();
+        let ram_free = ram_total.saturating_sub(ram_used);
 
-        // Disk stats (sum across all disks)
-        let mut disk_total = 0i64;
-        let mut disk_free = 0i64;
-        for disk in self.sys.disks() {
-            disk_total += disk.total_space() as i64;
-            disk_free += disk.available_space() as i64;
-        }
-        let disk_health = "Unknown".to_string();
+        // Disks
+        let (disk_total, disk_free) = self.sys.disks().iter().fold((0, 0), |acc, d| {
+            (acc.0 + d.total_space(), acc.1 + d.available_space())
+        });
 
         // Network throughput
         let mut network_throughput = 0u64;
-        let mut iface_names = vec![];
         for (iface, data) in self.sys.networks() {
-            let prev = self.prev_network.get(iface).copied().unwrap_or(
-                data.received() + data.transmitted()
-            );
-            let delta = data.received().saturating_add(data.transmitted()).saturating_sub(prev);
-            network_throughput = network_throughput.saturating_add(delta);
+            let prev = self.prev_network.get(iface).copied().unwrap_or(data.received() + data.transmitted());
+            let delta = data.received() + data.transmitted() - prev;
+            network_throughput += delta;
             self.prev_network.insert(iface.clone(), data.received() + data.transmitted());
-            iface_names.push(iface.clone());
         }
 
-        // Optional network interfaces as comma-separated string
-        let network_interfaces = if iface_names.is_empty() {
-            None
-        } else {
-            Some(iface_names.join(", "))
-        };
+        // OS info
+        let os_name = self.sys.name().unwrap_or_else(|| "Unknown".to_string());
+        let os_version = self.sys.os_version().unwrap_or_else(|| "Unknown".to_string());
+        let architecture = std::env::consts::ARCH.to_string();
 
-        // Optional IP address (pick first non-loopback if available)
-        let ip_address = local_ipaddress::get().map(|s| s);
+        // Hostname and IP
+        let hostname = gethostname().to_string_lossy().to_string();
+        let ip_address = local_ip().ok();
 
         SystemInfo {
-            hostname,
             os_name,
+            os_version,
             architecture,
-            cpu: total_cpu,
+            cpu: cpu_usage,
             ram_total,
             ram_used,
             ram_free,
             disk_total,
             disk_free,
-            disk_health,
-            network_throughput: network_throughput as i64,
-            ping_latency: None,
-            network_interfaces,
+            disk_health: "Unknown".to_string(),
+            network_throughput,
+            hostname,
             ip_address,
         }
     }
 }
 
-/// Convenience function
 pub fn collect_system_info() -> SystemInfo {
     let mut collector = SystemInfoCollector::new();
     collector.collect()
