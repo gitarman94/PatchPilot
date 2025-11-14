@@ -1,68 +1,53 @@
 mod system_info;
 
-use system_info::{collect_system_info, SystemInfo};
-use flexi_logger::{Logger, FileSpec, Duplicate};
+use system_info::collect_system_info;
+use flexi_logger::{Logger, FileSpec, Duplicate, Criterion, Naming, Cleanup};
 use std::error::Error;
 
 fn setup_logger() -> Result<(), Box<dyn Error>> {
     Logger::try_with_str("info")?
         .log_to_file(FileSpec::default().directory("logs"))
         .duplicate_to_stdout(Duplicate::All)
+        .rotate(
+            Criterion::Age(flexi_logger::Age::Day),
+            Naming::Timestamps,
+            Cleanup::KeepLogFiles(7),
+        )
         .start()?;
     Ok(())
 }
 
-fn print_system_info(info: &SystemInfo) {
+fn print_system_info(info: &system_info::SystemInfo) {
     println!("=== System Information ===");
     println!("Hostname: {}", info.hostname);
-    println!("OS: {} {}", info.os_name, info.os_version);
-    println!("Kernel: {}", info.kernel_version);
-    println!("Uptime (seconds): {}", info.uptime_seconds);
-
-    println!("\n--- CPUs ---");
-    for (i, cpu) in info.cpus.iter().enumerate() {
-        println!("CPU {}: {} ({} cores)", i, cpu.name, cpu.cores);
+    println!("OS: {} ({})", info.os_name, info.architecture);
+    println!("CPU Usage: {:.2}%", info.cpu);
+    println!("RAM: total {} MB, used {} MB, free {} MB",
+        info.ram_total / 1024,
+        info.ram_used / 1024,
+        info.ram_free / 1024
+    );
+    println!("Disk: total {} GB, free {} GB, health: {}",
+        info.disk_total / (1024*1024*1024),
+        info.disk_free / (1024*1024*1024),
+        info.disk_health
+    );
+    println!("Network throughput: {} bytes", info.network_throughput);
+    if let Some(ref ifaces) = info.network_interfaces {
+        println!("Network interfaces: {}", ifaces);
     }
-
-    println!("\n--- Disks ---");
-    for disk in &info.disks {
-        println!(
-            "{}: total {} bytes, available {} bytes",
-            disk.name, disk.total_space, disk.available_space
-        );
-    }
-
-    println!("\n--- Network Interfaces ---");
-    for net in &info.network_interfaces {
-        println!(
-            "{}: received {} bytes, transmitted {} bytes",
-            net.name, net.received, net.transmitted
-        );
-    }
-
-    println!("\n--- Processes (top 10 by memory) ---");
-    let mut processes = info.processes.clone();
-    processes.sort_by(|a, b| b.memory.cmp(&a.memory));
-    for process in processes.iter().take(10) {
-        println!(
-            "PID {}: {} ({} KB)",
-            process.pid,
-            process.name,
-            process.memory
-        );
+    if let Some(ref ip) = info.ip_address {
+        println!("IP address: {}", ip);
     }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Initialize logging
     setup_logger()?;
     log::info!("Starting system info collection...");
 
-    // Collect system info
     let sys_info = collect_system_info();
     log::info!("System info collected successfully.");
 
-    // Print to console
     print_system_info(&sys_info);
 
     Ok(())
