@@ -3,8 +3,7 @@ use std::net::IpAddr;
 
 use local_ip_address::local_ip;
 use sysinfo::{
-    Networks, NetworkExt, ProcessorExt, System, SystemExt, 
-    RefreshKind, CpuRefreshKind, DiskExt,
+    Networks, NetworkExt, ProcessorExt, System, SystemExt, DiskExt, CpuRefreshKind,
 };
 
 pub struct SystemInfo {
@@ -14,7 +13,6 @@ pub struct SystemInfo {
 
 impl SystemInfo {
     pub fn new() -> Self {
-        // Create a System that refreshes everything by default.
         let mut sys = System::new_all();
         sys.refresh_all();
         SystemInfo {
@@ -24,20 +22,17 @@ impl SystemInfo {
     }
 
     pub fn refresh(&mut self) {
-        // Refresh everything
         self.sys.refresh_all();
     }
 
     pub fn cpu_usage(&mut self) -> f32 {
-        // To get correct CPU usage, refresh CPU usage data properly
+        // Refresh CPU usage before reading
         self.sys.refresh_cpu_specifics(CpuRefreshKind::everything());
-        // Or you can do: self.sys.refresh_cpu_all();
-        
+
         let procs = self.sys.processors();
         if procs.is_empty() {
             0.0
         } else {
-            // Sum usage of all processors and average
             let sum: f32 = procs.iter().map(|p| p.cpu_usage()).sum();
             sum / procs.len() as f32
         }
@@ -56,22 +51,20 @@ impl SystemInfo {
     }
 
     pub fn disk_usage(&mut self) -> (u64, u64) {
-        // Make sure disks list is up to date
         self.sys.refresh_disks_list();
 
         let mut total = 0u64;
         let mut free = 0u64;
         for disk in self.sys.disks() {
-            total += disk.get_total_space();
-            free += disk.get_available_space();
+            total += disk.total_space();
+            free += disk.available_space();
         }
         (total, free)
     }
 
     pub fn network_throughput(&mut self) -> u64 {
-        // Create networks with refreshed list
         let mut networks = Networks::new();
-        networks.refresh(true);  // pass bool: true = remove not listed interfaces
+        networks.refresh(true); // remove not listed interfaces
 
         let mut sum = 0u64;
         for (iface, data) in networks.iter() {
