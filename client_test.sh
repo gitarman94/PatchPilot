@@ -128,5 +128,4 @@ journalctl -u "$SERVICE_NAME" | grep -Ei "panic|segfault|abort|core" | tail -n 5
 echo ""
 echo "======================================"
 echo "✅ Diagnostics complete."
-echo "Logs & output in: ${TMP_DIR}"
 echo "======================================"
