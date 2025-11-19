@@ -3,7 +3,7 @@ use std::net::IpAddr;
 
 use local_ip_address::local_ip;
 use serde::Serialize;
-use sysinfo::{System, RefreshKind, Networks, Disks};
+use sysinfo::{System, RefreshKind, CpuExt, NetworksExt, DiskExt, SystemExt};
 
 /// SystemInfo for live metrics and reporting
 #[derive(Serialize, Default)]
@@ -111,12 +111,12 @@ impl SystemInfo {
     }
 
     pub fn disk_usage(&mut self) -> (u64, u64) {
-        let mut disks = Disks::new_with_refreshed_list();
-        disks.refresh(true);
+        self.sys.refresh_disks_list();
+        self.sys.refresh_disks();
 
         let mut total = 0u64;
         let mut free = 0u64;
-        for disk in disks.list() {
+        for disk in self.sys.disks() {
             total += disk.total_space();
             free += disk.available_space();
         }
@@ -124,12 +124,12 @@ impl SystemInfo {
     }
 
     pub fn network_throughput(&mut self) -> u64 {
-        let mut networks = Networks::new_with_refreshed_list();
-        networks.refresh(true);
+        self.sys.refresh_networks_list();
+        self.sys.refresh_networks();
 
         let mut sum = 0u64;
-        for (iface, data) in &networks {
-            let current = data.total_received() + data.total_transmitted();
+        for (iface, data) in self.sys.networks() {
+            let current = data.received() + data.transmitted();
             let prev = self.prev_network.get(iface).copied().unwrap_or(current);
             sum += current.saturating_sub(prev);
             self.prev_network.insert(iface.clone(), current);
