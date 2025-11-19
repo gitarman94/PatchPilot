@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use serde_json::json;
 use std::{fs, thread, time::Duration};
-use crate::system_info::{SystemInfo, get_system_info};
+use crate::system_info::{FullSystemInfo, get_system_info};
 use log::{info, error};
 
 const ADOPTION_CHECK_INTERVAL: u64 = 30;  
@@ -71,7 +71,7 @@ fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
         Ok(info) => info,
         Err(e) => {
             error!("Failed to gather system info: {:?}", e);
-            SystemInfo::default()
+            FullSystemInfo::default()
         }
     };
 
@@ -90,7 +90,7 @@ fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
     }
 }
 
-/// Shared function for adoption + system update loop
+/// Shared loop for adoption + system update
 fn run_adoption_and_update_loop(
     client: &Client,
     server_url: &str,
@@ -99,6 +99,7 @@ fn run_adoption_and_update_loop(
     device_model: &str,
     running_flag: Option<&std::sync::atomic::AtomicBool>
 ) {
+    // Adoption loop
     loop {
         if let Some(flag) = running_flag {
             if !flag.load(std::sync::atomic::Ordering::SeqCst) {
@@ -122,6 +123,7 @@ fn run_adoption_and_update_loop(
         thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL));
     }
 
+    // System update loop
     loop {
         if let Some(flag) = running_flag {
             if !flag.load(std::sync::atomic::Ordering::SeqCst) {
