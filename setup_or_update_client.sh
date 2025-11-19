@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
+cd /
 # --- Configuration ---
 APP_DIR="/opt/patchpilot_client"
 SRC_DIR="/tmp/patchpilot_client_src"
