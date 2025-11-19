@@ -1,4 +1,5 @@
 mod system_info;
+mod service;
 
 use system_info::SystemInfo;
 use flexi_logger::{Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming};
@@ -41,10 +42,14 @@ fn print_system_info(info: &mut SystemInfo) {
 
 fn main() -> Result<(), Box<dyn Error>> {
     setup_logger()?;
-    log::info!("Starting system info collection...");
+    log::info!("Starting PatchPilot client...");
 
-    let mut sys_info = SystemInfo::new();
-    print_system_info(&mut sys_info);
+    // Run actual service loop (instead of exiting immediately)
+    #[cfg(unix)]
+    service::run_unix_service()?;
+
+    #[cfg(windows)]
+    service::run_service()?;
 
     Ok(())
 }
