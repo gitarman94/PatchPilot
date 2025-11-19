@@ -1,10 +1,19 @@
+use std::collections::HashMap;
+use std::net::IpAddr;
+
 use local_ip_address::local_ip;
 use serde::Serialize;
-use sysinfo::{System, SystemExt, CpuExt};
+use sysinfo::{System, RefreshKind, Networks, Disks};
 
-/// FullSystemInfo for sending to server (serialized)
+/// SystemInfo for live metrics and reporting
 #[derive(Serialize, Default)]
-pub struct FullSystemInfo {
+pub struct SystemInfo {
+    #[serde(skip)]
+    sys: System,
+    #[serde(skip)]
+    prev_network: HashMap<String, u64>,
+
+    // Serialized fields for sending to server
     pub hostname: Option<String>,
     pub ip_address: Option<String>,
     pub os_name: Option<String>,
@@ -21,47 +30,115 @@ pub struct FullSystemInfo {
 
     pub total_memory: u64,
     pub used_memory: u64,
-    pub free_memory: u64,
 }
 
-/// Returns FullSystemInfo for API reporting
-pub fn get_system_info() -> anyhow::Result<FullSystemInfo> {
-    let mut sys = System::new_all();
-    sys.refresh_all();
+impl SystemInfo {
+    pub fn new() -> Self {
+        let refresh = RefreshKind::everything();
+        let mut sys = System::new_with_specifics(refresh);
+        sys.refresh_all();
 
-    let hostname = sys.host_name();
-    let ip_address = local_ip().ok().map(|ip| ip.to_string());
-    let os_name = sys.name();
-    let os_version = sys.os_version();
-    let kernel_version = sys.kernel_version();
+        let hostname = sys.host_name();
+        let ip_address = local_ip().ok().map(|ip: IpAddr| ip.to_string());
+        let os_name = sys.name();
+        let os_version = sys.os_version();
+        let kernel_version = sys.kernel_version();
 
-    let cpu_brand = sys.cpus().get(0).map(|c| c.brand().to_string());
-    let cpu_count = Some(sys.cpus().len());
-    let architecture = std::env::consts::ARCH.to_string();
+        let cpu_brand = sys.cpus().get(0).map(|c| c.brand().to_string());
+        let cpu_count = Some(sys.cpus().len());
+        let architecture = std::env::consts::ARCH.to_string();
 
-    // Placeholder device info; can be replaced with real detection
-    let device_type = Some("unknown".into());
-    let device_model = Some("unknown".into());
-    let serial_number = Some("undefined".into());
+        // Placeholder device info
+        let device_type = Some("unknown".into());
+        let device_model = Some("unknown".into());
+        let serial_number = Some("undefined".into());
 
-    let total_memory = sys.total_memory();
-    let used_memory = sys.used_memory();
-    let free_memory = total_memory.saturating_sub(used_memory);
+        let total_memory = sys.total_memory();
+        let used_memory = sys.used_memory();
 
-    Ok(FullSystemInfo {
-        hostname,
-        ip_address,
-        os_name,
-        os_version,
-        kernel_version,
-        cpu_brand,
-        cpu_count,
-        architecture,
-        device_type,
-        device_model,
-        serial_number,
-        total_memory,
-        used_memory,
-        free_memory,
-    })
+        SystemInfo {
+            sys,
+            prev_network: HashMap::new(),
+            hostname,
+            ip_address,
+            os_name,
+            os_version,
+            kernel_version,
+            cpu_brand,
+            cpu_count,
+            architecture,
+            device_type,
+            device_model,
+            serial_number,
+            total_memory,
+            used_memory,
+        }
+    }
+
+    /// Refresh system metrics
+    pub fn refresh(&mut self) {
+        self.sys.refresh_all();
+        self.total_memory = self.sys.total_memory();
+        self.used_memory = self.sys.used_memory();
+        self.hostname = self.sys.host_name();
+        self.os_name = self.sys.name();
+        self.os_version = self.sys.os_version();
+        self.kernel_version = self.sys.kernel_version();
+        self.ip_address = local_ip().ok().map(|ip| ip.to_string());
+    }
+
+    pub fn cpu_usage(&mut self) -> f32 {
+        self.sys.refresh_cpu_all();
+        let cpus = self.sys.cpus();
+        if cpus.is_empty() {
+            0.0
+        } else {
+            let sum: f32 = cpus.iter().map(|cpu| cpu.cpu_usage()).sum();
+            sum / (cpus.len() as f32)
+        }
+    }
+
+    pub fn ram_total(&self) -> u64 {
+        self.total_memory
+    }
+
+    pub fn ram_used(&self) -> u64 {
+        self.used_memory
+    }
+
+    pub fn ram_free(&self) -> u64 {
+        self.total_memory.saturating_sub(self.used_memory)
+    }
+
+    pub fn disk_usage(&mut self) -> (u64, u64) {
+        let mut disks = Disks::new_with_refreshed_list();
+        disks.refresh(true);
+
+        let mut total = 0u64;
+        let mut free = 0u64;
+        for disk in disks.list() {
+            total += disk.total_space();
+            free += disk.available_space();
+        }
+        (total, free)
+    }
+
+    pub fn network_throughput(&mut self) -> u64 {
+        let mut networks = Networks::new_with_refreshed_list();
+        networks.refresh(true);
+
+        let mut sum = 0u64;
+        for (iface, data) in &networks {
+            let current = data.total_received() + data.total_transmitted();
+            let prev = self.prev_network.get(iface).copied().unwrap_or(current);
+            sum += current.saturating_sub(prev);
+            self.prev_network.insert(iface.clone(), current);
+        }
+        sum
+    }
+}
+
+/// Returns a new SystemInfo instance
+pub fn get_system_info() -> anyhow::Result<SystemInfo> {
+    Ok(SystemInfo::new())
 }
