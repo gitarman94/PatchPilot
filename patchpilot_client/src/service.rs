@@ -2,11 +2,11 @@ use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use serde_json::json;
 use std::{fs, thread, time::Duration};
-use crate::system_info::{FullSystemInfo, get_system_info};
+use crate::system_info::{SystemInfo, get_system_info};
 use log::{info, error};
 
-const ADOPTION_CHECK_INTERVAL: u64 = 30;  
-const SYSTEM_UPDATE_INTERVAL: u64 = 600;  
+const ADOPTION_CHECK_INTERVAL: u64 = 30;
+const SYSTEM_UPDATE_INTERVAL: u64 = 600;
 
 fn read_server_url() -> Result<String> {
     #[cfg(unix)]
@@ -22,9 +22,9 @@ fn read_server_url() -> Result<String> {
 fn get_device_info() -> (String, String, String) {
     match get_system_info() {
         Ok(info) => {
-            let device_id = info.serial_number.unwrap_or_else(|| "unknown".into());
-            let device_type = info.device_type.unwrap_or_else(|| "unknown".into());
-            let device_model = info.device_model.unwrap_or_else(|| "unknown".into());
+            let device_id = info.serial_number.clone().unwrap_or_else(|| "unknown".into());
+            let device_type = info.device_type.clone().unwrap_or_else(|| "unknown".into());
+            let device_model = info.device_model.clone().unwrap_or_else(|| "unknown".into());
             (device_id, device_type, device_model)
         }
         Err(e) => {
@@ -67,13 +67,15 @@ fn check_adoption_status(
 }
 
 fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
-    let sys_info = match get_system_info() {
+    let mut sys_info = match get_system_info() {
         Ok(info) => info,
         Err(e) => {
             error!("Failed to gather system info: {:?}", e);
-            FullSystemInfo::default()
+            SystemInfo::new()
         }
     };
+
+    sys_info.refresh();
 
     info!("Sending system update for device {}...", device_id);
 
@@ -90,7 +92,7 @@ fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
     }
 }
 
-/// Shared loop for adoption + system update
+/// Shared adoption + system update loop
 fn run_adoption_and_update_loop(
     client: &Client,
     server_url: &str,
@@ -99,7 +101,6 @@ fn run_adoption_and_update_loop(
     device_model: &str,
     running_flag: Option<&std::sync::atomic::AtomicBool>
 ) {
-    // Adoption loop
     loop {
         if let Some(flag) = running_flag {
             if !flag.load(std::sync::atomic::Ordering::SeqCst) {
@@ -123,7 +124,6 @@ fn run_adoption_and_update_loop(
         thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL));
     }
 
-    // System update loop
     loop {
         if let Some(flag) = running_flag {
             if !flag.load(std::sync::atomic::Ordering::SeqCst) {
@@ -137,6 +137,7 @@ fn run_adoption_and_update_loop(
     }
 }
 
+// --- Unix service ---
 #[cfg(unix)]
 mod unix_service {
     use super::*;
@@ -154,6 +155,7 @@ mod unix_service {
     }
 }
 
+// --- Windows service ---
 #[cfg(windows)]
 mod windows_service {
     use super::*;
