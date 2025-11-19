@@ -24,10 +24,10 @@ fn print_system_info(info: &mut SystemInfo) {
     let net = info.network_throughput();
 
     println!("=== System Information ===");
-    println!("Hostname: {:?}", info.hostname());
-    println!("OS Name: {:?}", info.os_name());
-    println!("OS Version: {:?}", info.os_version());
-    println!("Kernel Version: {:?}", info.kernel_version());
+    println!("Hostname: {:?}", info.hostname);
+    println!("OS Name: {:?}", info.os_name);
+    println!("OS Version: {:?}", info.os_version);
+    println!("Kernel Version: {:?}", info.kernel_version);
     println!("CPU Usage: {:.2}%", info.cpu_usage());
     println!(
         "RAM: total {} KB, used {} KB, free {} KB",
@@ -37,7 +37,7 @@ fn print_system_info(info: &mut SystemInfo) {
     );
     println!("Disk: total {} bytes, free {} bytes", disk_total, disk_free);
     println!("Network throughput (delta): {} bytes", net);
-    println!("IP Address: {:?}", info.ip_address());
+    println!("IP Address: {:?}", info.ip_address);
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
