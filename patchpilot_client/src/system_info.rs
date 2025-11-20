@@ -5,7 +5,7 @@ use std::process::Command;
 
 use local_ip_address::local_ip;
 use serde::Serialize;
-use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System, Disk, NetworkData};
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System, NetworkData, Disk};
 
 #[derive(Serialize, Default)]
 pub struct SystemInfo {
@@ -75,18 +75,19 @@ impl SystemInfo {
         let ram_used = sys.used_memory();
         let ram_free = ram_total.saturating_sub(ram_used);
 
+        // Disks
         let disks = sys.disks();
         let disk_total: u64 = disks.iter().map(|d| d.total_space()).sum();
         let disk_free: u64 = disks.iter().map(|d| d.available_space()).sum();
 
-        sys.refresh_networks_specific(); // refresh networks first
+        // Networks
+        sys.refresh_networks();
         let networks = sys.networks();
         let network_interfaces = if networks.is_empty() {
             None
         } else {
             Some(networks.keys().cloned().collect::<Vec<_>>().join(", "))
         };
-
 
         SystemInfo {
             sys,
@@ -123,7 +124,7 @@ impl SystemInfo {
 
     pub fn refresh(&mut self) {
         self.sys.refresh_cpu_all();
-        self.sys.refresh_all(); // refreshes memory, disks, networks
+        self.sys.refresh_all(); // refresh memory, disks, networks
 
         self.hostname = System::host_name();
         self.os_name = System::name();
@@ -139,15 +140,17 @@ impl SystemInfo {
         self.ram_used = self.sys.used_memory();
         self.ram_free = self.ram_total.saturating_sub(self.ram_used);
 
+        // Disks
         let disks = self.sys.disks();
         self.disk_total = disks.iter().map(|d| d.total_space()).sum();
         self.disk_free = disks.iter().map(|d| d.available_space()).sum();
 
+        // Networks
         let networks = self.sys.networks();
         self.network_interfaces = if networks.is_empty() {
             None
         } else {
-            Some(networks.iter().map(|iface| iface.name().to_string()).collect::<Vec<_>>().join(", "))
+            Some(networks.keys().cloned().collect::<Vec<_>>().join(", "))
         };
     }
 
@@ -157,7 +160,7 @@ impl SystemInfo {
     }
 
     pub fn disk_usage(&mut self) -> (u64, u64) {
-        self.sys.refresh_all(); // refreshes disks
+        self.sys.refresh_all();
         let disks = self.sys.disks();
         let total = disks.iter().map(|d| d.total_space()).sum();
         let free = disks.iter().map(|d| d.available_space()).sum();
@@ -257,7 +260,6 @@ fn get_hardware_info() -> (Option<String>, Option<String>, Option<String>) {
                 }
             }
 
-            // BIOS serial number
             let mut bios_enum = None;
             services.ExecQuery(
                 &BSTR::from("WQL"),
