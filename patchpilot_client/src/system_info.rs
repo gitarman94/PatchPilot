@@ -3,7 +3,7 @@ use std::net::IpAddr;
 
 use local_ip_address::local_ip;
 use serde::Serialize;
-use sysinfo::{System, Cpu, Disk, NetworkData, RefreshKind, CpuExt, DiskExt, NetworksExt, SystemExt};
+use sysinfo::{System, SystemExt, RefreshKind, Cpu, Disk, NetworkData};
 
 #[derive(Serialize, Default)]
 pub struct SystemInfo {
