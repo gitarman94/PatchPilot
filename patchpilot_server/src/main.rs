@@ -11,7 +11,7 @@ use chrono::Utc;
 use local_ip_address::local_ip;
 use std::sync::Mutex;
 
-use sysinfo::{System, SystemExt, CpuExt, NetworkExt}; // sysinfo v0.37
+use sysinfo::{System, SystemExt, Cpu, NetworkData};
 
 mod schema;
 mod models;
