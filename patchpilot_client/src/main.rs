@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     setup_logger()?;
     log::info!("Starting PatchPilot client...");
 
-    // Run actual service loop (instead of exiting immediately)
+    // Run service loop
     #[cfg(unix)]
     service::run_unix_service()?;
 

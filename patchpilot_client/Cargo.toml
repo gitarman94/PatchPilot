@@ -10,7 +10,7 @@ serde_json = "1.0.104"
 log = "0.4.19"
 flexi_logger = "0.31.7"
 anyhow = "1.0.64"
-sysinfo = "0.37.2"
+sysinfo = { version = "0.37.2", features = ["network", "process", "disk"] }
 lazy_static = "1.4.0"
 termcolor = "1.4.1"
 local-ip-address = "0.6.5"
