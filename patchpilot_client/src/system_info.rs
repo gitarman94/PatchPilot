@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::fs;
-use std::process::Command;
 use std::net::IpAddr;
+use std::process::Command;
 
 use local_ip_address::local_ip;
 use serde::Serialize;
 use sysinfo::{
-    CpuRefreshKind, Disks, Networks, RefreshKind, System
+    CpuRefreshKind, MemoryRefreshKind, RefreshKind, System, SystemExt, DiskExt, NetworkExt,
 };
 
 #[derive(Serialize, Default)]
@@ -50,9 +50,8 @@ impl SystemInfo {
         let mut sys = System::new_with_specifics(
             RefreshKind::everything()
                 .with_cpu(CpuRefreshKind::everything())
-                .with_memory()
+                .with_memory(MemoryRefreshKind::everything())
         );
-
 
         sys.refresh_all();
 
@@ -69,7 +68,7 @@ impl SystemInfo {
         let cpu_brand = sys.cpus().first().map(|c| c.brand().to_string());
         let cpu_count = Some(sys.cpus().len());
         let cpu_usage = if !sys.cpus().is_empty() {
-            Some(sys.global_cpu_usage().cpu_usage())
+            Some(sys.global_cpu_usage())
         } else {
             None
         };
@@ -78,18 +77,17 @@ impl SystemInfo {
         let ram_used = sys.used_memory();
         let ram_free = ram_total.saturating_sub(ram_used);
 
-        let disks = sys.disks_list();
+        let disks = sys.disks();
         let disk_total: u64 = disks.iter().map(|d| d.total_space()).sum();
         let disk_free: u64 = disks.iter().map(|d| d.available_space()).sum();
 
-        sys.refresh_networks_list(); // refresh networks first
-        let networks = sys.networks_list();
+        sys.refresh_networks(); // refresh networks first
+        let networks = sys.networks();
         let network_interfaces = if networks.is_empty() {
             None
         } else {
             Some(networks.iter().map(|iface| iface.name().to_string()).collect::<Vec<_>>().join(", "))
         };
-
 
         SystemInfo {
             sys,
@@ -136,17 +134,17 @@ impl SystemInfo {
 
         self.ip_address = local_ip().ok().map(|ip| ip.to_string());
 
-        self.cpu_usage = Some(self.sys.global_cpu_usage().cpu_usage());
+        self.cpu_usage = Some(self.sys.global_cpu_usage());
 
         self.ram_total = self.sys.total_memory();
         self.ram_used = self.sys.used_memory();
         self.ram_free = self.ram_total.saturating_sub(self.ram_used);
 
-        let disks = self.sys.disks_list();
+        let disks = self.sys.disks();
         self.disk_total = disks.iter().map(|d| d.total_space()).sum();
         self.disk_free = disks.iter().map(|d| d.available_space()).sum();
 
-        let networks = self.sys.networks_list();
+        let networks = self.sys.networks();
         self.network_interfaces = if networks.is_empty() {
             None
         } else {
@@ -154,28 +152,25 @@ impl SystemInfo {
         };
     }
 
-
     pub fn cpu_usage(&mut self) -> f32 {
         self.sys.refresh_cpu_all();
-        self.sys.global_cpu_usage().cpu_usage()
+        self.sys.global_cpu_usage()
     }
-
 
     pub fn disk_usage(&mut self) -> (u64, u64) {
         self.sys.refresh_all(); // refreshes disks
-        let disks = self.sys.disks_list();
+        let disks = self.sys.disks();
         let total = disks.iter().map(|d| d.total_space()).sum();
         let free = disks.iter().map(|d| d.available_space()).sum();
         (total, free)
     }
 
-
     pub fn network_throughput(&mut self) -> u64 {
-        self.sys.refresh_networks_list();
+        self.sys.refresh_networks();
 
         let mut total = 0u64;
 
-        for iface in self.sys.networks_list() {
+        for iface in self.sys.networks() {
             let current = iface.received() + iface.transmitted();
             let prev = self.prev_network.get(iface.name()).copied().unwrap_or(current);
             total += current.saturating_sub(prev);
@@ -186,7 +181,6 @@ impl SystemInfo {
         total
     }
 }
-
 
 pub fn get_system_info() -> anyhow::Result<SystemInfo> {
     Ok(SystemInfo::new())
@@ -220,7 +214,6 @@ fn get_hardware_info() -> (Option<String>, Option<String>, Option<String>) {
         use windows::Win32::System::Com::*;
         use windows::core::*;
 
-        // Query WMI: Win32_ComputerSystem & Win32_BIOS
         unsafe {
             CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED).ok();
 
