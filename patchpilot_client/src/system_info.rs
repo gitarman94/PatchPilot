@@ -5,9 +5,7 @@ use std::process::Command;
 
 use local_ip_address::local_ip;
 use serde::Serialize;
-use sysinfo::{
-    CpuRefreshKind, MemoryRefreshKind, RefreshKind, System, SystemExt, DiskExt, NetworkExt,
-};
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System, Disk, NetworkData};
 
 #[derive(Serialize, Default)]
 pub struct SystemInfo {
