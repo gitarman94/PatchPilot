@@ -19,10 +19,8 @@ fn setup_logger() -> Result<(), Box<dyn Error>> {
 }
 
 /// Log initial system snapshot at service startup.
-/// This is useful for debugging and verifying hardware values.
 fn log_initial_system_info() {
     let mut info = SystemInfo::new();
-
     info.refresh();
     let (disk_total, disk_free) = info.disk_usage();
     let net = info.network_throughput();
