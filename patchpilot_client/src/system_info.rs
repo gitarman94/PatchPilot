@@ -3,7 +3,7 @@ use std::net::IpAddr;
 
 use local_ip_address::local_ip;
 use serde::Serialize;
-use sysinfo::{System, RefreshKind, CpuExt, DiskExt, NetworkExt};
+use sysinfo::{System, Cpu, Disk, NetworkData, RefreshKind, CpuExt, DiskExt, NetworksExt, SystemExt};
 
 #[derive(Serialize, Default)]
 pub struct SystemInfo {
@@ -23,98 +23,96 @@ pub struct SystemInfo {
     pub cpu_count: Option<usize>,
     pub cpu_usage: Option<f32>,
 
-    pub architecture: String,
+    pub ram_total: u64,
+    pub ram_used: u64,
+    pub ram_free: u64,
 
+    pub disk_total: u64,
+    pub disk_free: u64,
+    pub disk_health: Option<String>, // Placeholder: could be extended with SMART info
+
+    pub network_throughput: u64,
+    pub network_interfaces: Option<String>, // Comma-separated interface names
+
+    pub architecture: String,
     pub device_type: Option<String>,
     pub device_model: Option<String>,
     pub serial_number: Option<String>,
-
-    pub total_memory: Option<u64>,
-    pub used_memory: Option<u64>,
-    pub ram_free: Option<u64>,
-
-    pub disk_total: Option<u64>,
-    pub disk_free: Option<u64>,
-    pub disk_health: Option<String>,
-
-    pub network_throughput: Option<u64>,
-    pub network_interfaces: Option<Vec<String>>,
-
-    pub updates_available: Option<bool>,
 }
 
 impl SystemInfo {
     pub fn new() -> Self {
-        let mut sys = System::new_with_specifics(RefreshKind::everything());
+        let refresh = RefreshKind::new()
+            .with_cpu()
+            .with_memory()
+            .with_disks()
+            .with_networks();
+        let mut sys = System::new_with_specifics(refresh);
         sys.refresh_all();
 
-        // CPU info
+        let hostname = sys.host_name();
+        let ip_address = local_ip().ok().map(|ip: IpAddr| ip.to_string());
+        let os_name = sys.name();
+        let os_version = sys.os_version();
+        let kernel_version = sys.kernel_version();
+        let uptime = Some(format!("{}s", sys.uptime()));
+
         let cpu_brand = sys.cpus().first().map(|c| c.brand().to_string());
         let cpu_count = Some(sys.cpus().len());
         let cpu_usage = if !sys.cpus().is_empty() {
-            let sum: f32 = sys.cpus().iter().map(|c| c.cpu_usage()).sum();
-            Some(sum / sys.cpus().len() as f32)
+            Some(sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32)
         } else {
             None
         };
 
-        // Memory info
-        let total_memory = if sys.total_memory() > 0 { Some(sys.total_memory()) } else { None };
-        let used_memory = if sys.used_memory() > 0 { Some(sys.used_memory()) } else { None };
-        let ram_free = total_memory.and_then(|t| used_memory.map(|u| t.saturating_sub(u)));
+        let total_memory = sys.total_memory();
+        let used_memory = sys.used_memory();
 
-        // Disk info
-        let mut disk_total = 0;
-        let mut disk_free = 0;
+        let mut disk_total = 0u64;
+        let mut disk_free = 0u64;
         for disk in sys.disks() {
             disk_total += disk.total_space();
             disk_free += disk.available_space();
         }
-        let disk_total = if disk_total > 0 { Some(disk_total) } else { None };
-        let disk_free = if disk_free > 0 { Some(disk_free) } else { None };
-        let disk_health = None; // could be set later with SMART info if available
 
-        // Network info
-        let mut network_interfaces = Vec::new();
-        let mut network_throughput = 0;
-        for (iface, data) in sys.networks() {
-            network_interfaces.push(iface.clone());
-            let current = data.received() + data.transmitted();
-            network_throughput += current;
-        }
-        let network_interfaces = if network_interfaces.is_empty() { None } else { Some(network_interfaces) };
-        let network_throughput = if network_throughput > 0 { Some(network_throughput) } else { None };
+        let network_interfaces = if sys.networks().is_empty() {
+            None
+        } else {
+            Some(sys.networks().keys().cloned().collect::<Vec<String>>().join(", "))
+        };
 
         SystemInfo {
             sys,
             prev_network: HashMap::new(),
-            hostname: sys.host_name(),
-            ip_address: local_ip().ok().map(|ip: IpAddr| ip.to_string()),
-            os_name: sys.name(),
-            os_version: sys.os_version(),
-            kernel_version: sys.kernel_version(),
-            uptime: Some(format!("{}s", sys.uptime())),
+            hostname,
+            ip_address,
+            os_name,
+            os_version,
+            kernel_version,
+            uptime,
             cpu_brand,
             cpu_count,
             cpu_usage,
-            architecture: std::env::consts::ARCH.to_string(),
-            device_type: None,
-            device_model: None,
-            serial_number: None,
-            total_memory,
-            used_memory,
-            ram_free,
+            ram_total: total_memory,
+            ram_used: used_memory,
+            ram_free: total_memory.saturating_sub(used_memory),
             disk_total,
             disk_free,
-            disk_health,
-            network_throughput,
+            disk_health: Some("unknown".into()), // Keep field even if hardware missing
+            network_throughput: 0,
             network_interfaces,
-            updates_available: None,
+            architecture: std::env::consts::ARCH.to_string(),
+            device_type: Some("unknown".into()),
+            device_model: Some("unknown".into()),
+            serial_number: Some("unknown".into()),
         }
     }
 
     pub fn refresh(&mut self) {
-        self.sys.refresh_all();
+        self.sys.refresh_cpu();
+        self.sys.refresh_memory();
+        self.sys.refresh_disks();
+        self.sys.refresh_networks();
 
         self.hostname = self.sys.host_name();
         self.ip_address = local_ip().ok().map(|ip| ip.to_string());
@@ -123,41 +121,61 @@ impl SystemInfo {
         self.kernel_version = self.sys.kernel_version();
         self.uptime = Some(format!("{}s", self.sys.uptime()));
 
-        // CPU
         self.cpu_usage = if !self.sys.cpus().is_empty() {
-            let sum: f32 = self.sys.cpus().iter().map(|c| c.cpu_usage()).sum();
-            Some(sum / self.sys.cpus().len() as f32)
+            Some(self.sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / self.sys.cpus().len() as f32)
         } else {
             None
         };
 
-        // Memory
-        self.total_memory = if self.sys.total_memory() > 0 { Some(self.sys.total_memory()) } else { None };
-        self.used_memory = if self.sys.used_memory() > 0 { Some(self.sys.used_memory()) } else { None };
-        self.ram_free = self.total_memory.and_then(|t| self.used_memory.map(|u| t.saturating_sub(u)));
+        self.ram_total = self.sys.total_memory();
+        self.ram_used = self.sys.used_memory();
+        self.ram_free = self.ram_total.saturating_sub(self.ram_used);
 
-        // Disk
-        let mut disk_total = 0;
-        let mut disk_free = 0;
+        self.disk_total = 0;
+        self.disk_free = 0;
         for disk in self.sys.disks() {
-            disk_total += disk.total_space();
-            disk_free += disk.available_space();
+            self.disk_total += disk.total_space();
+            self.disk_free += disk.available_space();
         }
-        self.disk_total = if disk_total > 0 { Some(disk_total) } else { None };
-        self.disk_free = if disk_free > 0 { Some(disk_free) } else { None };
 
-        // Network
-        let mut total_throughput = 0u64;
-        let mut interfaces = Vec::new();
+        self.network_interfaces = if self.sys.networks().is_empty() {
+            None
+        } else {
+            Some(self.sys.networks().keys().cloned().collect::<Vec<String>>().join(", "))
+        };
+    }
+
+    pub fn cpu_usage(&mut self) -> f32 {
+        self.sys.refresh_cpu();
+        if self.sys.cpus().is_empty() {
+            0.0
+        } else {
+            self.sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / self.sys.cpus().len() as f32
+        }
+    }
+
+    pub fn disk_usage(&mut self) -> (u64, u64) {
+        self.sys.refresh_disks();
+        let mut total = 0u64;
+        let mut free = 0u64;
+        for disk in self.sys.disks() {
+            total += disk.total_space();
+            free += disk.available_space();
+        }
+        (total, free)
+    }
+
+    pub fn network_throughput(&mut self) -> u64 {
+        self.sys.refresh_networks();
+        let mut sum = 0u64;
         for (iface, data) in self.sys.networks() {
-            interfaces.push(iface.clone());
             let current = data.received() + data.transmitted();
             let prev = self.prev_network.get(iface).copied().unwrap_or(current);
-            total_throughput += current.saturating_sub(prev);
+            sum += current.saturating_sub(prev);
             self.prev_network.insert(iface.clone(), current);
         }
-        self.network_throughput = if total_throughput > 0 { Some(total_throughput) } else { None };
-        self.network_interfaces = if interfaces.is_empty() { None } else { Some(interfaces) };
+        self.network_throughput = sum;
+        sum
     }
 }
 
