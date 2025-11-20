@@ -48,12 +48,11 @@ pub struct SystemInfo {
 impl SystemInfo {
     pub fn new() -> Self {
         let mut sys = System::new_with_specifics(
-            RefreshKind::new()
+            RefreshKind::everything()
                 .with_cpu(CpuRefreshKind::everything())
                 .with_memory()
-                .with_networks()
-                .with_disks()
         );
+
 
         sys.refresh_all();
 
@@ -70,7 +69,7 @@ impl SystemInfo {
         let cpu_brand = sys.cpus().first().map(|c| c.brand().to_string());
         let cpu_count = Some(sys.cpus().len());
         let cpu_usage = if !sys.cpus().is_empty() {
-            Some(sys.global_cpu_info().cpu_usage())
+            Some(sys.global_cpu_usage().cpu_usage())
         } else {
             None
         };
@@ -79,16 +78,18 @@ impl SystemInfo {
         let ram_used = sys.used_memory();
         let ram_free = ram_total.saturating_sub(ram_used);
 
-        let disks = sys.disks();
+        let disks = sys.disks_list();
         let disk_total: u64 = disks.iter().map(|d| d.total_space()).sum();
         let disk_free: u64 = disks.iter().map(|d| d.available_space()).sum();
 
-        let networks = sys.networks();
+        sys.refresh_networks_list(); // refresh networks first
+        let networks = sys.networks_list();
         let network_interfaces = if networks.is_empty() {
             None
         } else {
-            Some(networks.keys().cloned().collect::<Vec<_>>().join(", "))
+            Some(networks.iter().map(|iface| iface.name().to_string()).collect::<Vec<_>>().join(", "))
         };
+
 
         SystemInfo {
             sys,
@@ -124,10 +125,8 @@ impl SystemInfo {
     }
 
     pub fn refresh(&mut self) {
-        self.sys.refresh_cpu();
-        self.sys.refresh_memory();
-        self.sys.refresh_networks();
-        self.sys.refresh_disks();
+        self.sys.refresh_cpu_all();
+        self.sys.refresh_all(); // refreshes memory, disks, networks
 
         self.hostname = System::host_name();
         self.os_name = System::name();
@@ -137,53 +136,56 @@ impl SystemInfo {
 
         self.ip_address = local_ip().ok().map(|ip| ip.to_string());
 
-        self.cpu_usage = Some(self.sys.global_cpu_info().cpu_usage());
+        self.cpu_usage = Some(self.sys.global_cpu_usage().cpu_usage());
 
         self.ram_total = self.sys.total_memory();
         self.ram_used = self.sys.used_memory();
         self.ram_free = self.ram_total.saturating_sub(self.ram_used);
 
-        let disks = self.sys.disks();
+        let disks = self.sys.disks_list();
         self.disk_total = disks.iter().map(|d| d.total_space()).sum();
         self.disk_free = disks.iter().map(|d| d.available_space()).sum();
 
-        let networks = self.sys.networks();
+        let networks = self.sys.networks_list();
         self.network_interfaces = if networks.is_empty() {
             None
         } else {
-            Some(networks.keys().cloned().collect::<Vec<_>>().join(", "))
+            Some(networks.iter().map(|iface| iface.name().to_string()).collect::<Vec<_>>().join(", "))
         };
     }
 
+
     pub fn cpu_usage(&mut self) -> f32 {
-        self.sys.refresh_cpu();
-        self.sys.global_cpu_info().cpu_usage()
+        self.sys.refresh_cpu_all();
+        self.sys.global_cpu_usage().cpu_usage()
     }
 
+
     pub fn disk_usage(&mut self) -> (u64, u64) {
-        self.sys.refresh_disks();
-        let disks = self.sys.disks();
+        self.sys.refresh_all(); // refreshes disks
+        let disks = self.sys.disks_list();
         let total = disks.iter().map(|d| d.total_space()).sum();
         let free = disks.iter().map(|d| d.available_space()).sum();
         (total, free)
     }
 
+
     pub fn network_throughput(&mut self) -> u64 {
-        self.sys.refresh_networks();
+        self.sys.refresh_networks_list();
 
         let mut total = 0u64;
 
-        for (iface, data) in self.sys.networks() {
-            let current = data.received() + data.transmitted();
-            let prev = self.prev_network.get(iface).copied().unwrap_or(current);
+        for iface in self.sys.networks_list() {
+            let current = iface.received() + iface.transmitted();
+            let prev = self.prev_network.get(iface.name()).copied().unwrap_or(current);
             total += current.saturating_sub(prev);
-            self.prev_network.insert(iface.clone(), current);
+            self.prev_network.insert(iface.name().to_string(), current);
         }
 
         self.network_throughput = total;
         total
     }
-}
+
 
 pub fn get_system_info() -> anyhow::Result<SystemInfo> {
     Ok(SystemInfo::new())
