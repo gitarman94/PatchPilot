@@ -79,13 +79,14 @@ impl SystemInfo {
         let disk_total: u64 = disks.iter().map(|d| d.total_space()).sum();
         let disk_free: u64 = disks.iter().map(|d| d.available_space()).sum();
 
-        sys.refresh_networks(); // refresh networks first
+        sys.refresh_networks_specific(); // refresh networks first
         let networks = sys.networks();
         let network_interfaces = if networks.is_empty() {
             None
         } else {
-            Some(networks.iter().map(|iface| iface.name().to_string()).collect::<Vec<_>>().join(", "))
+            Some(networks.keys().cloned().collect::<Vec<_>>().join(", "))
         };
+
 
         SystemInfo {
             sys,
@@ -168,11 +169,11 @@ impl SystemInfo {
 
         let mut total = 0u64;
 
-        for iface in self.sys.networks() {
+        for (name, iface) in self.sys.networks() {
             let current = iface.received() + iface.transmitted();
-            let prev = self.prev_network.get(iface.name()).copied().unwrap_or(current);
+            let prev = self.prev_network.get(name).copied().unwrap_or(current);
             total += current.saturating_sub(prev);
-            self.prev_network.insert(iface.name().to_string(), current);
+            self.prev_network.insert(name.clone(), current);
         }
 
         self.network_throughput = total;
