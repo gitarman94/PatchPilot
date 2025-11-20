@@ -11,12 +11,12 @@ use chrono::Utc;
 use local_ip_address::local_ip;
 use std::sync::Mutex;
 
-use sysinfo::System; // sysinfo v0.37
+use sysinfo::{System, SystemExt, CpuExt, NetworkExt}; // sysinfo v0.37
 
 mod schema;
 mod models;
 
-use models::{Device, NewDevice, DeviceInfo};
+use models::{Device, NewDevice, DeviceInfo, SystemInfo};
 use diesel::sqlite::SqliteConnection;
 
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
@@ -104,7 +104,7 @@ async fn register_or_update_device(
 ) -> Result<Json<Device>, String> {
     validate_device_info(&device_info).map_err(|e| e.message())?;
 
-    let pool = pool.inner().clone(); // clone the Pool (Arc)
+    let pool = pool.inner().clone();
     let device_info = device_info.into_inner();
     let device_id = device_id.to_string();
 
@@ -156,7 +156,7 @@ async fn heartbeat(
                 .execute(&mut conn);
         }
     })
-    .await.ok(); // fire-and-forget
+    .await.ok();
 
     Json(json!({"adopted": true}))
 }
@@ -291,4 +291,3 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
-

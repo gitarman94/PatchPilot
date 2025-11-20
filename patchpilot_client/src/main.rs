@@ -21,7 +21,7 @@ fn setup_logger() -> Result<(), Box<dyn Error>> {
 /// Log initial system snapshot at service startup.
 /// This is useful for debugging and verifying hardware values.
 fn log_initial_system_info() {
-    let mut info = match SystemInfo::new() {
+    let mut info = SystemInfo::new();
         Ok(v) => v,
         Err(e) => {
             log::error!("Failed to collect initial system info: {:?}", e);
