@@ -162,7 +162,7 @@ impl SystemInfo {
         self.ram_free = self.ram_total.saturating_sub(self.ram_used);
 
         // Disks: refresh via Disks struct
-        let mut disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
+        let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
         let total = disks.list().iter().map(|d| d.total_space()).sum();
         let free = disks.list().iter().map(|d| d.available_space()).sum();
         self.disk_total = total;
@@ -193,7 +193,7 @@ impl SystemInfo {
     pub fn disk_usage(&mut self) -> (u64, u64) {
         // Refresh everything so disk list and data is up to date
         self.sys.refresh_all();
-        let mut disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
+        let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
         let total = disks.list().iter().map(|d| d.total_space()).sum();
         let free = disks.list().iter().map(|d| d.available_space()).sum();
         (total, free)
