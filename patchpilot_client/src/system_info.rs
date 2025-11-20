@@ -1,15 +1,14 @@
 use std::collections::HashMap;
 use std::fs;
 use std::net::IpAddr;
+
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 use local_ip_address::local_ip;
 use serde::Serialize;
-use sysinfo::{
-    CpuRefreshKind, MemoryRefreshKind, RefreshKind, System,
-    Disks, DiskRefreshKind,
-    Networks, NetworkData,
-};
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System, Networks, Disks, DiskRefreshKind};
+
 
 #[derive(Serialize, Default)]
 pub struct SystemInfo {
@@ -85,7 +84,7 @@ impl SystemInfo {
         let ram_free = ram_total.saturating_sub(ram_used);
 
         // Disks: use new Disks API
-        let mut disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
+        let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
         let disk_total: u64 = disks.list().iter().map(|d| d.total_space()).sum();
         let disk_free: u64 = disks.list().iter().map(|d| d.available_space()).sum();
 
