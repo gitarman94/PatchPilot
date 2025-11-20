@@ -3,9 +3,8 @@ use std::net::IpAddr;
 
 use local_ip_address::local_ip;
 use serde::Serialize;
-use sysinfo::{System, RefreshKind, CpuExt, SystemExt, DiskExt, NetworksExt};
+use sysinfo::{System, SystemExt, Cpu, Disk, NetworkData, RefreshKind};
 
-/// SystemInfo for live metrics and reporting
 #[derive(Serialize, Default)]
 pub struct SystemInfo {
     #[serde(skip)]
@@ -13,7 +12,6 @@ pub struct SystemInfo {
     #[serde(skip)]
     prev_network: HashMap<String, u64>,
 
-    // Serialized fields for sending to server
     pub hostname: Option<String>,
     pub ip_address: Option<String>,
     pub os_name: Option<String>,
@@ -34,21 +32,24 @@ pub struct SystemInfo {
 
 impl SystemInfo {
     pub fn new() -> Self {
-        let refresh = RefreshKind::everything();
+        let refresh = RefreshKind::new()
+            .with_cpu()
+            .with_memory()
+            .with_disks()
+            .with_networks();
         let mut sys = System::new_with_specifics(refresh);
         sys.refresh_all();
 
-        let hostname = sysinfo::System::host_name();
+        let hostname = sys.host_name();
         let ip_address = local_ip().ok().map(|ip: IpAddr| ip.to_string());
-        let os_name = sysinfo::System::name();
-        let os_version = sysinfo::System::os_version();
-        let kernel_version = sysinfo::System::kernel_version();
+        let os_name = sys.name();
+        let os_version = sys.os_version();
+        let kernel_version = sys.kernel_version();
 
-        let cpu_brand = sys.cpus().get(0).map(|c| c.brand().to_string());
+        let cpu_brand = sys.cpus().first().map(|c| c.brand().to_string());
         let cpu_count = Some(sys.cpus().len());
         let architecture = std::env::consts::ARCH.to_string();
 
-        // Placeholder device info
         let device_type = Some("unknown".into());
         let device_model = Some("unknown".into());
         let serial_number = Some("undefined".into());
@@ -75,17 +76,18 @@ impl SystemInfo {
         }
     }
 
-    /// Refresh system metrics
     pub fn refresh(&mut self) {
-        self.sys.refresh_all();
+        self.sys.refresh_cpu();
+        self.sys.refresh_memory();
+        self.sys.refresh_disks_list();
+        self.sys.refresh_networks_list();
 
         self.total_memory = self.sys.total_memory();
         self.used_memory = self.sys.used_memory();
-
-        self.hostname = sysinfo::System::host_name();
-        self.os_name = sysinfo::System::name();
-        self.os_version = sysinfo::System::os_version();
-        self.kernel_version = sysinfo::System::kernel_version();
+        self.hostname = self.sys.host_name();
+        self.os_name = self.sys.name();
+        self.os_version = self.sys.os_version();
+        self.kernel_version = self.sys.kernel_version();
         self.ip_address = local_ip().ok().map(|ip| ip.to_string());
     }
 
@@ -96,7 +98,7 @@ impl SystemInfo {
             0.0
         } else {
             let sum: f32 = cpus.iter().map(|cpu| cpu.cpu_usage()).sum();
-            sum / (cpus.len() as f32)
+            sum / cpus.len() as f32
         }
     }
 
@@ -113,7 +115,7 @@ impl SystemInfo {
     }
 
     pub fn disk_usage(&mut self) -> (u64, u64) {
-        self.sys.refresh_disks();
+        self.sys.refresh_disks_list();
 
         let mut total = 0u64;
         let mut free = 0u64;
@@ -125,7 +127,7 @@ impl SystemInfo {
     }
 
     pub fn network_throughput(&mut self) -> u64 {
-        self.sys.refresh_networks();
+        self.sys.refresh_networks_list();
 
         let mut sum = 0u64;
         for (iface, data) in self.sys.networks() {
@@ -138,7 +140,6 @@ impl SystemInfo {
     }
 }
 
-/// Returns a new SystemInfo instance
 pub fn get_system_info() -> anyhow::Result<SystemInfo> {
     Ok(SystemInfo::new())
 }
