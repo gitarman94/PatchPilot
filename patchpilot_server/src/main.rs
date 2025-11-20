@@ -11,12 +11,12 @@ use chrono::Utc;
 use local_ip_address::local_ip;
 use std::sync::Mutex;
 
-use sysinfo::{System, Cpu};
+use sysinfo::{System, SystemExt, CpuExt};
 
 mod schema;
 mod models;
 
-use models::{Device, NewDevice, DeviceInfo, SystemInfo};
+use models::{Device, NewDevice, DeviceInfo};
 use diesel::sqlite::SqliteConnection;
 
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
@@ -181,9 +181,13 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
 
 #[get("/status")]
 fn status(state: &State<AppState>) -> Json<serde_json::Value> {
+    // Lock the system mutex
     let mut sys = state.system.lock().unwrap();
+
+    // Refresh system information
     sys.refresh_all();
 
+    // Memory and swap info
     let total_memory = sys.total_memory();
     let used_memory = sys.used_memory();
     let total_swap = sys.total_swap();
@@ -191,18 +195,23 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
 
     let memory_usage_percent = if total_memory > 0 {
         (used_memory as f32 / total_memory as f32) * 100.0
-    } else { 0.0 };
+    } else {
+        0.0
+    };
 
     let swap_usage_percent = if total_swap > 0 {
         (used_swap as f32 / total_swap as f32) * 100.0
-    } else { 0.0 };
+    } else {
+        0.0
+    };
 
+    // Build JSON response
     Json(json!({
         "server_time": Utc::now().to_rfc3339(),
         "status": "ok",
-        "uptime_seconds": sys.uptime(),
+        "uptime_seconds": sys.uptime(), // <-- works because of SystemExt
         "cpu_count": sys.cpus().len(),
-        "cpu_usage_per_core_percent": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
+        "cpu_usage_per_core_percent": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(), // CpuExt trait
         "total_memory_bytes": total_memory,
         "used_memory_bytes": used_memory,
         "memory_usage_percent": memory_usage_percent,
