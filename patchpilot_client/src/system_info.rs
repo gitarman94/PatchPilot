@@ -29,15 +29,15 @@ pub struct SystemInfo {
     pub device_model: Option<String>,
     pub serial_number: Option<String>,
 
-    pub total_memory: u64,
-    pub used_memory: u64,
-    pub ram_free: u64,
+    pub total_memory: Option<u64>,
+    pub used_memory: Option<u64>,
+    pub ram_free: Option<u64>,
 
-    pub disk_total: u64,
-    pub disk_free: u64,
+    pub disk_total: Option<u64>,
+    pub disk_free: Option<u64>,
     pub disk_health: Option<String>,
 
-    pub network_throughput: u64,
+    pub network_throughput: Option<u64>,
     pub network_interfaces: Option<Vec<String>>,
 
     pub updates_available: Option<bool>,
@@ -48,38 +48,33 @@ impl SystemInfo {
         let mut sys = System::new_with_specifics(RefreshKind::everything());
         sys.refresh_all();
 
-        let hostname = sys.host_name();
-        let ip_address = local_ip().ok().map(|ip: IpAddr| ip.to_string());
-        let os_name = sys.name();
-        let os_version = sys.os_version();
-        let kernel_version = sys.kernel_version();
-        let uptime = Some(format!("{}s", sys.uptime()));
-
+        // CPU info
         let cpu_brand = sys.cpus().first().map(|c| c.brand().to_string());
         let cpu_count = Some(sys.cpus().len());
-        let cpu_usage = Some(if !sys.cpus().is_empty() {
+        let cpu_usage = if !sys.cpus().is_empty() {
             let sum: f32 = sys.cpus().iter().map(|c| c.cpu_usage()).sum();
-            sum / sys.cpus().len() as f32
-        } else { 0.0 });
+            Some(sum / sys.cpus().len() as f32)
+        } else {
+            None
+        };
 
-        let architecture = std::env::consts::ARCH.to_string();
+        // Memory info
+        let total_memory = if sys.total_memory() > 0 { Some(sys.total_memory()) } else { None };
+        let used_memory = if sys.used_memory() > 0 { Some(sys.used_memory()) } else { None };
+        let ram_free = total_memory.and_then(|t| used_memory.map(|u| t.saturating_sub(u)));
 
-        let device_type = Some("unknown".into());
-        let device_model = Some("unknown".into());
-        let serial_number = Some("undefined".into());
-
-        let total_memory = sys.total_memory();
-        let used_memory = sys.used_memory();
-        let ram_free = total_memory.saturating_sub(used_memory);
-
+        // Disk info
         let mut disk_total = 0;
         let mut disk_free = 0;
-        let mut disk_health = Some("unknown".into());
         for disk in sys.disks() {
             disk_total += disk.total_space();
             disk_free += disk.available_space();
         }
+        let disk_total = if disk_total > 0 { Some(disk_total) } else { None };
+        let disk_free = if disk_free > 0 { Some(disk_free) } else { None };
+        let disk_health = None; // could be set later with SMART info if available
 
+        // Network info
         let mut network_interfaces = Vec::new();
         let mut network_throughput = 0;
         for (iface, data) in sys.networks() {
@@ -88,23 +83,24 @@ impl SystemInfo {
             network_throughput += current;
         }
         let network_interfaces = if network_interfaces.is_empty() { None } else { Some(network_interfaces) };
+        let network_throughput = if network_throughput > 0 { Some(network_throughput) } else { None };
 
         SystemInfo {
             sys,
             prev_network: HashMap::new(),
-            hostname,
-            ip_address,
-            os_name,
-            os_version,
-            kernel_version,
-            uptime,
+            hostname: sys.host_name(),
+            ip_address: local_ip().ok().map(|ip: IpAddr| ip.to_string()),
+            os_name: sys.name(),
+            os_version: sys.os_version(),
+            kernel_version: sys.kernel_version(),
+            uptime: Some(format!("{}s", sys.uptime())),
             cpu_brand,
             cpu_count,
             cpu_usage,
-            architecture,
-            device_type,
-            device_model,
-            serial_number,
+            architecture: std::env::consts::ARCH.to_string(),
+            device_type: None,
+            device_model: None,
+            serial_number: None,
             total_memory,
             used_memory,
             ram_free,
@@ -113,7 +109,7 @@ impl SystemInfo {
             disk_health,
             network_throughput,
             network_interfaces,
-            updates_available: Some(false),
+            updates_available: None,
         }
     }
 
@@ -127,23 +123,28 @@ impl SystemInfo {
         self.kernel_version = self.sys.kernel_version();
         self.uptime = Some(format!("{}s", self.sys.uptime()));
 
-        self.total_memory = self.sys.total_memory();
-        self.used_memory = self.sys.used_memory();
-        self.ram_free = self.total_memory.saturating_sub(self.used_memory);
-
         // CPU
-        self.cpu_usage = Some(if !self.sys.cpus().is_empty() {
+        self.cpu_usage = if !self.sys.cpus().is_empty() {
             let sum: f32 = self.sys.cpus().iter().map(|c| c.cpu_usage()).sum();
-            sum / self.sys.cpus().len() as f32
-        } else { 0.0 });
+            Some(sum / self.sys.cpus().len() as f32)
+        } else {
+            None
+        };
+
+        // Memory
+        self.total_memory = if self.sys.total_memory() > 0 { Some(self.sys.total_memory()) } else { None };
+        self.used_memory = if self.sys.used_memory() > 0 { Some(self.sys.used_memory()) } else { None };
+        self.ram_free = self.total_memory.and_then(|t| self.used_memory.map(|u| t.saturating_sub(u)));
 
         // Disk
-        self.disk_total = 0;
-        self.disk_free = 0;
+        let mut disk_total = 0;
+        let mut disk_free = 0;
         for disk in self.sys.disks() {
-            self.disk_total += disk.total_space();
-            self.disk_free += disk.available_space();
+            disk_total += disk.total_space();
+            disk_free += disk.available_space();
         }
+        self.disk_total = if disk_total > 0 { Some(disk_total) } else { None };
+        self.disk_free = if disk_free > 0 { Some(disk_free) } else { None };
 
         // Network
         let mut total_throughput = 0u64;
@@ -155,7 +156,7 @@ impl SystemInfo {
             total_throughput += current.saturating_sub(prev);
             self.prev_network.insert(iface.clone(), current);
         }
-        self.network_throughput = total_throughput;
+        self.network_throughput = if total_throughput > 0 { Some(total_throughput) } else { None };
         self.network_interfaces = if interfaces.is_empty() { None } else { Some(interfaces) };
     }
 }
