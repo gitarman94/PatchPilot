@@ -185,6 +185,7 @@ impl SystemInfo {
         self.network_throughput = total;
         total
     }
+}
 
 
 pub fn get_system_info() -> anyhow::Result<SystemInfo> {
