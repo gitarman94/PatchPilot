@@ -3,7 +3,7 @@ use std::net::IpAddr;
 
 use local_ip_address::local_ip;
 use serde::Serialize;
-use sysinfo::{System, SystemExt, RefreshKind, Cpu, Disk, NetworkData};
+use sysinfo::{System, RefreshKind, CpuExt, DiskExt, NetworksExt, SystemExt};
 
 #[derive(Serialize, Default)]
 pub struct SystemInfo {
@@ -29,10 +29,10 @@ pub struct SystemInfo {
 
     pub disk_total: u64,
     pub disk_free: u64,
-    pub disk_health: Option<String>, // Placeholder: could be extended with SMART info
+    pub disk_health: Option<String>,
 
     pub network_throughput: u64,
-    pub network_interfaces: Option<String>, // Comma-separated interface names
+    pub network_interfaces: Option<String>,
 
     pub architecture: String,
     pub device_type: Option<String>,
@@ -42,12 +42,7 @@ pub struct SystemInfo {
 
 impl SystemInfo {
     pub fn new() -> Self {
-        let refresh = RefreshKind::new()
-            .with_cpu()
-            .with_memory()
-            .with_disks()
-            .with_networks();
-        let mut sys = System::new_with_specifics(refresh);
+        let mut sys = System::new_with_specifics(RefreshKind::everything());
         sys.refresh_all();
 
         let hostname = sys.host_name();
@@ -98,7 +93,7 @@ impl SystemInfo {
             ram_free: total_memory.saturating_sub(used_memory),
             disk_total,
             disk_free,
-            disk_health: Some("unknown".into()), // Keep field even if hardware missing
+            disk_health: Some("unknown".into()),
             network_throughput: 0,
             network_interfaces,
             architecture: std::env::consts::ARCH.to_string(),
@@ -109,10 +104,10 @@ impl SystemInfo {
     }
 
     pub fn refresh(&mut self) {
-        self.sys.refresh_cpu();
+        self.sys.refresh_cpu_all();
         self.sys.refresh_memory();
-        self.sys.refresh_disks();
-        self.sys.refresh_networks();
+        self.sys.refresh_disks_list();
+        self.sys.refresh_networks_list();
 
         self.hostname = self.sys.host_name();
         self.ip_address = local_ip().ok().map(|ip| ip.to_string());
@@ -146,7 +141,7 @@ impl SystemInfo {
     }
 
     pub fn cpu_usage(&mut self) -> f32 {
-        self.sys.refresh_cpu();
+        self.sys.refresh_cpu_all();
         if self.sys.cpus().is_empty() {
             0.0
         } else {
@@ -155,7 +150,7 @@ impl SystemInfo {
     }
 
     pub fn disk_usage(&mut self) -> (u64, u64) {
-        self.sys.refresh_disks();
+        self.sys.refresh_disks_list();
         let mut total = 0u64;
         let mut free = 0u64;
         for disk in self.sys.disks() {
@@ -166,7 +161,7 @@ impl SystemInfo {
     }
 
     pub fn network_throughput(&mut self) -> u64 {
-        self.sys.refresh_networks();
+        self.sys.refresh_networks_list();
         let mut sum = 0u64;
         for (iface, data) in self.sys.networks() {
             let current = data.received() + data.transmitted();
