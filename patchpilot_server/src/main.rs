@@ -133,18 +133,17 @@ async fn heartbeat(
     use crate::schema::devices::dsl::*;
 
     let pool = pool.inner().clone();
-    let payload = payload.into_inner();
     let state = state.inner();
 
+    // Clone the strings to avoid lifetime issues
     let device_id = payload.get("device_id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-    let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("");
-    let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("");
+    let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+    let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+    let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
     rocket::tokio::task::spawn_blocking(move || {
-        let conn_res = pool.get();
-        if let Ok(mut conn) = conn_res {
+        if let Ok(mut conn) = pool.get() {
             let is_approved = devices
                 .filter(device_name.eq(&device_id))
                 .select(approved)
@@ -155,25 +154,23 @@ async fn heartbeat(
                 let _ = diesel::update(devices.filter(device_name.eq(&device_id)))
                     .set((
                         last_checkin.eq(Utc::now().naive_utc()),
-                        network_interfaces.eq(Some(network_interfaces_val.to_string())),
-                        ip_address.eq(Some(ip_address_val.to_string())),
+                        network_interfaces.eq(Some(network_interfaces_val)),
+                        ip_address.eq(Some(ip_address_val)),
                     ))
                     .execute(&mut conn);
             } else {
                 let mut pending = state.pending_devices.write().unwrap();
                 let info = DeviceInfo {
                     system_info: SystemInfo {
-                        network_interfaces: Some(network_interfaces_val.to_string()),
-                        ip_address: Some(ip_address_val.to_string()),
+                        network_interfaces: Some(network_interfaces_val),
+                        ip_address: Some(ip_address_val),
                         ..Default::default()
                     },
-                    device_type: Some(device_type_val.to_string()),
-                    device_model: Some(device_model_val.to_string()),
+                    device_type: Some(device_type_val),
+                    device_model: Some(device_model_val),
                 };
                 pending.insert(device_id.clone(), info);
             }
-        } else {
-            log::error!("Failed to get DB connection: {:?}", conn_res.err());
         }
     })
     .await
@@ -244,7 +241,7 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     Json(json!({
         "server_time": Utc::now().to_rfc3339(),
         "status": "ok",
-        "uptime_seconds": sys.uptime(),
+        "uptime_seconds": System::uptime(&sys),
         "cpu_count": sys.cpus().len(),
         "cpu_usage_per_core_percent": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
         "total_memory_bytes": sys.total_memory(),
