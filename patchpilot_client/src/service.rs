@@ -4,7 +4,6 @@ use serde_json::json;
 use std::{fs, thread, time::Duration};
 use crate::system_info::{SystemInfo, get_system_info};
 use log::{info, error};
-use std::net::IpAddr;
 use local_ip_address::local_ip;
 
 const ADOPTION_CHECK_INTERVAL: u64 = 30;
