@@ -4,6 +4,8 @@ use serde_json::json;
 use std::{fs, thread, time::Duration};
 use crate::system_info::{SystemInfo, get_system_info};
 use log::{info, error};
+use std::net::IpAddr;
+use local_ip_address::local_ip;
 
 const ADOPTION_CHECK_INTERVAL: u64 = 30;
 const SYSTEM_UPDATE_INTERVAL: u64 = 600;
@@ -34,6 +36,10 @@ fn get_device_info() -> (String, String, String) {
     }
 }
 
+fn get_ip_address() -> String {
+    local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "0.0.0.0".into())
+}
+
 fn check_adoption_status(
     client: &Client,
     server_url: &str,
@@ -47,6 +53,8 @@ fn check_adoption_status(
             "device_id": device_id,
             "device_type": device_type,
             "device_model": device_model,
+            "ip_address": get_ip_address(),
+            "network_interfaces": "eth0,wlan0", // optional: you can enumerate interfaces if needed
         }))
         .send();
 
@@ -85,6 +93,7 @@ fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
             "device_id": device_id,
             "status": "active",
             "system_info": sys_info,
+            "ip_address": get_ip_address(),
         }))
         .send()
     {
@@ -101,7 +110,10 @@ fn run_adoption_and_update_loop(
     device_model: &str,
     running_flag: Option<&std::sync::atomic::AtomicBool>
 ) {
-    loop {
+    let mut adopted = false;
+
+    // Keep sending heartbeats until adoption
+    while !adopted {
         if let Some(flag) = running_flag {
             if !flag.load(std::sync::atomic::Ordering::SeqCst) {
                 info!("Stopping adoption loop due to service stop signal.");
@@ -112,7 +124,7 @@ fn run_adoption_and_update_loop(
         match check_adoption_status(client, server_url, device_id, device_type, device_model) {
             Ok(true) => {
                 info!("Device adopted.");
-                break;
+                adopted = true;
             }
             Ok(false) => {
                 info!("Device not adopted yet, retrying in {} seconds...", ADOPTION_CHECK_INTERVAL);
@@ -121,9 +133,11 @@ fn run_adoption_and_update_loop(
                 error!("Adoption check failed: {:?}", e);
             }
         }
+
         thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL));
     }
 
+    // Once adopted, start sending full system updates
     loop {
         if let Some(flag) = running_flag {
             if !flag.load(std::sync::atomic::Ordering::SeqCst) {
