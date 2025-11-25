@@ -13,7 +13,7 @@ use std::sync::{Mutex, RwLock};
 use std::collections::HashMap;
 
 use crate::models::{Device, NewDevice, DeviceInfo, SystemInfo};
-use sysinfo::System;
+use sysinfo::{System, SystemExt, CpuExt};
 
 mod schema;
 mod models;
@@ -116,9 +116,9 @@ async fn register_or_update_device(
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
-        insert_or_update_device(&mut conn, &device_id, &device_info)
-            .map(Json)
-            .map_err(|e| e.message())
+        let device = insert_or_update_device(&mut conn, &device_id, &device_info)
+            .map_err(|e| e.message())?;
+        Ok(Json(device))
     })
     .await
     .unwrap_or_else(|e| Err(format!("Task join error: {}", e)))
@@ -133,9 +133,9 @@ async fn heartbeat(
     use crate::schema::devices::dsl::*;
 
     let pool = pool.inner().clone();
-    let pending_devices = state.pending_devices.clone();
+    let state = state.inner();
 
-    // Extract fields to own String values for 'static closure
+    // Clone the strings to avoid lifetime issues
     let device_id = payload.get("device_id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
     let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
     let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
@@ -159,7 +159,7 @@ async fn heartbeat(
                     ))
                     .execute(&mut conn);
             } else {
-                let mut pending = pending_devices.write().unwrap();
+                let mut pending = state.pending_devices.write().unwrap();
                 let info = DeviceInfo {
                     system_info: SystemInfo {
                         network_interfaces: Some(network_interfaces_val),
@@ -192,7 +192,8 @@ async fn adopt_device(
     let device_id = device_id.to_string();
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
-        let mut device = insert_or_update_device(&mut conn, &device_id, &info)?;
+        let mut device = insert_or_update_device(&mut conn, &device_id, &info)
+            .map_err(|e| e.message())?;
         diesel::update(schema::devices::dsl::devices.filter(schema::devices::dsl::device_name.eq(&device_id)))
             .set(schema::devices::dsl::approved.eq(true))
             .execute(&mut conn)
@@ -241,7 +242,7 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     Json(json!({
         "server_time": Utc::now().to_rfc3339(),
         "status": "ok",
-        "uptime_seconds": System::uptime(),
+        "uptime_seconds": sys.uptime(),
         "cpu_count": sys.cpus().len(),
         "cpu_usage_per_core_percent": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
         "total_memory_bytes": sys.total_memory(),
