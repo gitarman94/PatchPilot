@@ -139,19 +139,33 @@ async fn heartbeat(
             let _ = diesel::insert_into(devices)
                 .values((
                     device_name.eq(device_id),
+                    hostname.eq(device_id),              // REQUIRED — NOT NULL
+                    os_name.eq("unknown"),               // REQUIRED — NOT NULL
+                    architecture.eq("unknown"),          // REQUIRED — NOT NULL
                     device_type.eq(device_type_val),
                     device_model.eq(device_model_val),
                     network_interfaces.eq(network_interfaces_val),
                     ip_address.eq(ip_address_val),
                     approved.eq(true),
-                    last_checkin.eq(Utc::now().naive_utc())
+                    last_checkin.eq(Utc::now().naive_utc()),
+                    cpu.eq(0.0),
+                    ram_total.eq(0),
+                    ram_used.eq(0),
+                    ram_free.eq(0),
+                    disk_total.eq(0),
+                    disk_free.eq(0),
+                    disk_health.eq("unknown"),
+                    network_throughput.eq(0),
+                    ping_latency.eq(None::<f32>),
+                    uptime.eq(Some("0h 0m")),
+                    updates_available.eq(false)
                 ))
                 .on_conflict(device_name)
                 .do_update()
                 .set((
                     last_checkin.eq(Utc::now().naive_utc()),
                     network_interfaces.eq(network_interfaces_val),
-                    ip_address.eq(ip_address_val)
+                    ip_address.eq(ip_address_val),
                 ))
                 .execute(&mut conn);
         }
