@@ -93,6 +93,33 @@ impl Device {
         self.uptime = Some(self.compute_uptime());
         self
     }
+
+    pub fn from_info(device_id: &str, info: &DeviceInfo) -> Self {
+        Device {
+            id: 0,
+            device_name: device_id.to_string(),
+            hostname: device_id.to_string(),
+            os_name: info.system_info.os_name.clone(),
+            architecture: info.system_info.architecture.clone(),
+            last_checkin: chrono::Utc::now().naive_utc(),
+            approved: false,
+            cpu: info.system_info.cpu,
+            ram_total: info.system_info.ram_total,
+            ram_used: info.system_info.ram_used,
+            ram_free: info.system_info.ram_free,
+            disk_total: info.system_info.disk_total,
+            disk_free: info.system_info.disk_free,
+            disk_health: info.system_info.disk_health.clone(),
+            network_throughput: info.system_info.network_throughput,
+            ping_latency: info.system_info.ping_latency,
+            device_type: info.device_type.clone().unwrap_or_default(),
+            device_model: info.device_model.clone().unwrap_or_default(),
+            uptime: Some("0h 0m".to_string()),
+            updates_available: false,
+            network_interfaces: info.system_info.network_interfaces.clone(),
+            ip_address: info.system_info.ip_address.clone(),
+        }
+    }
 }
 
 impl NewDevice {

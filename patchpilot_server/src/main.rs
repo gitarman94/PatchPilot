@@ -11,14 +11,13 @@ use chrono::Utc;
 use local_ip_address::local_ip;
 use std::sync::{Mutex, RwLock};
 use std::collections::HashMap;
-use crate::models::DeviceInfo;
 
+use crate::models::{Device, NewDevice, DeviceInfo, SystemInfo};
 use sysinfo::System;
 
 mod schema;
 mod models;
 
-use models::{Device, NewDevice, DeviceInfo};
 use diesel::sqlite::SqliteConnection;
 
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
@@ -92,11 +91,13 @@ fn insert_or_update_device(
         .on_conflict(device_name)
         .do_update()
         .set(&new_device)
-        .execute(conn)?;
+        .execute(conn)
+        .map_err(ApiError::from)?;
 
     let updated_device = devices
         .filter(device_name.eq(device_id))
-        .first::<Device>(conn)?;
+        .first::<Device>(conn)
+        .map_err(ApiError::from)?;
 
     Ok(updated_device.enrich_for_dashboard())
 }
@@ -143,40 +144,36 @@ async fn heartbeat(
 
     rocket::tokio::task::spawn_blocking(move || {
         let conn_res = pool.get();
-        match conn_res {
-            Ok(mut conn) => {
-                // Check if device is already approved
-                let is_approved = devices
-                    .filter(device_name.eq(&device_id))
-                    .select(approved)
-                    .first::<bool>(&mut conn)
-                    .unwrap_or(false);
+        if let Ok(mut conn) = conn_res {
+            let is_approved = devices
+                .filter(device_name.eq(&device_id))
+                .select(approved)
+                .first::<bool>(&mut conn)
+                .unwrap_or(false);
 
-                if is_approved {
-                    // Existing approved device → update DB
-                    let _ = diesel::update(devices.filter(device_name.eq(&device_id)))
-                        .set((
-                            last_checkin.eq(Utc::now().naive_utc()),
-                            network_interfaces.eq(network_interfaces_val),
-                            ip_address.eq(ip_address_val),
-                        ))
-                        .execute(&mut conn);
-                } else {
-                    // Unapproved device → store in memory only
-                    let mut pending = state.pending_devices.write().unwrap();
-                    let info = DeviceInfo {
-                        system_info: Default::default(),
-                        device_type: device_type_val.into(),
-                        device_model: device_model_val.into(),
-                        network_interfaces: network_interfaces_val.into(),
-                        ip_address: ip_address_val.into(),
-                    };
-                    pending.insert(device_id.clone(), info);
-                }
+            if is_approved {
+                let _ = diesel::update(devices.filter(device_name.eq(&device_id)))
+                    .set((
+                        last_checkin.eq(Utc::now().naive_utc()),
+                        network_interfaces.eq(Some(network_interfaces_val.to_string())),
+                        ip_address.eq(Some(ip_address_val.to_string())),
+                    ))
+                    .execute(&mut conn);
+            } else {
+                let mut pending = state.pending_devices.write().unwrap();
+                let info = DeviceInfo {
+                    system_info: SystemInfo {
+                        network_interfaces: Some(network_interfaces_val.to_string()),
+                        ip_address: Some(ip_address_val.to_string()),
+                        ..Default::default()
+                    },
+                    device_type: Some(device_type_val.to_string()),
+                    device_model: Some(device_model_val.to_string()),
+                };
+                pending.insert(device_id.clone(), info);
             }
-            Err(e) => {
-                log::error!("Failed to get DB connection: {:?}", e);
-            }
+        } else {
+            log::error!("Failed to get DB connection: {:?}", conn_res.err());
         }
     })
     .await
@@ -198,11 +195,11 @@ async fn adopt_device(
     let device_id = device_id.to_string();
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
-        // Insert into DB as approved
         let mut device = insert_or_update_device(&mut conn, &device_id, &info)?;
         diesel::update(schema::devices::dsl::devices.filter(schema::devices::dsl::device_name.eq(&device_id)))
             .set(schema::devices::dsl::approved.eq(true))
-            .execute(&mut conn)?;
+            .execute(&mut conn)
+            .map_err(|e| e.to_string())?;
         device.approved = true;
         Ok(Json(device))
     })
@@ -227,7 +224,6 @@ async fn get_devices(
             .map(|d| d.enrich_for_dashboard())
             .collect::<Vec<_>>();
 
-        // Add pending devices (not in DB)
         for (id, info) in pending {
             let mut d = Device::from_info(&id, &info);
             d.approved = false;
@@ -248,7 +244,7 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     Json(json!({
         "server_time": Utc::now().to_rfc3339(),
         "status": "ok",
-        "uptime_seconds": sysinfo::System::uptime(&sys),
+        "uptime_seconds": sys.uptime(),
         "cpu_count": sys.cpus().len(),
         "cpu_usage_per_core_percent": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
         "total_memory_bytes": sys.total_memory(),
