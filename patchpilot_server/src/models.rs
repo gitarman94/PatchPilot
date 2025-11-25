@@ -57,7 +57,7 @@ pub struct NewDevice {
     pub ip_address: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SystemInfo {
     pub os_name: String,
     pub architecture: String,
