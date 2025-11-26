@@ -18,7 +18,6 @@ fn setup_logger() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Log initial system snapshot at service startup.
 fn log_initial_system_info() {
     let mut info = SystemInfo::new();
     info.refresh();
@@ -51,10 +50,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     setup_logger()?;
     log::info!("Starting PatchPilot client...");
 
-    // Log system info once at startup
     log_initial_system_info();
 
-    // Start service loop (OS-specific)
     #[cfg(unix)]
     service::run_unix_service().await?;
 
