@@ -9,7 +9,7 @@ use log::info;
 use serde_json::json;
 use chrono::Utc;
 use local_ip_address::local_ip;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use tokio::sync::RwLock;
 use std::collections::HashMap;
 
@@ -25,7 +25,7 @@ type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
 pub struct AppState {
     pub system: Mutex<System>,
-    pub pending_devices: Arc<RwLock<HashMap<String, DeviceInfo>>>,
+    pub pending_devices: RwLock<HashMap<String, DeviceInfo>>,
 }
 
 fn init_logger() {
@@ -135,14 +135,12 @@ async fn heartbeat(
     use crate::schema::devices::dsl::*;
 
     let pool_clone = pool.inner().clone();
-
     let device_id = payload.get("device_id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
     let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-    let pending_ref = Arc::clone(&state.pending_devices);
+    let pending_ref = &state.pending_devices;
 
     rocket::tokio::task::spawn_blocking(move || {
         if let Ok(mut conn) = pool_clone.get() {
@@ -162,29 +160,32 @@ async fn heartbeat(
                     ))
                     .execute(&mut conn);
             } else {
-                let mut pending = pending_ref.write().unwrap();
+                // Store pending device info for adoption asynchronously
+                let pending = pending_ref.clone();
+                let device_id_clone = device_id.clone();
 
-                // Store pending device info for adoption
-                pending.insert(
-                    device_id.clone(),
-                    DeviceInfo {
-                        system_info: SystemInfo {
-                            ip_address: Some(ip_address_val),
-                            network_interfaces: Some(network_interfaces_val),
-                            ..Default::default()
+                rocket::tokio::spawn(async move {
+                    let mut pending_lock = pending.write().await;
+                    pending_lock.insert(
+                        device_id_clone,
+                        DeviceInfo {
+                            system_info: SystemInfo {
+                                ip_address: Some(ip_address_val),
+                                network_interfaces: Some(network_interfaces_val),
+                                ..Default::default()
+                            },
+                            device_type: Some(device_type_val),
+                            device_model: Some(device_model_val),
                         },
-                        device_type: Some(device_type_val),
-                        device_model: Some(device_model_val),
-                    },
-                );
+                    );
+                });
             }
         }
     })
     .await
     .ok();
 
-    // Always return adopted = false for pending devices
-    Json(serde_json::json!({ "adopted": false }))
+    Json(json!({ "adopted": false }))
 }
 
 #[post("/devices/adopt/<device_id>")]
@@ -194,8 +195,8 @@ async fn adopt_device(
     device_id: &str,
 ) -> Result<Json<Device>, String> {
     let info = {
-        let mut pending = state.pending_devices.write().unwrap();
-        pending.remove(device_id)
+        let mut pending_lock = state.pending_devices.write().await;
+        pending_lock.remove(device_id)
     }.ok_or_else(|| format!("Device {} not pending", device_id))?;
 
     let pool = pool.inner().clone();
@@ -224,7 +225,7 @@ async fn get_devices(
     state: &State<AppState>,
 ) -> Result<Json<Vec<Device>>, String> {
     let pool = pool.inner().clone();
-    let pending = state.pending_devices.read().unwrap().clone();
+    let pending = state.pending_devices.read().await.clone();
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
@@ -336,7 +337,7 @@ fn rocket() -> _ {
         .manage(pool)
         .manage(AppState {
             system: Mutex::new(System::new_all()),
-            pending_devices: Arc::new(RwLock::new(HashMap::new())),
+            pending_devices: RwLock::new(HashMap::new()),
         })
         .mount(
             "/api",
