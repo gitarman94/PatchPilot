@@ -223,9 +223,6 @@ pub fn get_system_info() -> anyhow::Result<SystemInfo> {
     Ok(SystemInfo::new())
 }
 
-//
-// HARDWARE SERIAL + MODEL + DEVICE TYPE (OS‑SPECIFIC)
-//
 fn get_hardware_info() -> (Option<String>, Option<String>, Option<String>) {
     #[cfg(target_os = "linux")]
     {
