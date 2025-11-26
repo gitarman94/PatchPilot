@@ -30,12 +30,7 @@ fn log_initial_system_info() {
     log::info!("OS Version: {:?}", info.os_version);
     log::info!("Kernel Version: {:?}", info.kernel_version);
     log::info!("CPU Usage: {:.2}%", info.cpu_usage());
-    log::info!(
-        "RAM: total {} KB, used {} KB, free {} KB",
-        info.ram_total,
-        info.ram_used,
-        info.ram_free
-    );
+    log::info!("RAM: total {} KB, used {} KB, free {} KB", info.ram_total, info.ram_used, info.ram_free);
     log::info!("Disk: total {} bytes, free {} bytes", disk_total, disk_free);
     log::info!("Network throughput (initial): {} bytes", net);
     log::info!("IP Address: {:?}", info.ip_address);
