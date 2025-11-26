@@ -9,7 +9,8 @@ use log::info;
 use serde_json::json;
 use chrono::Utc;
 use local_ip_address::local_ip;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
+use tokio::sync::RwLock;
 use std::collections::HashMap;
 
 use crate::models::{Device, NewDevice, DeviceInfo, SystemInfo};
