@@ -8,22 +8,22 @@ use local_ip_address::local_ip;
 use tokio::time::sleep;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-const ADOPTION_CHECK_INTERVAL: u64 = 30;
-const SYSTEM_UPDATE_INTERVAL: u64 = 600;
+const ADOPTION_CHECK_INTERVAL: u64 = 10; // seconds
+const SYSTEM_UPDATE_INTERVAL: u64 = 600; // seconds
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "macos"))]
 const DEVICE_ID_FILE: &str = "/opt/patchpilot_client/device_id.txt";
 #[cfg(windows)]
 const DEVICE_ID_FILE: &str = "C:\\ProgramData\\PatchPilot\\device_id.txt";
 
-async fn read_server_url() -> Result<String> {
-    #[cfg(unix)]
-    let path = "/opt/patchpilot_client/server_url.txt";
-    #[cfg(windows)]
-    let path = "C:\\ProgramData\\PatchPilot\\server_url.txt";
+#[cfg(any(unix, target_os = "macos"))]
+const SERVER_URL_FILE: &str = "/opt/patchpilot_client/server_url.txt";
+#[cfg(windows)]
+const SERVER_URL_FILE: &str = "C:\\ProgramData\\PatchPilot\\server_url.txt";
 
-    let url = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read the server URL from {path}"))?;
+async fn read_server_url() -> Result<String> {
+    let url = fs::read_to_string(SERVER_URL_FILE)
+        .with_context(|| format!("Failed to read the server URL from {}", SERVER_URL_FILE))?;
     Ok(url.trim().to_string())
 }
 
@@ -70,7 +70,7 @@ fn get_device_info_with_id(device_id: &str) -> (String, String, String) {
 async fn register_device(client: &Client, server_url: &str, device_type: &str, device_model: &str) -> Result<String> {
     info!("Registering device with server...");
     let resp = client
-        .post(format!("{}/api/devices/register", server_url))
+        .post(format!("{}/api/register", server_url))
         .json(&json!({
             "device_type": device_type,
             "device_model": device_model,
@@ -84,7 +84,6 @@ async fn register_device(client: &Client, server_url: &str, device_type: &str, d
     if resp.status().is_success() {
         let json_resp: serde_json::Value = resp.json().await?;
         if let Some(device_id) = json_resp.get("device_id").and_then(|v| v.as_str()) {
-            write_local_device_id(device_id)?;
             Ok(device_id.to_string())
         } else {
             anyhow::bail!("Server did not return a device_id on registration")
@@ -129,19 +128,34 @@ async fn run_adoption_and_update_loop(
     running_flag: Option<&AtomicBool>
 ) {
     // Determine if we already have a device ID
-    let device_id = match get_local_device_id() {
-        Some(id) => id,
-        None => {
-            let (_, device_type, device_model) = get_device_info_basic();
-            match register_device(client, server_url, &device_type, &device_model).await {
-                Ok(id) => id,
-                Err(e) => {
-                    error!("Device registration failed: {:?}", e);
-                    return;
-                }
+    let mut device_id = get_local_device_id();
+
+    let (_, device_type, device_model) = get_device_info_basic();
+
+    // Adoption loop: keep registering until approved
+    while device_id.is_none() {
+        if let Some(flag) = running_flag {
+            if !flag.load(Ordering::SeqCst) {
+                info!("Stopping adoption loop due to service stop signal.");
+                return;
             }
         }
-    };
+
+        match register_device(client, server_url, &device_type, &device_model).await {
+            Ok(id) => {
+                info!("Registered with temporary device_id {}", id);
+                device_id = Some(id);
+            }
+            Err(e) => {
+                error!("Registration attempt failed: {:?}", e);
+            }
+        }
+
+        sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
+    }
+
+    let device_id = device_id.unwrap();
+    write_local_device_id(&device_id).ok();
 
     // Main update loop
     loop {
@@ -151,7 +165,8 @@ async fn run_adoption_and_update_loop(
                 break;
             }
         }
-        let (_, device_type, device_model) = get_device_info_with_id(&device_id);
+
+        let _ = get_device_info_with_id(&device_id);
 
         // Send update
         send_system_update(client, server_url, &device_id).await;
@@ -160,9 +175,9 @@ async fn run_adoption_and_update_loop(
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "macos"))]
 pub async fn run_unix_service() -> Result<()> {
-    info!("Starting PatchPilot Unix service...");
+    info!("Starting PatchPilot Unix/macOS service...");
 
     let client = Client::new();
     let server_url = read_server_url().await?;
@@ -180,8 +195,7 @@ pub async fn run_service() -> Result<()> {
         service_control_handler::{self, ServiceControlHandlerResult},
         service_dispatcher
     };
-    use std::sync::{Arc, Mutex};
-    use std::thread;
+    use std::sync::Arc;
 
     info!("Starting PatchPilot Windows service...");
 
@@ -205,7 +219,7 @@ pub async fn run_service() -> Result<()> {
         }
     }
 
-    let status_handle = service_control_handler::register("PatchPilot", service_control_handler)?;
+    let _status_handle = service_control_handler::register("PatchPilot", service_control_handler)?;
     my_service_main(running_flag_clone)?;
 
     Ok(())
