@@ -1,15 +1,17 @@
 use anyhow::{Context, Result};
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde_json::json;
-use std::{fs, thread, time::Duration};
+use std::{fs, time::Duration};
 use crate::system_info::{SystemInfo, get_system_info};
 use log::{info, error};
 use local_ip_address::local_ip;
+use tokio::time::sleep;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const ADOPTION_CHECK_INTERVAL: u64 = 30;
 const SYSTEM_UPDATE_INTERVAL: u64 = 600;
 
-fn read_server_url() -> Result<String> {
+async fn read_server_url() -> Result<String> {
     #[cfg(unix)]
     let path = "/opt/patchpilot_client/server_url.txt";
     #[cfg(windows)]
@@ -39,7 +41,7 @@ fn get_ip_address() -> String {
     local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "0.0.0.0".into())
 }
 
-fn check_adoption_status(
+async fn check_adoption_status(
     client: &Client,
     server_url: &str,
     device_id: &str,
@@ -53,17 +55,19 @@ fn check_adoption_status(
             "device_type": device_type,
             "device_model": device_model,
             "ip_address": get_ip_address(),
-            "network_interfaces": "eth0,wlan0", // optional: you can enumerate interfaces if needed
+            "network_interfaces": "eth0,wlan0",
         }))
-        .send();
+        .send()
+        .await;
 
     match resp {
         Ok(resp) if resp.status().is_success() => {
-            let status_json: serde_json::Value = resp.json()?;
+            let status_json: serde_json::Value = resp.json().await?;
             Ok(status_json.get("adopted").and_then(|v| v.as_bool()).unwrap_or(false))
         }
         Ok(resp) => {
-            error!("Unexpected HTTP {} from adoption check: {:?}", resp.status(), resp.text().unwrap_or_default());
+            let text = resp.text().await.unwrap_or_default();
+            error!("Unexpected HTTP {} from adoption check: {:?}", resp.status(), text);
             Ok(false)
         }
         Err(e) => {
@@ -73,7 +77,7 @@ fn check_adoption_status(
     }
 }
 
-fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
+async fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
     let mut sys_info = match get_system_info() {
         Ok(info) => info,
         Err(e) => {
@@ -95,32 +99,32 @@ fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
             "ip_address": get_ip_address(),
         }))
         .send()
+        .await
     {
         error!("Failed to send system update: {:?}", e);
     }
 }
 
-/// Shared adoption + system update loop
-fn run_adoption_and_update_loop(
+/// Shared adoption + system update loop (async)
+async fn run_adoption_and_update_loop(
     client: &Client,
     server_url: &str,
     device_id: &str,
     device_type: &str,
     device_model: &str,
-    running_flag: Option<&std::sync::atomic::AtomicBool>
+    running_flag: Option<&AtomicBool>
 ) {
     let mut adopted = false;
 
-    // Keep sending heartbeats until adoption
     while !adopted {
         if let Some(flag) = running_flag {
-            if !flag.load(std::sync::atomic::Ordering::SeqCst) {
+            if !flag.load(Ordering::SeqCst) {
                 info!("Stopping adoption loop due to service stop signal.");
                 return;
             }
         }
 
-        match check_adoption_status(client, server_url, device_id, device_type, device_model) {
+        match check_adoption_status(client, server_url, device_id, device_type, device_model).await {
             Ok(true) => {
                 info!("Device adopted.");
                 adopted = true;
@@ -133,46 +137,39 @@ fn run_adoption_and_update_loop(
             }
         }
 
-        thread::sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL));
+        sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
     }
 
-    // Once adopted, start sending full system updates
     loop {
         if let Some(flag) = running_flag {
-            if !flag.load(std::sync::atomic::Ordering::SeqCst) {
+            if !flag.load(Ordering::SeqCst) {
                 info!("Stopping system update loop due to service stop signal.");
                 break;
             }
         }
 
-        send_system_update(client, server_url, device_id);
-        thread::sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL));
+        send_system_update(client, server_url, device_id).await;
+        sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL)).await;
     }
 }
 
 // --- Unix service ---
 #[cfg(unix)]
-mod unix_service {
-    use super::*;
+pub async fn run_unix_service() -> Result<()> {
+    info!("Starting PatchPilot Unix service...");
 
-    pub fn run_unix_service() -> Result<()> {
-        info!("Starting PatchPilot Unix service...");
+    let client = Client::new();
+    let server_url = read_server_url().await?;
+    let (device_id, device_type, device_model) = get_device_info();
 
-        let client = Client::new();
-        let server_url = read_server_url()?;
-        let (device_id, device_type, device_model) = get_device_info();
+    run_adoption_and_update_loop(&client, &server_url, &device_id, &device_type, &device_model, None).await;
 
-        run_adoption_and_update_loop(&client, &server_url, &device_id, &device_type, &device_model, None);
-
-        Ok(())
-    }
+    Ok(())
 }
 
 // --- Windows service ---
 #[cfg(windows)]
-mod windows_service {
-    use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
+pub async fn run_service() -> Result<()> {
     use windows_service::{
         define_windows_service, service_dispatcher,
         service_control_handler::{ServiceControl, ServiceControlHandlerResult},
@@ -183,19 +180,10 @@ mod windows_service {
 
     static SERVICE_RUNNING: AtomicBool = AtomicBool::new(true);
 
-    pub fn run_service() -> Result<()> {
-        info!("Starting PatchPilot Windows service...");
-        service_dispatcher::start("PatchPilotService", ffi_service_main)?;
-        Ok(())
-    }
+    info!("Starting PatchPilot Windows service...");
+    service_dispatcher::start("PatchPilotService", ffi_service_main)?;
 
-    fn service_entry(_argc: u32, _argv: *mut *mut u16) {
-        if let Err(e) = run() {
-            error!("Service error: {:?}", e);
-        }
-    }
-
-    fn run() -> Result<()> {
+    async fn run() -> Result<()> {
         let status_handle = windows_service::service_control_handler::register(
             "PatchPilotService",
             move |control_event| match control_event {
@@ -220,7 +208,7 @@ mod windows_service {
         status_handle.set_service_status(status)?;
 
         let client = Client::new();
-        let server_url = read_server_url()?;
+        let server_url = read_server_url().await?;
         let (device_id, device_type, device_model) = get_device_info();
 
         run_adoption_and_update_loop(
@@ -230,16 +218,20 @@ mod windows_service {
             &device_type,
             &device_model,
             Some(&SERVICE_RUNNING),
-        );
+        ).await;
 
         info!("Service stopped.");
         status.current_state = ServiceState::Stopped;
         status_handle.set_service_status(status)?;
         Ok(())
     }
+
+    tokio::spawn(run()).await??;
+
+    Ok(())
 }
 
 #[cfg(unix)]
-pub use unix_service::run_unix_service;
+pub use run_unix_service;
 #[cfg(windows)]
-pub use windows_service::run_service;
+pub use run_service;

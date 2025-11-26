@@ -46,7 +46,8 @@ fn log_initial_system_info() {
     log::info!("Serial Number: {:?}", info.serial_number);
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     setup_logger()?;
     log::info!("Starting PatchPilot client...");
 
@@ -55,10 +56,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Start service loop (OS-specific)
     #[cfg(unix)]
-    service::run_unix_service()?;
+    service::run_unix_service().await?;
 
     #[cfg(windows)]
-    service::run_service()?;
+    service::run_service().await?;
 
     Ok(())
 }
