@@ -124,7 +124,7 @@ async fn register_or_update_device(
     .unwrap_or_else(|e| Err(format!("Task join error: {}", e)))
 }
 
-#[post("/devices/heartbeat", format = "json", data = "<payload>")]
+#[post("/devices/heartbeat", format="json", data="<payload>")]
 async fn heartbeat(
     state: &State<AppState>,
     pool: &State<DbPool>,
@@ -133,16 +133,16 @@ async fn heartbeat(
     use crate::schema::devices::dsl::*;
 
     let pool = pool.inner().clone();
-    let pending_devices = state.pending_devices.read().unwrap().clone();
-
     let device_id = payload.get("device_id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-    let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-    let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-    let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
     rocket::tokio::task::spawn_blocking(move || {
         if let Ok(mut conn) = pool.get() {
+
+            // Check if device is approved
             let is_approved = devices
                 .filter(device_name.eq(&device_id))
                 .select(approved)
@@ -150,25 +150,29 @@ async fn heartbeat(
                 .unwrap_or(false);
 
             if is_approved {
+                // Update last check-in
                 let _ = diesel::update(devices.filter(device_name.eq(&device_id)))
                     .set((
                         last_checkin.eq(Utc::now().naive_utc()),
-                        network_interfaces.eq(Some(network_interfaces_val)),
                         ip_address.eq(Some(ip_address_val)),
+                        network_interfaces.eq(Some(network_interfaces_val)),
                     ))
                     .execute(&mut conn);
             } else {
-                let mut pending = pending_devices;
-                let info = DeviceInfo {
-                    system_info: SystemInfo {
-                        network_interfaces: Some(network_interfaces_val),
-                        ip_address: Some(ip_address_val),
-                        ..Default::default()
+                // FIX: write into real pending_devices, not a clone
+                let mut pending = state.pending_devices.write().unwrap();
+                pending.insert(
+                    device_id.clone(),
+                    DeviceInfo {
+                        system_info: SystemInfo {
+                            ip_address: Some(ip_address_val),
+                            network_interfaces: Some(network_interfaces_val),
+                            ..Default::default()
+                        },
+                        device_type: Some(device_type_val),
+                        device_model: Some(device_model_val),
                     },
-                    device_type: Some(device_type_val),
-                    device_model: Some(device_model_val),
-                };
-                pending.insert(device_id.clone(), info);
+                );
             }
         }
     })
@@ -252,11 +256,6 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
         "used_memory_bytes": sys.used_memory(),
         "memory_usage_percent": if sys.total_memory() > 0 {
             (sys.used_memory() as f32 / sys.total_memory() as f32) * 100.0
-        } else { 0.0 },
-        "total_swap_bytes": sys.total_swap(),
-        "used_swap_bytes": sys.used_swap(),
-        "swap_usage_percent": if sys.total_swap() > 0 {
-            (sys.used_swap() as f32 / sys.total_swap() as f32) * 100.0
         } else { 0.0 },
     }))
 }

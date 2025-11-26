@@ -87,7 +87,7 @@ fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
     info!("Sending system update for device {}...", device_id);
 
     if let Err(e) = client
-        .post(format!("{}/api/devices/update_status", server_url))
+        .post(format!("{}/api/devices/{}", server_url, device_id))
         .json(&json!({
             "device_id": device_id,
             "status": "active",
