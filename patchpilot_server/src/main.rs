@@ -163,6 +163,7 @@ async fn heartbeat(
             } else {
                 let mut pending = pending_ref.write().unwrap();
 
+                // Store pending device info for adoption
                 pending.insert(
                     device_id.clone(),
                     DeviceInfo {
@@ -181,6 +182,7 @@ async fn heartbeat(
     .await
     .ok();
 
+    // Always return adopted = false for pending devices
     Json(serde_json::json!({ "adopted": false }))
 }
 
