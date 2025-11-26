@@ -233,6 +233,21 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     }))
 }
 
+#[get("/devices")]
+async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> {
+    use crate::schema::devices::dsl::*;
+
+    let pool = pool.inner().clone();
+
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|e| e.to_string())?;
+        let results = devices.load::<Device>(&mut conn).map_err(|e| e.to_string())?;
+        Ok(Json(results.into_iter().map(|d| d.enrich_for_dashboard()).collect()))
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("Task error: {}", e)))
+}
+
 #[get("/")]
 async fn dashboard() -> Option<NamedFile> {
     NamedFile::open("/opt/patchpilot_server/templates/dashboard.html")
@@ -313,7 +328,6 @@ fn rocket() -> _ {
                 get_devices,
                 status,
                 heartbeat,
-                adopt_device,
             ],
         )
         .mount("/", routes![dashboard, favicon])
