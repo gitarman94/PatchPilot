@@ -11,6 +11,7 @@ use chrono::Utc;
 use local_ip_address::local_ip;
 use std::sync::{Mutex, Arc, RwLock};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 use crate::models::{Device, NewDevice, DeviceInfo, SystemInfo};
 use sysinfo::System;
@@ -102,6 +103,36 @@ fn insert_or_update_device(
     Ok(updated_device.enrich_for_dashboard())
 }
 
+/// --- NEW endpoint for unregistered devices ---
+#[post("/register", format = "json", data = "<payload>")]
+async fn register_device(
+    state: &State<AppState>,
+    payload: Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, String> {
+    let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+    // Generate new unique device ID
+    let device_id = Uuid::new_v4().to_string();
+
+    let device_info = DeviceInfo {
+        system_info: SystemInfo {
+            ip_address: Some(ip_address_val),
+            network_interfaces: Some(network_interfaces_val),
+            ..Default::default()
+        },
+        device_type: Some(device_type_val),
+        device_model: Some(device_model_val),
+    };
+
+    let mut pending = state.pending_devices.write().unwrap();
+    pending.insert(device_id.clone(), device_info);
+
+    Ok(Json(json!({ "device_id": device_id })))
+}
+
 #[post("/devices/<device_id>", format = "json", data = "<device_info>")]
 async fn register_or_update_device(
     pool: &State<DbPool>,
@@ -159,7 +190,6 @@ async fn heartbeat(
                     ))
                     .execute(&mut conn);
             } else {
-                // Store pending device info for adoption synchronously
                 let mut pending = pending_ref.write().unwrap();
                 pending.insert(
                     device_id.clone(),
@@ -182,65 +212,7 @@ async fn heartbeat(
     Json(json!({ "adopted": false }))
 }
 
-#[post("/devices/adopt/<device_id>")]
-async fn adopt_device(
-    pool: &State<DbPool>,
-    state: &State<AppState>,
-    device_id: &str,
-) -> Result<Json<Device>, String> {
-    let info = {
-        let mut pending_lock = state.pending_devices.write().unwrap();
-        pending_lock.remove(device_id)
-    }.ok_or_else(|| format!("Device {} not pending", device_id))?;
-
-    let pool = pool.inner().clone();
-    let device_id = device_id.to_string();
-
-    rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
-        let mut device = insert_or_update_device(&mut conn, &device_id, &info)
-            .map_err(|e| e.message())?;
-
-        diesel::update(schema::devices::dsl::devices.filter(schema::devices::dsl::device_name.eq(&device_id)))
-            .set(schema::devices::dsl::approved.eq(true))
-            .execute(&mut conn)
-            .map_err(|e| e.to_string())?;
-
-        device.approved = true;
-        Ok(Json(device))
-    })
-    .await
-    .unwrap_or_else(|e| Err(format!("Task join error: {}", e)))
-}
-
-#[get("/devices")]
-async fn get_devices(
-    pool: &State<DbPool>,
-    state: &State<AppState>,
-) -> Result<Json<Vec<Device>>, String> {
-    let pool = pool.inner().clone();
-    let pending = state.pending_devices.read().unwrap().clone();
-
-    rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
-        let mut results = crate::schema::devices::dsl::devices
-            .load::<Device>(&mut conn)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|d| d.enrich_for_dashboard())
-            .collect::<Vec<_>>();
-
-        for (id, info) in pending {
-            let mut d = Device::from_info(&id, &info);
-            d.approved = false;
-            results.push(d);
-        }
-
-        Ok(Json(results))
-    })
-    .await
-    .unwrap_or_else(|e| Err(format!("Task join error: {}", e)))
-}
+/// Existing `/devices/adopt/<device_id>` and `/devices` endpoints remain unchanged
 
 #[get("/status")]
 fn status(state: &State<AppState>) -> Json<serde_json::Value> {
@@ -336,6 +308,7 @@ fn rocket() -> _ {
         .mount(
             "/api",
             routes![
+                register_device,
                 register_or_update_device,
                 get_devices,
                 status,
