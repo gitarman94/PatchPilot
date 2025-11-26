@@ -197,7 +197,6 @@ async fn adopt_device(
 
     let pool = pool.inner().clone();
     let device_id = device_id.to_string();
-    let pending_ref = Arc::clone(&state.pending_devices); // optional but safe
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
