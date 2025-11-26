@@ -41,7 +41,7 @@ fn log_initial_system_info() {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logger()?;
     log::info!("Starting PatchPilot client...");
 
