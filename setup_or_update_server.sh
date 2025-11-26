@@ -65,7 +65,7 @@ rm -rf /opt/patchpilot_install
 # Install required packages
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config libsqlite3-dev
+apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev
 
 # Rust environment
 export CARGO_HOME="${APP_DIR}/.cargo"
@@ -116,8 +116,6 @@ if [[ ! -f "$TOKEN_FILE" ]]; then
 else
     ADMIN_TOKEN=$(cat "$TOKEN_FILE")
 fi
-printf "ADMIN_TOKEN=%s\n" "$ADMIN_TOKEN" > "${APP_DIR}/admin_token.env"
-chmod 600 "${APP_DIR}/admin_token.env"
 
 # Ensure patchpilot user exists
 if ! id -u patchpilot >/dev/null 2>&1; then
