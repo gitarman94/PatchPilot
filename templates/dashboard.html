@@ -211,11 +211,18 @@ $(document).ready(function () {
     $('body').on('click', '.approve-btn', async function () {
         const row = table.row($(this).closest('tr')).data();
         try {
-            const resp = await fetch(`/api/devices/adopt/${row.device_name}`, {
-                method: 'POST'
+            const resp = await fetch(`/api/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    device_type: row.device_type || '',
+                    device_model: row.device_model || '',
+                    ip_address: row.ip_address || '',
+                    network_interfaces: row.network_interfaces || ''
+                })
             });
-            const json = await resp.json();
-            showToast('Device approved.', 'success');
+            const data = await resp.json();
+            showToast(`Device approved. Assigned ID: ${data.device_id}`, 'success');
             loadDevices();
         } catch {
             showToast('Error approving device.', 'danger');
