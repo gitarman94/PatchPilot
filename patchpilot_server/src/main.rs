@@ -135,20 +135,17 @@ async fn heartbeat(
 
     let pool_clone = pool.inner().clone();
 
-    // Extract needed fields
     let device_id = payload.get("device_id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
     let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-    // FIX: clone only the Arc<RwLock<_>>, not the State
-    let pending_ref = state.pending_devices.clone();
+    let pending_ref = Arc::clone(&state.pending_devices);
 
     rocket::tokio::task::spawn_blocking(move || {
         if let Ok(mut conn) = pool_clone.get() {
 
-            // Check if device is already approved
             let is_approved = devices
                 .filter(device_name.eq(&device_id))
                 .select(approved)
@@ -156,7 +153,6 @@ async fn heartbeat(
                 .unwrap_or(false);
 
             if is_approved {
-                // Update last check-in only
                 let _ = diesel::update(devices.filter(device_name.eq(&device_id)))
                     .set((
                         last_checkin.eq(Utc::now().naive_utc()),
@@ -165,7 +161,6 @@ async fn heartbeat(
                     ))
                     .execute(&mut conn);
             } else {
-                // ✔ FIX: safely write into shared pending list
                 let mut pending = pending_ref.write().unwrap();
 
                 pending.insert(
@@ -202,6 +197,8 @@ async fn adopt_device(
 
     let pool = pool.inner().clone();
     let device_id = device_id.to_string();
+    let pending_ref = Arc::clone(&state.pending_devices); // optional but safe
+
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
         let mut device = insert_or_update_device(&mut conn, &device_id, &info)
@@ -337,7 +334,7 @@ fn rocket() -> _ {
         .manage(pool)
         .manage(AppState {
             system: Mutex::new(System::new_all()),
-            pending_devices: RwLock::new(HashMap::new()),
+            pending_devices: Arc::new(RwLock::new(HashMap::new())),
         })
         .mount(
             "/api",
