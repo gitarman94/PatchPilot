@@ -107,19 +107,21 @@ async fn register_or_update_device(
     pool: &State<DbPool>,
     device_id: &str,
     device_info: Json<DeviceInfo>,
-) -> Result<Json<Device>, ApiError> {
-    validate_device_info(&device_info)?;
+) -> Result<Json<Device>, String> {
+    validate_device_info(&device_info).map_err(|e| e.message())?;
 
     let pool = pool.inner().clone();
     let device_info = device_info.into_inner();
     let device_id = device_id.to_string();
 
     rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = establish_connection(&pool)?;
-        insert_or_update_device(&mut conn, &device_id, &device_info).map(Json)
+        let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
+        insert_or_update_device(&mut conn, &device_id, &device_info)
+            .map(Json)
+            .map_err(|e| e.message())
     })
     .await
-    .map_err(|e| ApiError::ValidationError(format!("Task join error: {}", e)))?
+    .unwrap_or_else(|e| Err(format!("Task join error: {}", e)))
 }
 
 #[post("/devices/heartbeat", format = "json", data = "<payload>")]
@@ -181,41 +183,44 @@ async fn adopt_device(
     pool: &State<DbPool>,
     state: &State<AppState>,
     device_id: &str,
-) -> Result<Json<Device>, ApiError> {
+) -> Result<Json<Device>, String> {
     let info = {
         let mut pending = state.pending_devices.write().unwrap();
         pending.remove(device_id)
-    }.ok_or_else(|| ApiError::ValidationError(format!("Device {} not pending", device_id)))?;
+    }.ok_or_else(|| format!("Device {} not pending", device_id))?;
 
     let pool = pool.inner().clone();
     let device_id = device_id.to_string();
     rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = establish_connection(&pool)?;
-        let mut device = insert_or_update_device(&mut conn, &device_id, &info)?;
+        let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
+        let mut device = insert_or_update_device(&mut conn, &device_id, &info)
+            .map_err(|e| e.message())?;
+
         diesel::update(schema::devices::dsl::devices.filter(schema::devices::dsl::device_name.eq(&device_id)))
             .set(schema::devices::dsl::approved.eq(true))
             .execute(&mut conn)
-            .map_err(ApiError::from)?;
+            .map_err(|e| e.to_string())?;
+
         device.approved = true;
         Ok(Json(device))
     })
     .await
-    .map_err(|e| ApiError::ValidationError(format!("Task join error: {}", e)))?
+    .unwrap_or_else(|e| Err(format!("Task join error: {}", e)))
 }
 
 #[get("/devices")]
 async fn get_devices(
     pool: &State<DbPool>,
     state: &State<AppState>,
-) -> Result<Json<Vec<Device>>, ApiError> {
+) -> Result<Json<Vec<Device>>, String> {
     let pool = pool.inner().clone();
     let pending = state.pending_devices.read().unwrap().clone();
 
     rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = establish_connection(&pool)?;
+        let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
         let mut results = crate::schema::devices::dsl::devices
             .load::<Device>(&mut conn)
-            .map_err(ApiError::from)?
+            .map_err(|e| e.to_string())?
             .into_iter()
             .map(|d| d.enrich_for_dashboard())
             .collect::<Vec<_>>();
@@ -229,7 +234,7 @@ async fn get_devices(
         Ok(Json(results))
     })
     .await
-    .map_err(|e| ApiError::ValidationError(format!("Task join error: {}", e)))?
+    .unwrap_or_else(|e| Err(format!("Task join error: {}", e)))
 }
 
 #[get("/status")]
