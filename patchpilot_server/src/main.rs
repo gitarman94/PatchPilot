@@ -212,7 +212,30 @@ async fn heartbeat(
     Json(json!({ "adopted": false }))
 }
 
-/// Existing `/devices/adopt/<device_id>` and `/devices` endpoints remain unchanged
+#[get("/device/<device_id>")]
+async fn get_device_details(
+    pool: &State<DbPool>,
+    device_id: String,
+) -> Result<Json<Device>, String> {
+    use crate::schema::devices::dsl::*;
+
+    // Fetch device details from DB
+    let pool = pool.inner().clone();
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+        // Query the database for the device by device_name (device_id)
+        let device = devices
+            .filter(device_name.eq(&device_id))
+            .first::<Device>(&mut conn)
+            .map_err(|e| e.to_string())?;
+
+        // Enrich device data for the dashboard
+        Ok(Json(device.enrich_for_dashboard()))
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("Task error: {}", e)))
+}
 
 #[get("/status")]
 fn status(state: &State<AppState>) -> Json<serde_json::Value> {
@@ -326,6 +349,7 @@ fn rocket() -> _ {
                 register_device,
                 register_or_update_device,
                 get_devices,
+                get_device_details,  // Mounting the new endpoint
                 status,
                 heartbeat,
             ],
@@ -333,3 +357,4 @@ fn rocket() -> _ {
         .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
+
