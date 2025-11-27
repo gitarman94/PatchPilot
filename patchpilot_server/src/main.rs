@@ -8,7 +8,7 @@ use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use log::info;
 use serde_json::json;
 use chrono::Utc;
-use local_ip::get;
+use local_ip::local_ip;
 use std::sync::{Mutex, Arc, RwLock};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -25,7 +25,7 @@ type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
 pub struct AppState {
     pub system: Mutex<System>,
-    pub pending_devices: Arc<RwLock<HashMap<String, DeviceInfo>>>,
+    pub pending_devices: Arc<RwLock<HashMap<String, DeviceInfo>>>, // pending only
 }
 
 fn init_logger() {
@@ -78,6 +78,7 @@ fn validate_device_info(info: &DeviceInfo) -> Result<(), ApiError> {
     Ok(())
 }
 
+// DB upsert for approved devices only
 fn insert_or_update_device(
     conn: &mut SqliteConnection,
     device_id: &str,
@@ -95,26 +96,26 @@ fn insert_or_update_device(
         .execute(conn)
         .map_err(ApiError::from)?;
 
-    let updated_device = devices
+    let updated = devices
         .filter(device_name.eq(device_id))
         .first::<Device>(conn)
         .map_err(ApiError::from)?;
 
-    Ok(updated_device.enrich_for_dashboard())
+    Ok(updated.enrich_for_dashboard())
 }
 
-/// --- NEW endpoint for unregistered devices ---
+// Register a NEW device → goes to pending only
 #[post("/register", format = "json", data = "<payload>")]
 async fn register_device(
     state: &State<AppState>,
     payload: Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, String> {
+
     let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-    // Generate new unique device ID
     let device_id = Uuid::new_v4().to_string();
 
     let device_info = DeviceInfo {
@@ -133,28 +134,43 @@ async fn register_device(
     Ok(Json(json!({ "device_id": device_id })))
 }
 
+// CLIENT attempts DB update → only allowed if already approved
 #[post("/devices/<device_id>", format = "json", data = "<device_info>")]
 async fn register_or_update_device(
     pool: &State<DbPool>,
     device_id: &str,
     device_info: Json<DeviceInfo>,
 ) -> Result<Json<Device>, String> {
+
     validate_device_info(&device_info).map_err(|e| e.message())?;
 
     let pool = pool.inner().clone();
-    let device_info = device_info.into_inner();
     let device_id = device_id.to_string();
+    let device_info = device_info.into_inner();
 
     rocket::tokio::task::spawn_blocking(move || {
+        use crate::schema::devices::dsl::*;
         let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
+
+        let approved_state = devices
+            .filter(device_name.eq(&device_id))
+            .select(approved)
+            .first::<bool>(&mut conn)
+            .unwrap_or(false);
+
+        if !approved_state {
+            return Err(format!("Device {} not adopted (approved) yet", device_id));
+        }
+
         insert_or_update_device(&mut conn, &device_id, &device_info)
             .map(Json)
             .map_err(|e| e.message())
     })
     .await
-    .unwrap_or_else(|e| Err(format!("Task join error: {}", e)))
+    .unwrap_or_else(|e| Err(format!("Join error: {}", e)))
 }
 
+// Heartbeat → approved devices update DB; unapproved stay in pending only
 #[post("/devices/heartbeat", format="json", data="<payload>")]
 async fn heartbeat(
     state: &State<AppState>,
@@ -165,53 +181,60 @@ async fn heartbeat(
     use crate::schema::devices::dsl::*;
 
     let pool_clone = pool.inner().clone();
+
     let device_id = payload.get("device_id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
     let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let ip_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let ifaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
     let pending_ref = Arc::clone(&state.pending_devices);
 
-    rocket::tokio::task::spawn_blocking(move || {
+    let adopted = rocket::tokio::task::spawn_blocking(move || {
         if let Ok(mut conn) = pool_clone.get() {
 
-            let is_approved = devices
+            let approved_state = devices
                 .filter(device_name.eq(&device_id))
                 .select(approved)
                 .first::<bool>(&mut conn)
                 .unwrap_or(false);
 
-            if is_approved {
+            if approved_state {
                 let _ = diesel::update(devices.filter(device_name.eq(&device_id)))
                     .set((
                         last_checkin.eq(Utc::now().naive_utc()),
-                        ip_address.eq(Some(ip_address_val)),
-                        network_interfaces.eq(Some(network_interfaces_val)),
+                        ip_address.eq(Some(ip_val)),
+                        network_interfaces.eq(Some(ifaces_val)),
                     ))
                     .execute(&mut conn);
-            } else {
-                let mut pending = pending_ref.write().unwrap();
-                pending.insert(
-                    device_id.clone(),
-                    DeviceInfo {
-                        system_info: SystemInfo {
-                            ip_address: Some(ip_address_val),
-                            network_interfaces: Some(network_interfaces_val),
-                            ..Default::default()
-                        },
-                        device_type: Some(device_type_val),
-                        device_model: Some(device_model_val),
-                    },
-                );
+
+                return true;
             }
+
+            let mut pending = pending_ref.write().unwrap();
+            pending.insert(
+                device_id.clone(),
+                DeviceInfo {
+                    system_info: SystemInfo {
+                        ip_address: Some(ip_val),
+                        network_interfaces: Some(ifaces_val),
+                        ..Default::default()
+                    },
+                    device_type: Some(device_type_val),
+                    device_model: Some(device_model_val),
+                },
+            );
+            return false;
         }
+        false
     })
     .await
-    .ok();
+    .unwrap_or(false);
 
-    Json(json!({ "adopted": false }))
+    Json(json!({ "adopted": adopted }))
 }
 
+// Get one device (approved only)
 #[get("/device/<device_id>")]
 async fn get_device_details(
     pool: &State<DbPool>,
@@ -219,22 +242,20 @@ async fn get_device_details(
 ) -> Result<Json<Device>, String> {
     use crate::schema::devices::dsl::*;
 
-    // Fetch device details from DB
     let pool = pool.inner().clone();
+
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|e| e.to_string())?;
 
-        // Query the database for the device by device_name (device_id)
         let device = devices
             .filter(device_name.eq(&device_id))
             .first::<Device>(&mut conn)
             .map_err(|e| e.to_string())?;
 
-        // Enrich device data for the dashboard
         Ok(Json(device.enrich_for_dashboard()))
     })
     .await
-    .unwrap_or_else(|e| Err(format!("Task error: {}", e)))
+    .unwrap_or_else(|e| Err(format!("Join error: {}", e)))
 }
 
 #[get("/status")]
@@ -242,7 +263,7 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     let mut sys = state.system.lock().unwrap();
     sys.refresh_all();
 
-    Json(json!( {
+    Json(json!({
         "status": "ok",
         "server_time": Utc::now().to_rfc3339(),
         "uptime_seconds": sys.uptime(),
@@ -256,7 +277,7 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     }))
 }
 
-
+// Return all approved devices
 #[get("/devices")]
 async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> {
     use crate::schema::devices::dsl::*;
@@ -269,7 +290,59 @@ async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> 
         Ok(Json(results.into_iter().map(|d| d.enrich_for_dashboard()).collect()))
     })
     .await
-    .unwrap_or_else(|e| Err(format!("Task error: {}", e)))
+    .unwrap_or_else(|e| Err(format!("Join error: {}", e)))
+}
+
+// Return pending (in-memory only)
+#[get("/pending")]
+async fn get_pending(state: &State<AppState>) -> Json<serde_json::Value> {
+    let pending = state.pending_devices.read().unwrap();
+    let list: Vec<_> = pending.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    Json(json!(list))
+}
+
+// Approve → pending → DB as approved
+#[post("/devices/<device_id>/approve")]
+async fn approve_device(
+    state: &State<AppState>,
+    pool: &State<DbPool>,
+    device_id: String,
+) -> Result<Json<Device>, String> {
+
+    use crate::schema::devices::dsl::*;
+
+    let pool = pool.inner().clone();
+    let pending_ref = Arc::clone(&state.pending_devices);
+    let dev_id = device_id.clone();
+
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut pending = pending_ref.write().map_err(|e| format!("Lock error: {}", e))?;
+        let info = pending
+            .remove(&dev_id)
+            .ok_or_else(|| format!("No pending device {}", dev_id))?;
+
+        let mut conn = pool.get().map_err(|e| format!("DB pool error: {}", e))?;
+
+        let mut new_dev = NewDevice::from_device_info(&dev_id, &info);
+        new_dev.approved = true;
+
+        diesel::insert_into(devices)
+            .values(&new_dev)
+            .on_conflict(device_name)
+            .do_update()
+            .set(&new_dev)
+            .execute(&mut conn)
+            .map_err(|e| format!("DB insert error: {}", e))?;
+
+        let inserted = devices
+            .filter(device_name.eq(&dev_id))
+            .first::<Device>(&mut conn)
+            .map_err(|e| format!("DB fetch error: {}", e))?;
+
+        Ok(Json(inserted.enrich_for_dashboard()))
+    })
+    .await
+    .map_err(|e| format!("Join error: {}", e))?
 }
 
 #[get("/")]
@@ -316,10 +389,9 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
     Ok(())
 }
 
+// Helper – determine server local IP
 fn get_server_ip() -> String {
-    local_ip()
-        .map(|ip| ip.to_string())
-        .unwrap_or_else(|_| "127.0.0.1".into())
+    local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "127.0.0.1".into())
 }
 
 #[launch]
@@ -352,12 +424,13 @@ fn rocket() -> _ {
                 register_device,
                 register_or_update_device,
                 get_devices,
-                get_device_details,  // Mounting the new endpoint
+                get_device_details,
                 status,
                 heartbeat,
+                get_pending,
+                approve_device,
             ],
         )
         .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
-
