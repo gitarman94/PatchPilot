@@ -8,7 +8,7 @@ use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use log::info;
 use serde_json::json;
 use chrono::Utc;
-use local_ip_address::local_ip;
+use local_ip::get;
 use std::sync::{Mutex, Arc, RwLock};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -242,10 +242,10 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     let mut sys = state.system.lock().unwrap();
     sys.refresh_all();
 
-    Json(json!({
-        "server_time": Utc::now().to_rfc3339(),
+    Json(json!( {
         "status": "ok",
-        "uptime_seconds": sysinfo::System::uptime(),
+        "server_time": Utc::now().to_rfc3339(),
+        "uptime_seconds": sys.uptime(),
         "cpu_count": sys.cpus().len(),
         "cpu_usage_per_core_percent": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
         "total_memory_bytes": sys.total_memory(),
@@ -255,6 +255,7 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
         } else { 0.0 },
     }))
 }
+
 
 #[get("/devices")]
 async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> {
@@ -316,7 +317,9 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
 }
 
 fn get_server_ip() -> String {
-    local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "127.0.0.1".into())
+    local_ip()
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|_| "127.0.0.1".into())
 }
 
 #[launch]
