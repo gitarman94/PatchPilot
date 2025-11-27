@@ -8,7 +8,7 @@ use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use log::info;
 use serde_json::json;
 use chrono::Utc;
-use local_ip::local_ip;
+use local_ip_address::local_ip;
 use std::sync::{Mutex, Arc, RwLock};
 use std::collections::HashMap;
 use uuid::Uuid;
