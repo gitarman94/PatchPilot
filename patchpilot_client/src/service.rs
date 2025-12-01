@@ -1,11 +1,14 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::json;
-use std::{fs, time::Duration};
+use std::{fs, time::Duration, path::PathBuf};
 use crate::system_info::{SystemInfo, get_system_info};
 use local_ip_address::local_ip;
 use tokio::time::sleep;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+use flexi_logger::{Logger, FileSpec, Criterion, Naming, Cleanup, Duplicate};
+use log;
 
 const ADOPTION_CHECK_INTERVAL: u64 = 10;
 const SYSTEM_UPDATE_INTERVAL: u64 = 600;
@@ -19,6 +22,29 @@ const DEVICE_ID_FILE: &str = "C:\\ProgramData\\PatchPilot\\device_id.txt";
 const SERVER_URL_FILE: &str = "/opt/patchpilot_client/server_url.txt";
 #[cfg(windows)]
 const SERVER_URL_FILE: &str = "C:\\ProgramData\\PatchPilot\\server_url.txt";
+
+pub fn init_logging() -> Result<()> {
+    let mut base = PathBuf::from("/opt/patchpilot_client/logs");
+
+    #[cfg(windows)]
+    {
+        base = PathBuf::from("C:\\ProgramData\\PatchPilot\\logs");
+    }
+
+    fs::create_dir_all(&base)?;
+
+    Logger::try_with_str("info")?
+        .log_to_file(FileSpec::default().directory(base))
+        .rotate(
+            Criterion::Age(flexi_logger::Age::Day),
+            Naming::Numbers,
+            Cleanup::KeepLogFiles(7),
+        )
+        .duplicate_to_stdout(Duplicate::All)
+        .start()?;
+
+    Ok(())
+}
 
 async fn read_server_url() -> Result<String> {
     let url = fs::read_to_string(SERVER_URL_FILE)
@@ -92,7 +118,7 @@ async fn send_system_update(client: &Client, server_url: &str, device_id: &str) 
 
     sys_info.refresh();
 
-    if let Err(e) = client
+    let _ = client
         .post(format!("{}/api/devices/{}", server_url, device_id))
         .json(&json!({
             "device_id": device_id,
@@ -101,10 +127,7 @@ async fn send_system_update(client: &Client, server_url: &str, device_id: &str) 
             "ip_address": get_ip_address(),
         }))
         .send()
-        .await
-    {
-        log::error!("Failed to send system update: {:?}", e);
-    }
+        .await;
 }
 
 async fn send_heartbeat(
@@ -140,17 +163,12 @@ async fn run_adoption_and_update_loop(
     server_url: &str,
     running_flag: Option<&AtomicBool>
 ) -> Result<()> {
-
     let mut device_id = get_local_device_id();
     let (_, device_type, device_model) = get_device_info_basic();
 
     if device_id.is_none() {
-        log::info!("Waiting for server adoption...");
-
         loop {
             if send_heartbeat(client, server_url, "", &device_type, &device_model).await {
-                log::info!("Server assigned device_id");
-
                 let resp = client
                     .get(format!("{}/api/devices/assign", server_url))
                     .send()
@@ -169,11 +187,9 @@ async fn run_adoption_and_update_loop(
     }
 
     let device_id = device_id.unwrap();
-    log::info!("Starting heartbeat loop for device {}", device_id);
 
     loop {
         if send_heartbeat(client, server_url, &device_id, &device_type, &device_model).await {
-            log::info!("Device {} approved", device_id);
             break;
         }
         sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
@@ -182,7 +198,6 @@ async fn run_adoption_and_update_loop(
     loop {
         if let Some(flag) = running_flag {
             if !flag.load(Ordering::SeqCst) {
-                log::info!("Stopping update loop");
                 return Ok(());
             }
         }
@@ -194,8 +209,6 @@ async fn run_adoption_and_update_loop(
 
 #[cfg(any(unix, target_os = "macos"))]
 pub async fn run_unix_service() -> Result<()> {
-    log::info!("Starting PatchPilot Unix/macOS service...");
-
     let client = Client::new();
     let server_url = read_server_url().await?;
     run_adoption_and_update_loop(&client, &server_url, None).await
@@ -208,8 +221,6 @@ pub async fn run_service() -> Result<()> {
         service_control_handler,
     };
     use std::sync::Arc;
-
-    log::info!("Starting PatchPilot Windows service...");
 
     let running_flag = Arc::new(AtomicBool::new(true));
     let running_flag_clone = running_flag.clone();
