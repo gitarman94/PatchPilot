@@ -1,26 +1,15 @@
 mod system_info;
 mod service;
 
-use system_info::SystemInfo;
-use flexi_logger::{Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming};
 use std::error::Error;
-
-fn setup_logger() -> Result<(), Box<dyn Error>> {
-    Logger::try_with_str("info")?
-        .log_to_file(FileSpec::default().directory("logs"))
-        .rotate(
-            Criterion::Age(flexi_logger::Age::Day),
-            Naming::Numbers,
-            Cleanup::KeepLogFiles(7),
-        )
-        .duplicate_to_stdout(Duplicate::All)
-        .start()?;
-    Ok(())
-}
+use crate::service::init_logging;
 
 fn log_initial_system_info() {
+    use system_info::SystemInfo;
+
     let mut info = SystemInfo::new();
     info.refresh();
+
     let (disk_total, disk_free) = info.disk_usage();
     let net = info.network_throughput();
 
@@ -41,11 +30,11 @@ fn log_initial_system_info() {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    setup_logger()?;
+async fn main() -> Result<(), Box<dyn Error>> {
+    init_logging()?;                    // <── REQUIRED
     log::info!("Starting PatchPilot client...");
 
-    log_initial_system_info();
+    log_initial_system_info();          // <── System snapshot
 
     #[cfg(unix)]
     service::run_unix_service().await?;
