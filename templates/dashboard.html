@@ -17,7 +17,7 @@
 
   <style>
     /* ------------------ COLOR VARIABLES (light + dark) ------------------ */
-    :root{
+    :root {
       --bg:#f6f8fb;
       --card:#ffffff;
       --accent:#0d6efd;
@@ -43,34 +43,49 @@
     }
 
     /* ------------------ Base styles ------------------ */
-    body{
-      background:var(--bg);
-      color:var(--text);
-      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;
-      -webkit-font-smoothing:antialiased;
-      -moz-osx-font-smoothing:grayscale;
-    }
-    header .brand {font-weight:600; letter-spacing:0.2px;}
-    .summary-card {border-left:4px solid transparent; background:var(--card); box-shadow:0 1px 2px rgba(16,24,40,.04); color:var(--text);}
-    .summary-card .value {font-size:1.45rem; font-weight:600;}
-    .badge-pending {background:linear-gradient(90deg,#fff3cd,#fff8e1); color:#6b4b00; border:1px solid rgba(0,0,0,.04);}
-    .status-dot {display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:.5rem;}
-    .status-online {background:var(--success);}
-    .status-offline {background:var(--muted);}
-    .status-pending {background:var(--warn);}
-    .table-actions .btn {margin-right:6px;}
-    .device-type {font-size:.85rem; color:var(--muted);}
-    /* Keep DataTable compact */
-    table.dataTable tbody td {vertical-align: middle;}
-    .small-muted {color:var(--muted);font-size:.9rem;}
-    .btn-compact {padding:.25rem .45rem;font-size:.85rem;}
-    .top-controls {gap: .5rem; display:flex; align-items:center;}
-    @media (max-width:780px){
-      .summary-grid {grid-template-columns:repeat(2,1fr);}
-      .table-responsive {overflow-x:auto;}
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
-    /* ------------------ Dark-mode overrides for elements that remain white due to libraries ------------------ */
+    header .brand { font-weight:600; letter-spacing:0.2px; }
+    .summary-card {
+      border-left:4px solid transparent;
+      background:var(--card);
+      box-shadow:0 1px 2px rgba(16,24,40,.04);
+      color:var(--text);
+    }
+    .summary-card .value { font-size:1.45rem; font-weight:600; }
+
+    .badge-pending {
+      background:linear-gradient(90deg,#fff3cd,#fff8e1);
+      color:#6b4b00;
+      border:1px solid rgba(0,0,0,.04);
+    }
+
+    .status-dot { display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:.5rem; }
+    .status-online { background:var(--success); }
+    .status-offline { background:var(--muted); }
+    .status-pending { background:var(--warn); }
+
+    .table-actions .btn { margin-right:6px; }
+    .device-type { font-size:.85rem; color:var(--muted); }
+
+    table.dataTable tbody td { vertical-align: middle; }
+    .small-muted { color:var(--muted); font-size:.9rem; }
+    .btn-compact { padding:.25rem .45rem; font-size:.85rem; }
+
+    .top-controls { gap:.5rem; display:flex; align-items:center; }
+
+    @media (max-width:780px) {
+      .summary-grid { grid-template-columns:repeat(2,1fr); }
+      .table-responsive { overflow-x:auto; }
+    }
+
+    /* ------------------ Dark-mode overrides for elements Bootstrap/DataTables force white ------------------ */
     body.dark .summary-card,
     body.dark .card,
     body.dark .card-body,
@@ -82,36 +97,71 @@
       color: var(--text) !important;
     }
 
-    body.dark table.dataTable thead tr th,
-    body.dark .dataTables_wrapper .dataTables_length,
-    body.dark .dataTables_wrapper .dataTables_filter {
+    /* ------------------ DataTables Header (FULL FIX) ------------------ */
+    /* Base header colors */
+    body.dark table.dataTable thead th,
+    body.dark table.dataTable thead td {
+      background-color: var(--table-head) !important;
+      color: var(--text) !important;
+      border-bottom: 1px solid rgba(255,255,255,0.12) !important;
+    }
+
+    /* Sorting states */
+    body.dark table.dataTable thead th.sorting,
+    body.dark table.dataTable thead th.sorting_asc,
+    body.dark table.dataTable thead th.sorting_desc {
+      background-color: var(--table-head) !important;
       color: var(--text) !important;
     }
 
-    body.dark table.dataTable thead {
-      background: var(--table-head) !important;
+    /* Hover effect */
+    body.dark table.dataTable thead th:hover {
+      background-color: rgba(255,255,255,0.05) !important;
     }
 
-    /* ensure table rows also restyle */
+    /* Ensure length/filter text is visible */
+    body.dark .dataTables_wrapper .dataTables_length label,
+    body.dark .dataTables_wrapper .dataTables_filter label,
+    body.dark .dataTables_wrapper .dataTables_info,
+    body.dark .dataTables_wrapper .dataTables_paginate {
+      color: var(--text) !important;
+    }
+
+    /* Pagination buttons */
+    body.dark .dataTables_wrapper .dataTables_paginate .paginate_button {
+      color: var(--text) !important;
+    }
+    body.dark .dataTables_wrapper .dataTables_paginate .paginate_button.current {
+      background: var(--table-head) !important;
+      color: var(--text) !important;
+    }
+
+    /* ------------------ Table Body Rows ------------------ */
     body.dark table.dataTable tbody tr,
     body.dark table.dataTable tbody td {
       background: var(--card) !important;
       color: var(--text) !important;
     }
 
-    /* small tweaks for badges in dark */
-    body.dark .badge-pending { background: linear-gradient(90deg,#5a3f00,#6b5200) !important; color:#fff1c9 !important; border:none !important; }
+    /* Row hover */
+    body.dark table.dataTable tbody tr:hover {
+      background: rgba(255,255,255,0.02) !important;
+    }
 
-    /* ensure DataTables sorting/hover doesn't show white */
-    body.dark table.dataTable tbody tr:hover { background: rgba(255,255,255,0.02) !important; }
+    /* ------------------ Badges in dark mode ------------------ */
+    body.dark .badge-pending {
+      background: linear-gradient(90deg,#5a3f00,#6b5200) !important;
+      color:#fff1c9 !important;
+      border:none !important;
+    }
+</style>
 
-  </style>
 </head>
 <body>
   <div class="container py-3">
     <header class="d-flex align-items-center justify-content-between mb-3">
       <div class="d-flex align-items-center gap-3">
-        <div class="brand h5 mb-0"><i class="fa-solid fa-shield-halved me-2" style="color:var(--accent)"></i>PatchPilot</div>
+        <div class="brand h5 mb-0"><img src="/static/favicon.ico" alt="PatchPilot Logo" style="height:28px; width:28px; margin-right:10px; object-fit:contain;">PatchPilot</div>
         <div class="small-muted">Device management & patch orchestration</div>
       </div>
 
