@@ -7,19 +7,26 @@ diesel::table! {
         architecture -> Text,
         last_checkin -> Timestamp,
         approved -> Bool,
-        cpu -> Float,
+
+        cpu_usage -> Float,
+        cpu_count -> Integer,
+        cpu_brand -> Text,
+
         ram_total -> BigInt,
         ram_used -> BigInt,
-        ram_free -> BigInt,
+
         disk_total -> BigInt,
         disk_free -> BigInt,
         disk_health -> Text,
+
         network_throughput -> BigInt,
         ping_latency -> Nullable<Float>,
+
         device_type -> Text,
         device_model -> Text,
         uptime -> Nullable<Text>,
         updates_available -> Bool,
+
         network_interfaces -> Nullable<Text>,
         ip_address -> Nullable<Text>,
     }
