@@ -459,6 +459,13 @@ fn get_server_ip() -> String {
     local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "127.0.0.1".into())
 }
 
+#[get("/device_detail.html")]
+async fn device_detail() -> Option<NamedFile> {
+    NamedFile::open("/opt/patchpilot_server/templates/device_detail.html")
+        .await
+        .ok()
+}
+
 #[launch]
 fn rocket() -> _ {
     init_logger();
@@ -497,4 +504,5 @@ fn rocket() -> _ {
         )
         .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
+        .mount("/", routes![dashboard, device_detail, favicon])
 }
