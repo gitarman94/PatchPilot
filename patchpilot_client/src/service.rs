@@ -8,7 +8,6 @@ use tokio::time::sleep;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use flexi_logger::{Logger, FileSpec, Criterion, Naming, Cleanup, Duplicate};
-use log;
 
 const ADOPTION_CHECK_INTERVAL: u64 = 10;
 const SYSTEM_UPDATE_INTERVAL: u64 = 600;
