@@ -1,269 +1,335 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>PatchPilot Dashboard</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PatchPilot — Dashboard</title>
 
-    <!-- Bootstrap 5 -->
-    <link rel="stylesheet"
-          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-          crossorigin="anonymous">
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
 
-    <!-- DataTables -->
-    <link rel="stylesheet"
-          href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css"/>
-    <link rel="stylesheet"
-          href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css"/>
-    <link rel="stylesheet"
-          href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css"/>
+  <!-- DataTables -->
+  <link href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css" rel="stylesheet"/>
+  <link href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css" rel="stylesheet"/>
 
-    <!-- Font Awesome -->
-    <link rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
-          crossorigin="anonymous"/>
+  <!-- Font Awesome -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet"/>
 
-    <style>
-        :root {
-            --bg-light: #f9f9f9;
-            --bg-dark:  #121212;
-            --text-light: #212529;
-            --text-dark: #e5e5e5;
-            --primary: #0d6efd;
-            --primary-dark: #1e90ff;
-        }
-
-        body { background: var(--bg-light); color: var(--text-light); transition: background .3s, color .3s; }
-        body.dark-mode { background: var(--bg-dark); color: var(--text-dark); }
-
-        .status-online { color:#28a745; font-weight:bold; }
-        .status-offline { color:#dc3545; font-weight:bold; }
-        .status-updates { color:#ffc107; font-weight:bold; }
-
-        .toast-container { position:fixed; top:1rem; right:1rem; z-index:1055; }
-        .modal-body { min-height:200px; }
-
-        table.dataTable tbody td.select-checkbox { cursor: pointer; }
-        table.dataTable tbody td.select-checkbox:before { content: "\f096"; font-family: FontAwesome; margin-right: 5px; }
-        table.dataTable tbody tr.selected td.select-checkbox:before { content: "\f046"; }
-
-        .tooltip-inner { max-width: 300px; text-align: left; }
-    </style>
+  <style>
+    :root{
+      --bg:#f6f8fb;
+      --card:#ffffff;
+      --accent:#0d6efd;
+      --muted:#6c757d;
+      --success:#198754;
+      --warn:#ffc107;
+      --danger:#dc3545;
+    }
+    body{background:var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;}
+    header .brand {font-weight:600; letter-spacing:0.2px;}
+    .summary-card {border-left:4px solid transparent; background:var(--card); box-shadow:0 1px 2px rgba(16,24,40,.04);}
+    .summary-card .value {font-size:1.45rem; font-weight:600;}
+    .badge-pending {background:linear-gradient(90deg,#fff3cd,#fff8e1); color:#6b4b00; border:1px solid rgba(0,0,0,.04);}
+    .status-dot {display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:.5rem;}
+    .status-online {background:var(--success);}
+    .status-offline {background:var(--muted);}
+    .status-pending {background:var(--warn);}
+    .table-actions .btn {margin-right:6px;}
+    .device-type {font-size:.85rem; color:var(--muted);}
+    /* Keep DataTable compact */
+    table.dataTable tbody td {vertical-align: middle;}
+    .small-muted {color:var(--muted);font-size:.9rem;}
+    .btn-compact {padding:.25rem .45rem;font-size:.85rem;}
+    .top-controls {gap: .5rem; display:flex; align-items:center;}
+    @media (max-width:780px){
+      .summary-grid {grid-template-columns:repeat(2,1fr);}
+      .table-responsive {overflow-x:auto;}
+    }
+  </style>
 </head>
 <body>
-<div class="container py-4">
+  <div class="container py-3">
+    <header class="d-flex align-items-center justify-content-between mb-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="brand h5 mb-0"><i class="fa-solid fa-shield-halved me-2" style="color:var(--accent)"></i>PatchPilot</div>
+        <div class="small-muted">Device management & patch orchestration</div>
+      </div>
 
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h1 class="h3"><i class="fa-solid fa-toolbox me-2"></i>PatchPilot Dashboard</h1>
-        <button id="darkModeToggle" class="btn btn-outline-secondary">
-            <i class="fa-solid fa-moon"></i>
-        </button>
+      <div class="top-controls">
+        <button id="refreshBtn" class="btn btn-outline-secondary btn-compact" title="Refresh"><i class="fa-solid fa-arrows-rotate"></i> Refresh</button>
+        <button id="darkModeToggle" class="btn btn-outline-secondary btn-compact" title="Toggle dark mode"><i class="fa-solid fa-moon"></i></button>
+      </div>
+    </header>
+
+    <!-- Summary -->
+    <div class="row mb-3 summary-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px;">
+      <div class="summary-card p-3">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="small-muted">Total devices</div>
+            <div id="totalDevices" class="value">—</div>
+          </div>
+          <div class="text-end">
+            <small class="small-muted">Updated</small><br/>
+            <small id="lastRefresh" class="small-muted">—</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="summary-card p-3">
+        <div class="small-muted">Online</div>
+        <div id="onlineDevices" class="value">—</div>
+      </div>
+
+      <div class="summary-card p-3">
+        <div class="small-muted">Pending approval</div>
+        <div id="pendingDevices" class="value">—</div>
+      </div>
+
+      <div class="summary-card p-3">
+        <div class="small-muted">Updates available</div>
+        <div id="updatesAvailable" class="value">—</div>
+      </div>
     </div>
 
-    <!-- Bulk action buttons -->
-    <div class="mb-3">
-        <button id="bulkForcePatch" class="btn btn-outline-primary me-2">
-            <i class="fa-solid fa-rotate me-1"></i>Force Patch Install
-        </button>
-        <button id="bulkForceCheckin" class="btn btn-outline-info me-2">
-            <i class="fa-solid fa-check-double me-1"></i>Force Check-in
-        </button>
-        <button id="bulkForceReinstall" class="btn btn-outline-danger me-2">
-            <i class="fa-solid fa-arrow-rotate-left me-1"></i>Force Reinstall
-        </button>
-        <button id="bulkApprove" class="btn btn-outline-success">
-            <i class="fa-solid fa-check me-1"></i>Approve Selected
-        </button>
-    </div>
+    <!-- Table container -->
+    <div class="card" style="box-shadow:none;">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="mb-0">Devices</h5>
+          <div class="small-muted">Showing approved + pending</div>
+        </div>
 
-    <!-- DataTable -->
-    <table id="devicesTable" class="display nowrap table table-striped table-hover" style="width:100%">
-        <thead>
-            <tr>
-                <th></th>
-                <th>Device ID</th>
+        <div class="table-responsive">
+          <table id="devicesTable" class="table table-hover nowrap" style="width:100%">
+            <thead class="table-light">
+              <tr>
                 <th>Hostname</th>
                 <th>OS</th>
-                <th>CPU %</th>
-                <th>RAM %</th>
-                <th>Disk %</th>
-                <th>Disk Health</th>
-                <th>Network</th>
-                <th>Ping</th>
-                <th>Uptime</th>
+                <th>Type</th>
                 <th>Status</th>
-                <th>Updates</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody></tbody>
-    </table>
-
-    <div class="toast-container"></div>
-
-    <!-- Detail modal -->
-    <div class="modal fade" id="deviceDetailModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Device Details</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body" id="deviceDetailBody">
-                    <div class="text-center py-5"><div class="spinner-border" role="status"></div></div>
-                </div>
-            </div>
+                <th class="text-end">CPU</th>
+                <th class="text-end">RAM</th>
+                <th class="text-end">Disk</th>
+                <th class="text-end">Ping</th>
+                <th class="text-end">Last check-in</th>
+                <th class="text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
+
+        <div class="mt-3 small-muted">Tip: click a device hostname for details. Pending devices show a yellow badge and can be approved inline.</div>
+      </div>
     </div>
+  </div>
 
-</div>
+  <!-- Detail modal (uses device_detail.html in a new page for larger view) -->
+  <div class="modal fade" id="confirmApproveModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-body">
+          <p class="mb-2">Approve device <strong id="approveHostname"></strong>?</p>
+          <div class="text-end">
+            <button class="btn btn-secondary btn-sm me-2" data-bs-dismiss="modal">Cancel</button>
+            <button id="confirmApproveBtn" class="btn btn-success btn-sm">Approve</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-<!-- JS Dependencies -->
-<script src="https://code.jquery.com/jquery-3.7.0.min.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-<script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
-<script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
-<script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.print.min.js"></script>
-<script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+  <!-- Alerts container -->
+  <div id="alerts" style="position:fixed; top:1rem; right:1rem; z-index:1200;"></div>
 
-<script>
-/* Dark mode */
-if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('dark-mode');
-document.getElementById('darkModeToggle').addEventListener('click', () => {
-    document.body.classList.toggle('dark-mode');
-    localStorage.setItem('darkMode',
-        document.body.classList.contains('dark-mode') ? 'enabled' : 'disabled');
-});
+  <!-- Dependencies -->
+  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
 
-/* Toast helper */
-function showToast(message, type='success') {
-    const toast = $(`
-        <div class="toast align-items-center text-bg-${type} border-0 mb-2" role="alert">
-            <div class="d-flex">
-                <div class="toast-body">${message}</div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-            </div>
+  <script>
+    // Utilities
+    function showAlert(msg, type='success', timeout=3500){
+      const id = 'a'+Date.now();
+      const el = $(`
+        <div id="${id}" class="alert alert-${type} shadow-sm" role="alert" style="min-width:260px;">
+          ${msg}
         </div>`);
-    $('.toast-container').append(toast);
-    new bootstrap.Toast(toast[0]).show();
-}
-
-$(document).ready(function () {
-    const table = $('#devicesTable').DataTable({
-        responsive: true,
-        select: { style: 'multi' },
-        buttons: ['copy', 'csv', 'excel', 'pdf', 'print'],
-        data: [],
-        columns: [
-            { data: null, defaultContent: '', className: 'select-checkbox' },
-            { data: 'id', render: d => `<a href="#" class="device-link text-primary">${d}</a>` },
-            { data: 'device_name', defaultContent: '—' },
-            { data: 'os_name', defaultContent: '—' },
-            { data: 'cpu', render: d => d != null ? `${d.toFixed(1)}%` : '—' },
-            { data: null, render: d => d.ram_total ? `${(d.ram_used / d.ram_total * 100).toFixed(1)}%` : '—' },
-            { data: null, render: d => d.disk_total ? `${((d.disk_total - d.disk_free) / d.disk_total * 100).toFixed(1)}%` : '—' },
-            { data: 'disk_health', defaultContent: '—' },
-            { data: 'network_throughput', defaultContent: '—' },
-            { data: 'ping_latency', render: d => d != null ? `${d} ms` : '—' },
-            { data: 'uptime', render: d => d ? `${d} sec` : '—' },
-            {
-                data: 'last_checkin',
-                render: ts => {
-                    if (!ts) return '<span class="status-offline">🔴 Offline</span>';
-                    const diff = (Date.now() - new Date(ts)) / 1000;
-                    return diff < 600
-                        ? '<span class="status-online">🟢 Online</span>'
-                        : '<span class="status-offline">🔴 Offline</span>';
-                }
-            },
-            {
-                data: 'updates_available',
-                render: d => d
-                    ? '<span class="status-updates">⚠️ Yes</span>'
-                    : '<span class="status-updates">✅ No</span>'
-            },
-            {
-                data: null,
-                render: d => `
-                    ${!d.approved ? `<button class="btn btn-sm btn-outline-success approve-btn" title="Approve"><i class="fa-solid fa-check"></i></button>` : ''}
-                    <button class="btn btn-sm btn-outline-warning force-btn" title="Force update"><i class="fa-solid fa-rotate"></i></button>
-                    <button class="btn btn-sm btn-outline-info checkin-btn" title="Allow check-in"><i class="fa-solid fa-check-double"></i></button>
-                `
-            }
-        ]
-    });
-
-    async function loadDevices() {
-        try {
-            const res = await fetch('/api/devices');
-            const devices = await res.json();
-            table.clear().rows.add(devices).draw();
-        } catch (err) {
-            console.error('Error loading devices:', err);
-            showToast('Failed to load devices.', 'danger');
-        }
+      $('#alerts').append(el);
+      setTimeout(()=> el.fadeOut(300, ()=> el.remove()), timeout);
     }
 
+    function fmtPercent(num){
+      if (num == null) return '—';
+      const v = Number(num);
+      if (Number.isFinite(v)) return v.toFixed(1) + '%';
+      return '—';
+    }
+
+    function fmtPctFromUsed(used, total){
+      if (!total || total === 0) return '—';
+      return ((used/total)*100).toFixed(1) + '%';
+    }
+
+    // DataTable init
+    const table = $('#devicesTable').DataTable({
+      responsive: true,
+      columns: [
+        { data: 'hostname' },
+        { data: 'os_name' },
+        { data: 'device_type', render: d => `<div class="device-type">${d || '—'}</div>` },
+        { data: null, render: d => {
+            // status: approved/pending/online/offline decision
+            if (d.pending) return `<span class="badge badge-pending">Pending</span>`;
+            const last = d.last_checkin ? new Date(d.last_checkin) : null;
+            if (!last) return `<span class="small-muted">Offline</span>`;
+            const diff = (Date.now() - new Date(last)) / 1000;
+            if (diff < 600) return `<span><span class="status-dot status-online"></span>Online</span>`;
+            return `<span><span class="status-dot status-offline"></span>Offline</span>`;
+        }},
+        { data: 'cpu_usage', className: 'text-end', render: (d) => fmtPercent(d) },
+        { data: null, className: 'text-end', render: d => fmtPctFromUsed(d.ram_used, d.ram_total) },
+        { data: null, className: 'text-end', render: d => {
+            if (!d.disk_total || d.disk_total === 0) return '—';
+            return `${(((d.disk_total - d.disk_free) / d.disk_total) * 100).toFixed(1)}%`;
+        }},
+        { data: 'ping_latency', className: 'text-end', render: d => d!=null ? `${d} ms` : '—' },
+        { data: 'last_checkin', className: 'text-end', render: d => d ? new Date(d).toLocaleString() : '—' },
+        { data: null, orderable:false, searchable:false, className:'text-center', render: d => {
+            let actions = `<div class="table-actions">`;
+            actions += `<button class="btn btn-sm btn-outline-primary btn-compact view-btn" data-id="${d.id}" title="View"><i class="fa-solid fa-eye"></i></button>`;
+            if (d.pending) {
+              actions += ` <button class="btn btn-sm btn-warning btn-compact approve-btn" data-id="${d.id}" data-host="${d.hostname || d.device_name || d.id}" title="Approve"><i class="fa-solid fa-check"></i> Approve</button>`;
+            } else {
+              actions += ` <div class="btn-group">` +
+                         `<button class="btn btn-sm btn-outline-secondary btn-compact dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-ellipsis"></i></button>` +
+                         `<ul class="dropdown-menu dropdown-menu-end">` +
+                         `<li><a class="dropdown-item force-checkin" data-id="${d.id}" href="#">Force Check-in</a></li>` +
+                         `<li><a class="dropdown-item force-patch" data-id="${d.id}" href="#">Force Patch</a></li>` +
+                         `</ul></div>`;
+            }
+            actions += '</div>';
+            return actions;
+        }}
+      ],
+      pageLength: 25,
+      lengthMenu: [10,25,50,100]
+    });
+
+    // Load devices from server and populate table + summaries
+    async function loadDevices(){
+      try{
+        const res = await fetch('/api/devices');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const devices = await res.json();
+
+        // compute stats
+        const total = devices.length;
+        let online = 0, pending = 0, updates = 0;
+        devices.forEach(d => {
+          if (d.pending) pending++;
+          else {
+            const last = d.last_checkin ? new Date(d.last_checkin) : null;
+            if (last && ((Date.now() - new Date(last)) / 1000) < 600) online++;
+          }
+          if (d.updates_available) updates++;
+        });
+
+        $('#totalDevices').text(total);
+        $('#onlineDevices').text(online);
+        $('#pendingDevices').text(pending);
+        $('#updatesAvailable').text(updates);
+        $('#lastRefresh').text(new Date().toLocaleTimeString());
+
+        // normalize objects for display (ensure keys exist)
+        const normalized = devices.map(d => ({
+          id: d.id || d.device_name || d.id,
+          device_name: d.device_name || '',
+          hostname: d.hostname || d.device_name || d.id,
+          os_name: d.os_name || '',
+          device_type: d.device_type || d.device_model || '',
+          cpu_usage: d.cpu_usage ?? null,
+          ram_total: d.ram_total ?? 0,
+          ram_used: d.ram_used ?? 0,
+          disk_total: d.disk_total ?? 0,
+          disk_free: d.disk_free ?? 0,
+          disk_health: d.disk_health || '',
+          network_throughput: d.network_throughput ?? 0,
+          ping_latency: d.ping_latency ?? null,
+          last_checkin: d.last_checkin ?? d.last_checkin, // may be null
+          updates_available: d.updates_available ?? false,
+          approved: d.approved ?? false,
+          pending: d.pending ?? false,
+          ip_address: d.ip_address || null,
+          network_interfaces: d.network_interfaces || null
+        }));
+
+        table.clear().rows.add(normalized).draw();
+      }catch(err){
+        console.error('Failed to load devices', err);
+        showAlert('Failed to load devices', 'danger', 4500);
+      }
+    }
+
+    // initial load
     loadDevices();
-    setInterval(loadDevices, 30000);
 
-    // Device approve button functionality
-    $('body').on('click', '.approve-btn', async function () {
-        const row = table.row($(this).closest('tr')).data();
-        try {
-            const resp = await fetch(`/api/register`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    device_type: row.device_type || '',
-                    device_model: row.device_model || '',
-                    ip_address: row.ip_address || '',
-                    network_interfaces: row.network_interfaces || ''
-                })
-            });
-            const data = await resp.json();
-            showToast(`Device approved. Assigned ID: ${data.device_id}`, 'success');
-            loadDevices();
-        } catch {
-            showToast('Error approving device.', 'danger');
-        }
+    // refresh button
+    $('#refreshBtn').on('click', ()=> loadDevices());
+
+    // dark mode
+    (function(){
+      if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('bg-dark','text-light');
+      $('#darkModeToggle').on('click', ()=>{
+        const enabled = document.body.classList.toggle('bg-dark');
+        document.body.classList.toggle('text-light', enabled);
+        localStorage.setItem('darkMode', enabled ? 'enabled' : 'disabled');
+      });
+    })();
+
+    // Delegate: view details (open separate device_detail page)
+    $('body').on('click', '.view-btn', function(){
+      const id = $(this).data('id');
+      // open device detail page in new tab (assumes device_detail.html accessible)
+      window.open(`/device_detail.html?deviceID=${encodeURIComponent(id)}`, '_blank');
     });
 
-    $('#bulkApprove').click(async () => {
-        const selected = table.rows({ selected: true }).data().toArray();
-        for (const d of selected) {
-            await fetch('/api/devices/approve', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ hostname: d.device_name })
-            });
-        }
-        showToast('Selected devices approved.');
+    // Approve flow
+    let selectedApproveId = null;
+    $('body').on('click', '.approve-btn', function(){
+      selectedApproveId = $(this).data('id');
+      const host = $(this).data('host') || selectedApproveId;
+      $('#approveHostname').text(host);
+      const m = new bootstrap.Modal(document.getElementById('confirmApproveModal'));
+      m.show();
+    });
+
+    $('#confirmApproveBtn').on('click', async function(){
+      if (!selectedApproveId) return;
+      try {
+        const res = await fetch(`/api/devices/${selectedApproveId}/approve`, { method: 'POST' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showAlert('Device approved', 'success');
+        selectedApproveId = null;
+        bootstrap.Modal.getInstance(document.getElementById('confirmApproveModal')).hide();
         loadDevices();
+      } catch (err) {
+        console.error(err);
+        showAlert('Failed to approve device', 'danger', 5000);
+      }
     });
 
-    // Device detail modal (Placeholder for when device link is clicked)
-    $('body').on('click', '.device-link', async function () {
-        const deviceId = $(this).text();
-        $('#deviceDetailBody').html('<div class="text-center py-5"><div class="spinner-border" role="status"></div></div>');
-        $('#deviceDetailModal').modal('show');
-        try {
-            const res = await fetch(`/api/devices/${deviceId}`);
-            const device = await res.json();
-            // Populate modal with device details
-            $('#deviceDetailBody').html(`
-                <p><strong>Device ID:</strong> ${device.id}</p>
-                <p><strong>Hostname:</strong> ${device.device_name}</p>
-                <p><strong>OS:</strong> ${device.os_name}</p>
-                <p><strong>CPU Usage:</strong> ${device.cpu}%</p>
-                <p><strong>RAM Usage:</strong> ${(device.ram_used / device.ram_total * 100).toFixed(1)}%</p>
-                <p><strong>Disk Usage:</strong> ${((device.disk_total - device.disk_free) / device.disk_total * 100).toFixed(1)}%</p>
-            `);
-        } catch {
-            $('#deviceDetailBody').html('<p>Error loading device details.</p>');
-        }
+    // Example small action placeholders (force actions)
+    $('body').on('click', '.force-checkin, .force-patch', function(e){
+      e.preventDefault();
+      const id = $(this).data('id');
+      showAlert(`Action requested for ${id}`, 'info', 2200);
     });
-});
-</script>
+
+    // auto-refresh interval
+    setInterval(loadDevices, 30_000);
+  </script>
 </body>
 </html>
