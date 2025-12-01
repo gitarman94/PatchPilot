@@ -155,29 +155,34 @@ async fn run_adoption_and_update_loop(
     server_url: &str,
     running_flag: Option<&AtomicBool>
 ) {
-    // Determine if we already have a device ID
+    // Try to load an existing device ID, but do not trust it as "approved"
     let mut device_id = get_local_device_id();
 
     let (_, device_type, device_model) = get_device_info_basic();
 
-    // Adoption loop: keep registering until approved
-    while device_id.is_none() {
-        match register_device(client, server_url, &device_type, &device_model).await {
-            Ok(id) => {
-                info!("Registered with temporary device_id {}", id);
-                device_id = Some(id);
+    // If no device ID exists locally, register a new pending device
+    if device_id.is_none() {
+        loop {
+            match register_device(client, server_url, &device_type, &device_model).await {
+                Ok(id) => {
+                    log::info!("Registered new pending device {}", id);
+                    device_id = Some(id);
+                    break;
+                }
+                Err(e) => {
+                    log::error!("Registration failed: {:?}", e);
+                    sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
+                }
             }
-            Err(e) => error!("Registration attempt failed: {:?}", e)
         }
-
-        sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
     }
 
+    // At this point we have a temporary/unapproved device ID
     let device_id = device_id.unwrap();
-    write_local_device_id(&device_id).ok();
 
-    info!("Entering heartbeat adoption loop for {}", device_id);
+    log::info!("Starting heartbeat loop for device {}", device_id);
 
+    // Keep sending heartbeats until the server approves/adopts the device
     loop {
         let adopted = send_heartbeat(
             client,
@@ -185,30 +190,33 @@ async fn run_adoption_and_update_loop(
             &device_id,
             &device_type,
             &device_model,
-        ).await;
+        )
+        .await;
 
         if adopted {
-            info!("Device {} adopted by server!", device_id);
+            log::info!("Device {} approved by server", device_id);
+
+            // Save device ID only after approval
+            write_local_device_id(&device_id).ok();
+
             break;
         }
 
         sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
     }
 
-    write_local_device_id(&device_id).ok();
+    // Device is approved; begin full system update loop
+    log::info!("Entering system update loop for device {}", device_id);
 
-    // Main update loop
     loop {
+        // Check if service stop has been signaled (Windows)
         if let Some(flag) = running_flag {
             if !flag.load(Ordering::SeqCst) {
-                info!("Stopping system update loop due to service stop signal.");
+                log::info!("Stopping update loop due to service stop");
                 break;
             }
         }
 
-        let _ = get_device_info_with_id(&device_id);
-
-        // Send update
         send_system_update(client, server_url, &device_id).await;
 
         sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL)).await;
