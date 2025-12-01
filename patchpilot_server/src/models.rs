@@ -14,19 +14,27 @@ pub struct Device {
     pub architecture: String,
     pub last_checkin: NaiveDateTime,
     pub approved: bool,
-    pub cpu: f32,
+
+    // updated to match client
+    pub cpu_usage: f32,
+    pub cpu_count: i32,
+    pub cpu_brand: String,
+
     pub ram_total: i64,
     pub ram_used: i64,
-    pub ram_free: i64,
+
     pub disk_total: i64,
     pub disk_free: i64,
     pub disk_health: String,
+
     pub network_throughput: i64,
     pub ping_latency: Option<f32>,
+
     pub device_type: String,
     pub device_model: String,
     pub uptime: Option<String>,
     pub updates_available: bool,
+
     pub network_interfaces: Option<String>,
     pub ip_address: Option<String>,
 }
@@ -40,19 +48,26 @@ pub struct NewDevice {
     pub architecture: String,
     pub last_checkin: NaiveDateTime,
     pub approved: bool,
-    pub cpu: f32,
+
+    pub cpu_usage: f32,
+    pub cpu_count: i32,
+    pub cpu_brand: String,
+
     pub ram_total: i64,
     pub ram_used: i64,
-    pub ram_free: i64,
+
     pub disk_total: i64,
     pub disk_free: i64,
     pub disk_health: String,
+
     pub network_throughput: i64,
     pub ping_latency: Option<f32>,
+
     pub device_type: String,
     pub device_model: String,
     pub uptime: Option<String>,
     pub updates_available: bool,
+
     pub network_interfaces: Option<String>,
     pub ip_address: Option<String>,
 }
@@ -61,15 +76,22 @@ pub struct NewDevice {
 pub struct SystemInfo {
     pub os_name: String,
     pub architecture: String,
-    pub cpu: f32,
+
+    // updated to match client
+    pub cpu_usage: f32,
+    pub cpu_count: i32,
+    pub cpu_brand: String,
+
     pub ram_total: i64,
     pub ram_used: i64,
-    pub ram_free: i64,
+
     pub disk_total: i64,
     pub disk_free: i64,
     pub disk_health: String,
+
     pub network_throughput: i64,
     pub ping_latency: Option<f32>,
+
     pub network_interfaces: Option<String>,
     pub ip_address: Option<String>,
 }
@@ -77,12 +99,11 @@ pub struct SystemInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
     pub system_info: SystemInfo,
-    pub device_type: Option<String>, 
+    pub device_type: Option<String>,
     pub device_model: Option<String>,
 }
 
 impl DeviceInfo {
-    /// Helper: convert DeviceInfo into a Device struct
     pub fn to_device(&self, device_id: &str) -> Device {
         Device {
             id: 0,
@@ -92,19 +113,27 @@ impl DeviceInfo {
             architecture: self.system_info.architecture.clone(),
             last_checkin: Utc::now().naive_utc(),
             approved: false,
-            cpu: self.system_info.cpu,
+
+            cpu_usage: self.system_info.cpu_usage,
+            cpu_count: self.system_info.cpu_count,
+            cpu_brand: self.system_info.cpu_brand.clone(),
+
             ram_total: self.system_info.ram_total,
             ram_used: self.system_info.ram_used,
-            ram_free: self.system_info.ram_free,
+
             disk_total: self.system_info.disk_total,
             disk_free: self.system_info.disk_free,
             disk_health: self.system_info.disk_health.clone(),
+
             network_throughput: self.system_info.network_throughput,
             ping_latency: self.system_info.ping_latency,
+
             device_type: self.device_type.clone().unwrap_or_default(),
             device_model: self.device_model.clone().unwrap_or_default(),
-            uptime: Some("0h 0m".to_string()),
+
+            uptime: Some("0h 0m".into()),
             updates_available: false,
+
             network_interfaces: self.system_info.network_interfaces.clone(),
             ip_address: self.system_info.ip_address.clone(),
         }
@@ -138,19 +167,27 @@ impl NewDevice {
             architecture: info.system_info.architecture.clone(),
             last_checkin: Utc::now().naive_utc(),
             approved: false,
-            cpu: info.system_info.cpu,
+
+            cpu_usage: info.system_info.cpu_usage,
+            cpu_count: info.system_info.cpu_count,
+            cpu_brand: info.system_info.cpu_brand.clone(),
+
             ram_total: info.system_info.ram_total,
             ram_used: info.system_info.ram_used,
-            ram_free: info.system_info.ram_free,
+
             disk_total: info.system_info.disk_total,
             disk_free: info.system_info.disk_free,
             disk_health: info.system_info.disk_health.clone(),
+
             network_throughput: info.system_info.network_throughput,
             ping_latency: info.system_info.ping_latency,
+
             device_type: info.device_type.clone().unwrap_or_default(),
             device_model: info.device_model.clone().unwrap_or_default(),
-            uptime: Some("0h 0m".to_string()),
+
+            uptime: Some("0h 0m".into()),
             updates_available: false,
+
             network_interfaces: info.system_info.network_interfaces.clone(),
             ip_address: info.system_info.ip_address.clone(),
         }
