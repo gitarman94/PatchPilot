@@ -154,7 +154,7 @@ async fn run_adoption_and_update_loop(
     client: &Client,
     server_url: &str,
     running_flag: Option<&AtomicBool>
-) {
+) -> Result<()> {
     // Try to load an existing device ID, but do not trust it as "approved"
     let mut device_id = get_local_device_id();
 
@@ -196,6 +196,7 @@ async fn run_adoption_and_update_loop(
 
             sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
         }
+        Ok(())
     }
 
 
