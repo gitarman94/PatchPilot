@@ -502,7 +502,6 @@ fn rocket() -> _ {
                 approve_device,
             ],
         )
-        .mount("/", routes![dashboard, favicon])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
         .mount("/", routes![dashboard, device_detail, favicon])
 }
