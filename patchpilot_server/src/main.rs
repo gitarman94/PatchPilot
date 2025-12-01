@@ -69,7 +69,7 @@ fn establish_connection(pool: &DbPool)
 }
 
 fn validate_device_info(info: &DeviceInfo) -> Result<(), ApiError> {
-    if info.system_info.cpu < 0.0 {
+    if info.system_info.cpu_usage < 0.0 {
         return Err(ApiError::ValidationError("CPU usage cannot be negative".into()));
     }
     if info.system_info.ram_total <= 0 {
