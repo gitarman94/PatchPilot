@@ -317,7 +317,8 @@ async fn get_devices(pool: &State<DbPool>, state: &State<AppState>) -> Result<Js
                 "uptime": d.uptime,
                 "updates_available": d.updates_available,
                 "approved": d.approved,
-                "pending": false
+                "pending": false,
+                "last_checkin": d.last_checkin
             }))
             .collect();
 
@@ -345,7 +346,8 @@ async fn get_devices(pool: &State<DbPool>, state: &State<AppState>) -> Result<Js
                 "uptime": serde_json::Value::Null,
                 "updates_available": false,
                 "approved": false,
-                "pending": true
+                "pending": true,
+                "last_checkin": "pending"
             }));
         }
 
