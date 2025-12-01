@@ -16,6 +16,7 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet"/>
 
   <style>
+    /* ------------------ COLOR VARIABLES (light + dark) ------------------ */
     :root{
       --bg:#f6f8fb;
       --card:#ffffff;
@@ -24,10 +25,33 @@
       --success:#198754;
       --warn:#ffc107;
       --danger:#dc3545;
+      --text:#0b1720;
+      --table-head:#f1f3f5;
     }
-    body{background:var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;}
+
+    /* Dark mode variables applied when body.dark is present */
+    body.dark {
+      --bg: #0b1220;
+      --card: #0f1720;
+      --accent: #58a6ff;
+      --muted: #98a0a6;
+      --success: #2ea043;
+      --warn: #f2cc60;
+      --danger: #f85149;
+      --text: #e6eef6;
+      --table-head: #0f1725;
+    }
+
+    /* ------------------ Base styles ------------------ */
+    body{
+      background:var(--bg);
+      color:var(--text);
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
     header .brand {font-weight:600; letter-spacing:0.2px;}
-    .summary-card {border-left:4px solid transparent; background:var(--card); box-shadow:0 1px 2px rgba(16,24,40,.04);}
+    .summary-card {border-left:4px solid transparent; background:var(--card); box-shadow:0 1px 2px rgba(16,24,40,.04); color:var(--text);}
     .summary-card .value {font-size:1.45rem; font-weight:600;}
     .badge-pending {background:linear-gradient(90deg,#fff3cd,#fff8e1); color:#6b4b00; border:1px solid rgba(0,0,0,.04);}
     .status-dot {display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:.5rem;}
@@ -45,6 +69,42 @@
       .summary-grid {grid-template-columns:repeat(2,1fr);}
       .table-responsive {overflow-x:auto;}
     }
+
+    /* ------------------ Dark-mode overrides for elements that remain white due to libraries ------------------ */
+    body.dark .summary-card,
+    body.dark .card,
+    body.dark .card-body,
+    body.dark .table-responsive,
+    body.dark .modal-content,
+    body.dark .dataTables_wrapper,
+    body.dark .table.dataTable {
+      background-color: var(--card) !important;
+      color: var(--text) !important;
+    }
+
+    body.dark table.dataTable thead tr th,
+    body.dark .dataTables_wrapper .dataTables_length,
+    body.dark .dataTables_wrapper .dataTables_filter {
+      color: var(--text) !important;
+    }
+
+    body.dark table.dataTable thead {
+      background: var(--table-head) !important;
+    }
+
+    /* ensure table rows also restyle */
+    body.dark table.dataTable tbody tr,
+    body.dark table.dataTable tbody td {
+      background: var(--card) !important;
+      color: var(--text) !important;
+    }
+
+    /* small tweaks for badges in dark */
+    body.dark .badge-pending { background: linear-gradient(90deg,#5a3f00,#6b5200) !important; color:#fff1c9 !important; border:none !important; }
+
+    /* ensure DataTables sorting/hover doesn't show white */
+    body.dark table.dataTable tbody tr:hover { background: rgba(255,255,255,0.02) !important; }
+
   </style>
 </head>
 <body>
@@ -177,7 +237,11 @@
     const table = $('#devicesTable').DataTable({
       responsive: true,
       columns: [
-        { data: 'hostname' },
+        { data: 'hostname', render: (d, type, row) => {
+            // hostname should be clickable for details
+            const id = row.device_name || row.id || '';
+            return `<a href="#" class="device-link" data-id="${id}">${d || id || '—'}</a>`;
+        }},
         { data: 'os_name' },
         { data: 'device_type', render: d => `<div class="device-type">${d || '—'}</div>` },
         { data: null, render: d => {
@@ -198,16 +262,17 @@
         { data: 'ping_latency', className: 'text-end', render: d => d!=null ? `${d} ms` : '—' },
         { data: 'last_checkin', className: 'text-end', render: d => d ? new Date(d).toLocaleString() : '—' },
         { data: null, orderable:false, searchable:false, className:'text-center', render: d => {
+            const canonicalId = d.device_name || d.id || '';
             let actions = `<div class="table-actions">`;
-            actions += `<button class="btn btn-sm btn-outline-primary btn-compact view-btn" data-id="${d.id}" title="View"><i class="fa-solid fa-eye"></i></button>`;
+            actions += `<button class="btn btn-sm btn-outline-primary btn-compact view-btn" data-id="${canonicalId}" title="View"><i class="fa-solid fa-eye"></i></button>`;
             if (d.pending) {
-              actions += ` <button class="btn btn-sm btn-warning btn-compact approve-btn" data-id="${d.id}" data-host="${d.hostname || d.device_name || d.id}" title="Approve"><i class="fa-solid fa-check"></i> Approve</button>`;
+              actions += ` <button class="btn btn-sm btn-warning btn-compact approve-btn" data-id="${canonicalId}" data-host="${d.hostname || d.device_name || canonicalId}" title="Approve"><i class="fa-solid fa-check"></i> Approve</button>`;
             } else {
               actions += ` <div class="btn-group">` +
                          `<button class="btn btn-sm btn-outline-secondary btn-compact dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-ellipsis"></i></button>` +
                          `<ul class="dropdown-menu dropdown-menu-end">` +
-                         `<li><a class="dropdown-item force-checkin" data-id="${d.id}" href="#">Force Check-in</a></li>` +
-                         `<li><a class="dropdown-item force-patch" data-id="${d.id}" href="#">Force Patch</a></li>` +
+                         `<li><a class="dropdown-item force-checkin" data-id="${canonicalId}" href="#">Force Check-in</a></li>` +
+                         `<li><a class="dropdown-item force-patch" data-id="${canonicalId}" href="#">Force Patch</a></li>` +
                          `</ul></div>`;
             }
             actions += '</div>';
@@ -215,7 +280,12 @@
         }}
       ],
       pageLength: 25,
-      lengthMenu: [10,25,50,100]
+      lengthMenu: [10,25,50,100],
+      // allow empty / missing fields gracefully
+      deferRender: true,
+      language: {
+        emptyTable: "No devices yet — check registration / heartbeat"
+      }
     });
 
     // Load devices from server and populate table + summaries
@@ -245,9 +315,9 @@
 
         // normalize objects for display (ensure keys exist)
         const normalized = devices.map(d => ({
-          id: d.id || d.device_name || d.id,
-          device_name: d.device_name || '',
-          hostname: d.hostname || d.device_name || d.id,
+          id: d.id ?? null,
+          device_name: d.device_name || d.id || null,
+          hostname: d.hostname || d.device_name || d.id || '—',
           os_name: d.os_name || '',
           device_type: d.device_type || d.device_model || '',
           cpu_usage: d.cpu_usage ?? null,
@@ -258,7 +328,7 @@
           disk_health: d.disk_health || '',
           network_throughput: d.network_throughput ?? 0,
           ping_latency: d.ping_latency ?? null,
-          last_checkin: d.last_checkin ?? d.last_checkin, // may be null
+          last_checkin: d.last_checkin ?? null,
           updates_available: d.updates_available ?? false,
           approved: d.approved ?? false,
           pending: d.pending ?? false,
@@ -266,7 +336,7 @@
           network_interfaces: d.network_interfaces || null
         }));
 
-        table.clear().rows.add(normalized).draw();
+        table.clear().rows.add(normalized).draw(false);
       }catch(err){
         console.error('Failed to load devices', err);
         showAlert('Failed to load devices', 'danger', 4500);
@@ -281,18 +351,19 @@
 
     // dark mode
     (function(){
-      if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('bg-dark','text-light');
+      if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('dark');
       $('#darkModeToggle').on('click', ()=>{
-        const enabled = document.body.classList.toggle('bg-dark');
-        document.body.classList.toggle('text-light', enabled);
+        const enabled = document.body.classList.toggle('dark');
         localStorage.setItem('darkMode', enabled ? 'enabled' : 'disabled');
       });
     })();
 
     // Delegate: view details (open separate device_detail page)
-    $('body').on('click', '.view-btn', function(){
+    $('body').on('click', '.view-btn, .device-link', function(e){
+      e.preventDefault();
       const id = $(this).data('id');
-      // open device detail page in new tab (assumes device_detail.html accessible)
+      if (!id) return;
+      // open device detail page in new tab (device_detail.html reads deviceID from query param)
       window.open(`/device_detail.html?deviceID=${encodeURIComponent(id)}`, '_blank');
     });
 
@@ -309,8 +380,11 @@
     $('#confirmApproveBtn').on('click', async function(){
       if (!selectedApproveId) return;
       try {
-        const res = await fetch(`/api/devices/${selectedApproveId}/approve`, { method: 'POST' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const res = await fetch(`/api/devices/${encodeURIComponent(selectedApproveId)}/approve`, { method: 'POST' });
+        if (!res.ok) {
+          const text = await res.text().catch(()=> 'unknown');
+          throw new Error(`HTTP ${res.status} - ${text}`);
+        }
         showAlert('Device approved', 'success');
         selectedApproveId = null;
         bootstrap.Modal.getInstance(document.getElementById('confirmApproveModal')).hide();
