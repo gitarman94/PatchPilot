@@ -266,7 +266,7 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     Json(json!({
         "status": "ok",
         "server_time": Utc::now().to_rfc3339(),
-        "uptime_seconds": System::uptime(),
+        "uptime_seconds": sys.uptime(), // use instance uptime
         "cpu_count": sys.cpus().len(),
         "cpu_usage_per_core_percent": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
         "total_memory_bytes": sys.total_memory(),
@@ -277,28 +277,80 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     }))
 }
 
-// Return all approved devices
+// Return all devices (approved from DB + pending in-memory)
 #[get("/devices")]
-async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> {
+async fn get_devices(pool: &State<DbPool>, state: &State<AppState>) -> Result<Json<Vec<serde_json::Value>>, String> {
     use crate::schema::devices::dsl::*;
 
+    // clone pool and pending ref for blocking task
     let pool = pool.inner().clone();
+    let pending_ref = Arc::clone(&state.pending_devices);
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|e| e.to_string())?;
-        let results = devices.load::<Device>(&mut conn).map_err(|e| e.to_string())?;
-        Ok(Json(results.into_iter().map(|d| d.enrich_for_dashboard()).collect()))
+
+        // load approved devices from DB
+        let mut list: Vec<serde_json::Value> = devices
+            .load::<Device>(&mut conn)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|d| json!({
+                "id": d.id.to_string(),
+                "device_name": d.device_name,
+                "hostname": d.hostname,
+                "os_name": d.os_name,
+                "architecture": d.architecture,
+                "cpu_usage": d.cpu_usage,
+                "cpu_count": d.cpu_count,
+                "cpu_brand": d.cpu_brand,
+                "ram_total": d.ram_total,
+                "ram_used": d.ram_used,
+                "disk_total": d.disk_total,
+                "disk_free": d.disk_free,
+                "disk_health": d.disk_health,
+                "network_throughput": d.network_throughput,
+                "ping_latency": d.ping_latency,
+                "ip_address": d.ip_address,
+                "network_interfaces": d.network_interfaces,
+                "uptime": d.uptime,
+                "updates_available": d.updates_available,
+                "approved": d.approved,
+                "pending": false
+            }))
+            .collect();
+
+        // append pending (in-memory)
+        let pending = pending_ref.read().unwrap();
+        for (id, p) in pending.iter() {
+            list.push(json!({
+                "id": id,
+                "device_name": "", // name not provided for pending DeviceInfo
+                "hostname": id,
+                "os_name": p.system_info.os_name,
+                "architecture": p.system_info.architecture,
+                "cpu_usage": p.system_info.cpu_usage,
+                "cpu_count": p.system_info.cpu_count,
+                "cpu_brand": p.system_info.cpu_brand,
+                "ram_total": p.system_info.ram_total,
+                "ram_used": p.system_info.ram_used,
+                "disk_total": p.system_info.disk_total,
+                "disk_free": p.system_info.disk_free,
+                "disk_health": p.system_info.disk_health,
+                "network_throughput": p.system_info.network_throughput,
+                "ping_latency": p.system_info.ping_latency,
+                "ip_address": p.system_info.ip_address,
+                "network_interfaces": p.system_info.network_interfaces,
+                "uptime": serde_json::Value::Null,
+                "updates_available": false,
+                "approved": false,
+                "pending": true
+            }));
+        }
+
+        Ok(Json(list))
     })
     .await
     .unwrap_or_else(|e| Err(format!("Join error: {}", e)))
-}
-
-// Return pending (in-memory only)
-#[get("/pending")]
-async fn get_pending(state: &State<AppState>) -> Json<serde_json::Value> {
-    let pending = state.pending_devices.read().unwrap();
-    let list: Vec<_> = pending.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-    Json(json!(list))
 }
 
 // Approve → pending → DB as approved
@@ -436,7 +488,6 @@ fn rocket() -> _ {
                 get_device_details,
                 status,
                 heartbeat,
-                get_pending,
                 approve_device,
             ],
         )
