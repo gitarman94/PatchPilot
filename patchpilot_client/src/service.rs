@@ -195,8 +195,6 @@ async fn run_adoption_and_update_loop(
         sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
     }
 
-
-    let device_id = device_id.unwrap();
     write_local_device_id(&device_id).ok();
 
     // Main update loop
