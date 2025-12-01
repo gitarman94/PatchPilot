@@ -104,7 +104,7 @@ fn insert_or_update_device(
     Ok(updated.enrich_for_dashboard())
 }
 
-// Register a NEW device → goes to pending only
+// Adds device to PENDING ONLY (in-memory)
 #[post("/register", format = "json", data = "<payload>")]
 async fn register_device(
     state: &State<AppState>,
@@ -266,7 +266,7 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     Json(json!({
         "status": "ok",
         "server_time": Utc::now().to_rfc3339(),
-        "uptime_seconds": sys.uptime(), // use instance uptime
+        "uptime_seconds": sys.uptime(), // instance uptime
         "cpu_count": sys.cpus().len(),
         "cpu_usage_per_core_percent": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
         "total_memory_bytes": sys.total_memory(),
@@ -282,7 +282,6 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
 async fn get_devices(pool: &State<DbPool>, state: &State<AppState>) -> Result<Json<Vec<serde_json::Value>>, String> {
     use crate::schema::devices::dsl::*;
 
-    // clone pool and pending ref for blocking task
     let pool = pool.inner().clone();
     let pending_ref = Arc::clone(&state.pending_devices);
 
@@ -321,11 +320,11 @@ async fn get_devices(pool: &State<DbPool>, state: &State<AppState>) -> Result<Js
 
         // append pending (in-memory)
         let pending = pending_ref.read().unwrap();
-        for (id, p) in pending.iter() {
+        for (pending_id, p) in pending.iter() {
             list.push(json!({
-                "id": id,
+                "id": pending_id,
                 "device_name": "", // name not provided for pending DeviceInfo
-                "hostname": id,
+                "hostname": pending_id,
                 "os_name": p.system_info.os_name,
                 "architecture": p.system_info.architecture,
                 "cpu_usage": p.system_info.cpu_usage,
@@ -477,8 +476,8 @@ fn rocket() -> _ {
         .manage(pool)
         .manage(AppState {
             system: Mutex::new(System::new_all()),
-            pending_devices: Arc::new(RwLock::new(HashMap::new())),
-        })
+            pending_devices: Arc::new(RwLock::new(HashMap::new())) },
+        )
         .mount(
             "/api",
             routes![
