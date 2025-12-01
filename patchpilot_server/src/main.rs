@@ -364,28 +364,37 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
         CREATE TABLE IF NOT EXISTS devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             device_name TEXT NOT NULL UNIQUE,
-            hostname TEXT,
-            os_name TEXT,
-            architecture TEXT,
+            hostname TEXT NOT NULL,
+            os_name TEXT NOT NULL,
+            architecture TEXT NOT NULL,
             last_checkin TIMESTAMP NOT NULL,
             approved BOOLEAN NOT NULL,
-            cpu FLOAT NOT NULL DEFAULT 0.0,
+
+            cpu_usage FLOAT NOT NULL DEFAULT 0.0,
+            cpu_count INTEGER NOT NULL DEFAULT 0,
+            cpu_brand TEXT NOT NULL DEFAULT '',
+
             ram_total BIGINT NOT NULL DEFAULT 0,
             ram_used BIGINT NOT NULL DEFAULT 0,
-            ram_free BIGINT NOT NULL DEFAULT 0,
+
             disk_total BIGINT NOT NULL DEFAULT 0,
             disk_free BIGINT NOT NULL DEFAULT 0,
-            disk_health TEXT,
+            disk_health TEXT NOT NULL DEFAULT '',
+
             network_throughput BIGINT NOT NULL DEFAULT 0,
             ping_latency FLOAT,
+
             device_type TEXT NOT NULL,
             device_model TEXT NOT NULL,
+
             uptime TEXT,
             updates_available BOOLEAN NOT NULL DEFAULT 0,
+
             network_interfaces TEXT,
             ip_address TEXT
-        )
+        );
     "#).execute(conn)?;
+
     Ok(())
 }
 
