@@ -25,7 +25,7 @@ type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
 pub struct AppState {
     pub system: Mutex<System>,
-    pub pending_devices: Arc<RwLock<HashMap<String, DeviceInfo>>>, // pending only
+    pub pending_devices: Arc<RwLock<HashMap<String, DeviceInfo>>>, // pending only (in-memory)
 }
 
 fn init_logger() {
@@ -266,7 +266,8 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     Json(json!({
         "status": "ok",
         "server_time": Utc::now().to_rfc3339(),
-        "uptime_seconds": System::uptime(), // instance uptime
+        // use associated function (matches your environment)
+        "uptime_seconds": System::uptime(),
         "cpu_count": sys.cpus().len(),
         "cpu_usage_per_core_percent": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
         "total_memory_bytes": sys.total_memory(),
@@ -277,11 +278,13 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     }))
 }
 
+
 // Return all devices (approved from DB + pending in-memory)
 #[get("/devices")]
 async fn get_devices(pool: &State<DbPool>, state: &State<AppState>) -> Result<Json<Vec<serde_json::Value>>, String> {
     use crate::schema::devices::dsl::*;
 
+    // clone pool and pending ref for blocking task
     let pool = pool.inner().clone();
     let pending_ref = Arc::clone(&state.pending_devices);
 
@@ -476,8 +479,8 @@ fn rocket() -> _ {
         .manage(pool)
         .manage(AppState {
             system: Mutex::new(System::new_all()),
-            pending_devices: Arc::new(RwLock::new(HashMap::new())) },
-        )
+            pending_devices: Arc::new(RwLock::new(HashMap::new())),
+        })
         .mount(
             "/api",
             routes![
