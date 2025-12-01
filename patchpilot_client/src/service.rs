@@ -160,22 +160,44 @@ async fn run_adoption_and_update_loop(
 
     let (_, device_type, device_model) = get_device_info_basic();
 
-    // If no device ID exists locally, register a new pending device
+    // If no device ID exists, DO NOT register. Just wait for server assignment.
     if device_id.is_none() {
+        log::info!("No device_id found locally. Waiting for server adoption...");
+
         loop {
-            match register_device(client, server_url, &device_type, &device_model).await {
-                Ok(id) => {
-                    log::info!("Registered new pending device {}", id);
-                    device_id = Some(id);
+            // Heartbeat with *no* device_id
+            let adopted = send_heartbeat(
+                client,
+                server_url,
+                "",
+                &device_type,
+                &device_model,
+            )
+            .await;
+
+            // Server should reply with { adopted: true, device_id: "..." }
+            if adopted {
+                log::info!("Server assigned a device_id!");
+
+                // Fetch it
+                let resp = client
+                    .get(format!("{}/api/devices/assign", server_url))
+                    .send()
+                    .await?
+                    .json::<serde_json::Value>()
+                    .await?;
+
+                if let Some(id) = resp.get("device_id").and_then(|v| v.as_str()) {
+                    device_id = Some(id.to_string());
+                    write_local_device_id(id)?;
                     break;
                 }
-                Err(e) => {
-                    log::error!("Registration failed: {:?}", e);
-                    sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
-                }
             }
+
+            sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
         }
     }
+
 
     // At this point we have a temporary/unapproved device ID
     let device_id = device_id.unwrap();

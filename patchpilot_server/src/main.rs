@@ -16,6 +16,9 @@ use uuid::Uuid;
 use crate::models::{Device, NewDevice, DeviceInfo, SystemInfo};
 use sysinfo::System;
 
+mod settings;
+use crate::settings::ServerSettings;
+
 mod schema;
 mod models;
 
@@ -25,8 +28,10 @@ type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
 pub struct AppState {
     pub system: Mutex<System>,
-    pub pending_devices: Arc<RwLock<HashMap<String, DeviceInfo>>>, // pending only (in-memory)
+    pub pending_devices: Arc<RwLock<HashMap<String, DeviceInfo>>>,
+    pub settings: Arc<RwLock<ServerSettings>>,
 }
+
 
 fn init_logger() {
     Logger::try_with_str("info")
@@ -113,15 +118,16 @@ async fn register_device(
 
     let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let ip_address_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let network_interfaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let ip_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let ifaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-    let device_id = Uuid::new_v4().to_string();
+    // TEMPORARY ID — NOT THE FINAL UUID
+    let pending_id = format!("pending-{}", Uuid::new_v4());
 
     let device_info = DeviceInfo {
         system_info: SystemInfo {
-            ip_address: Some(ip_address_val),
-            network_interfaces: Some(network_interfaces_val),
+            ip_address: Some(ip_val),
+            network_interfaces: Some(ifaces_val),
             ..Default::default()
         },
         device_type: Some(device_type_val),
@@ -129,10 +135,15 @@ async fn register_device(
     };
 
     let mut pending = state.pending_devices.write().unwrap();
-    pending.insert(device_id.clone(), device_info);
+    pending.insert(pending_id.clone(), device_info);
 
-    Ok(Json(json!({ "device_id": device_id })))
+    // Return temporary ID — NOT the final UUID
+    Ok(Json(json!({
+        "pending_id": pending_id,
+        "status": "pending_adoption"
+    })))
 }
+
 
 // CLIENT attempts DB update → only allowed if already approved
 #[post("/devices/<device_id>", format = "json", data = "<device_info>")]
@@ -190,6 +201,12 @@ async fn heartbeat(
 
     let pending_ref = Arc::clone(&state.pending_devices);
 
+    // ✅ FIX: capture auto-approve flag before spawn_blocking
+    let auto_approve = {
+        let s = state.settings.read().unwrap();
+        s.auto_approve_devices
+    };
+
     let adopted = rocket::tokio::task::spawn_blocking(move || {
         if let Ok(mut conn) = pool_clone.get() {
 
@@ -211,6 +228,10 @@ async fn heartbeat(
                 return true;
             }
 
+            if auto_approve {
+                return true;
+            }
+
             let mut pending = pending_ref.write().unwrap();
             pending.insert(
                 device_id.clone(),
@@ -224,14 +245,25 @@ async fn heartbeat(
                     device_model: Some(device_model_val),
                 },
             );
+
             return false;
         }
+
         false
     })
     .await
     .unwrap_or(false);
 
     Json(json!({ "adopted": adopted }))
+}
+
+
+#[post("/settings/auto_approve/<enable>")]
+fn set_auto_approve(state: &State<AppState>, enable: bool) -> Json<serde_json::Value> {
+    let mut settings = state.settings.write().unwrap();
+    settings.auto_approve_devices = enable;
+    settings.save();
+    Json(json!({ "auto_approve": enable }))
 }
 
 // Get one device (approved only)
@@ -489,6 +521,7 @@ fn rocket() -> _ {
         .manage(AppState {
             system: Mutex::new(System::new_all()),
             pending_devices: Arc::new(RwLock::new(HashMap::new())),
+            settings: Arc::new(RwLock::new(ServerSettings::load())),
         })
         .mount(
             "/api",
@@ -500,6 +533,7 @@ fn rocket() -> _ {
                 status,
                 heartbeat,
                 approve_device,
+                set_auto_approve
             ],
         )
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
