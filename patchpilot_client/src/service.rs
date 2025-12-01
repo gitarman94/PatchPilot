@@ -8,8 +8,8 @@ use local_ip_address::local_ip;
 use tokio::time::sleep;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-const ADOPTION_CHECK_INTERVAL: u64 = 10; // seconds
-const SYSTEM_UPDATE_INTERVAL: u64 = 600; // seconds
+const ADOPTION_CHECK_INTERVAL: u64 = 10;
+const SYSTEM_UPDATE_INTERVAL: u64 = 600;
 
 #[cfg(any(unix, target_os = "macos"))]
 const DEVICE_ID_FILE: &str = "/opt/patchpilot_client/device_id.txt";
@@ -46,68 +46,18 @@ fn get_device_info_basic() -> (String, String, String) {
             let device_model = info.device_model.clone().unwrap_or_else(|| "unknown".into());
             (String::new(), device_type, device_model)
         }
-        Err(e) => {
-            error!("Failed to gather system info: {:?}", e);
-            (String::new(), "unknown".into(), "unknown".into())
-        }
-    }
-}
-
-fn get_device_info_with_id(device_id: &str) -> (String, String, String) {
-    match get_system_info() {
-        Ok(info) => {
-            let device_type = info.device_type.clone().unwrap_or_else(|| "unknown".into());
-            let device_model = info.device_model.clone().unwrap_or_else(|| "unknown".into());
-            (device_id.to_string(), device_type, device_model)
-        }
-        Err(e) => {
-            error!("Failed to gather system info: {:?}", e);
-            (device_id.to_string(), "unknown".into(), "unknown".into())
-        }
-    }
-}
-
-async fn register_device(client: &Client, server_url: &str, device_type: &str, device_model: &str) -> Result<String> {
-    info!("Registering device with server...");
-    let resp = client
-        .post(format!("{}/api/register", server_url))
-        .json(&json!({
-            "device_type": device_type,
-            "device_model": device_model,
-            "ip_address": get_ip_address(),
-            "network_interfaces": "eth0,wlan0"
-        }))
-        .send()
-        .await
-        .context("Failed to send registration request")?;
-
-    if resp.status().is_success() {
-        let json_resp: serde_json::Value = resp.json().await?;
-        if let Some(device_id) = json_resp.get("device_id").and_then(|v| v.as_str()) {
-            Ok(device_id.to_string())
-        } else {
-            anyhow::bail!("Server did not return a device_id on registration")
-        }
-    } else {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Registration failed: HTTP {} - {:?}", status, text)
+        Err(_) => ("".into(), "unknown".into(), "unknown".into()),
     }
 }
 
 async fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
     let mut sys_info = match get_system_info() {
         Ok(info) => info,
-        Err(e) => {
-            error!("Failed to gather system info: {:?}", e);
-            SystemInfo::new()
-        }
+        Err(_) => SystemInfo::new(),
     };
     sys_info.refresh();
 
-    info!("Sending system update for device {}...", device_id);
-
-    if let Err(e) = client
+    let _ = client
         .post(format!("{}/api/devices/{}", server_url, device_id))
         .json(&json!({
             "device_id": device_id,
@@ -116,10 +66,7 @@ async fn send_system_update(client: &Client, server_url: &str, device_id: &str) 
             "ip_address": get_ip_address(),
         }))
         .send()
-        .await
-    {
-        error!("Failed to send system update: {:?}", e);
-    }
+        .await;
 }
 
 async fn send_heartbeat(
@@ -128,7 +75,8 @@ async fn send_heartbeat(
     device_id: &str,
     device_type: &str,
     device_model: &str
-) -> bool {
+) -> (bool, Option<String>) {
+
     let resp = client
         .post(format!("{}/api/devices/heartbeat", server_url))
         .json(&json!({
@@ -143,11 +91,13 @@ async fn send_heartbeat(
 
     if let Ok(r) = resp {
         if let Ok(v) = r.json::<serde_json::Value>().await {
-            return v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false);
+            let adopted = v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false);
+            let new_id = v.get("device_id").and_then(|x| x.as_str()).map(|s| s.to_string());
+            return (adopted, new_id);
         }
     }
 
-    false
+    (false, None)
 }
 
 async fn run_adoption_and_update_loop(
@@ -160,10 +110,8 @@ async fn run_adoption_and_update_loop(
     let (_, device_type, device_model) = get_device_info_basic();
 
     if device_id.is_none() {
-        log::info!("No device_id found locally. Waiting for server adoption...");
-
         loop {
-            let adopted = send_heartbeat(
+            let (adopted, new_id) = send_heartbeat(
                 client,
                 server_url,
                 "",
@@ -173,18 +121,9 @@ async fn run_adoption_and_update_loop(
             .await;
 
             if adopted {
-                log::info!("Server assigned a device_id!");
-
-                let resp = client
-                    .get(format!("{}/api/devices/assign", server_url))
-                    .send()
-                    .await?
-                    .json::<serde_json::Value>()
-                    .await?;
-
-                if let Some(id) = resp.get("device_id").and_then(|v| v.as_str()) {
-                    device_id = Some(id.to_string());
-                    write_local_device_id(id)?;
+                if let Some(id) = new_id {
+                    write_local_device_id(&id)?;
+                    device_id = Some(id);
                     break;
                 }
             }
@@ -194,10 +133,9 @@ async fn run_adoption_and_update_loop(
     }
 
     let device_id = device_id.unwrap();
-    log::info!("Starting heartbeat loop for device {}", device_id);
 
     loop {
-        let adopted = send_heartbeat(
+        let (adopted, _) = send_heartbeat(
             client,
             server_url,
             &device_id,
@@ -207,54 +145,40 @@ async fn run_adoption_and_update_loop(
         .await;
 
         if adopted {
-            log::info!("Device {} approved by server", device_id);
             write_local_device_id(&device_id).ok();
-            break; // ✔ OK: loop break, function continues to update loop
+            break;
         }
 
         sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
     }
 
-    log::info!("Entering system update loop for device {}", device_id);
-
     loop {
         if let Some(flag) = running_flag {
             if !flag.load(Ordering::SeqCst) {
-                log::info!("Stopping update loop due to service stop");
-                return Ok(());  // ✔ Proper return
+                return Ok(());
             }
         }
 
         send_system_update(client, server_url, &device_id).await;
-
         sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL)).await;
     }
 }
 
-
 #[cfg(any(unix, target_os = "macos"))]
 pub async fn run_unix_service() -> Result<()> {
-    info!("Starting PatchPilot Unix/macOS service...");
-
     let client = Client::new();
     let server_url = read_server_url().await?;
-    run_adoption_and_update_loop(&client, &server_url, None).await;
-
+    run_adoption_and_update_loop(&client, &server_url, None).await?;
     Ok(())
 }
 
 #[cfg(windows)]
 pub async fn run_service() -> Result<()> {
     use windows_service::{
-        service::{
-            ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType
-        },
+        service::{ServiceControl},
         service_control_handler::{self, ServiceControlHandlerResult},
-        service_dispatcher
     };
     use std::sync::Arc;
-
-    info!("Starting PatchPilot Windows service...");
 
     let running_flag = Arc::new(AtomicBool::new(true));
     let running_flag_clone = running_flag.clone();
@@ -266,18 +190,13 @@ pub async fn run_service() -> Result<()> {
         Ok(())
     }
 
-    fn service_control_handler(control: ServiceControl) -> ServiceControlHandlerResult {
+    let _status_handle = service_control_handler::register("PatchPilot", |control| {
         match control {
-            ServiceControl::Stop => {
-                info!("Received stop signal");
-                ServiceControlHandlerResult::NoError
-            }
+            ServiceControl::Stop => ServiceControlHandlerResult::NoError,
             _ => ServiceControlHandlerResult::NotImplemented,
         }
-    }
+    })?;
 
-    let _status_handle = service_control_handler::register("PatchPilot", service_control_handler)?;
     my_service_main(running_flag_clone)?;
-
     Ok(())
 }
