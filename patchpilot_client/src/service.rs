@@ -24,12 +24,13 @@ const SERVER_URL_FILE: &str = "/opt/patchpilot_client/server_url.txt";
 const SERVER_URL_FILE: &str = "C:\\ProgramData\\PatchPilot\\server_url.txt";
 
 pub fn init_logging() -> Result<()> {
-    let mut base = PathBuf::from("/opt/patchpilot_client/logs");
+    let base = {
+        #[cfg(windows)]
+        { PathBuf::from("C:\\ProgramData\\PatchPilot\\logs") }
 
-    #[cfg(windows)]
-    {
-        base = PathBuf::from("C:\\ProgramData\\PatchPilot\\logs");
-    }
+        #[cfg(any(unix, target_os = "macos"))]
+        { PathBuf::from("/opt/patchpilot_client/logs") }
+    };
 
     fs::create_dir_all(&base)?;
 
@@ -64,14 +65,14 @@ fn write_local_device_id(device_id: &str) -> Result<()> {
     fs::write(DEVICE_ID_FILE, device_id).context("Failed to write local device_id")
 }
 
-fn get_device_info_basic() -> (String, String, String) {
+fn get_device_info_basic() -> (String, String) {
     match get_system_info() {
         Ok(info) => {
             let device_type = info.device_type.clone().unwrap_or_else(|| "unknown".into());
             let device_model = info.device_model.clone().unwrap_or_else(|| "unknown".into());
-            (String::new(), device_type, device_model)
+            (device_type, device_model)
         }
-        Err(_) => ("".into(), "unknown".into(), "unknown".into()),
+        Err(_) => ("unknown".into(), "unknown".into()),
     }
 }
 
@@ -81,8 +82,6 @@ async fn register_device(
     device_type: &str,
     device_model: &str
 ) -> Result<String> {
-    log::info!("Registering device...");
-
     let resp = client
         .post(format!("{}/api/register", server_url))
         .json(&json!({
@@ -93,21 +92,15 @@ async fn register_device(
         }))
         .send()
         .await
-        .context("Failed to send registration request")?;
+        .context("Registration request failed")?;
 
-    if resp.status().is_success() {
-        let json_resp: serde_json::Value = resp.json().await?;
-        if let Some(device_id) = json_resp.get("device_id").and_then(|v| v.as_str()) {
-            return Ok(device_id.to_string());
-        }
-        anyhow::bail!("Server did not return a device_id");
+    let json_resp: serde_json::Value = resp.json().await?;
+
+    if let Some(id) = json_resp.get("pending_id").and_then(|v| v.as_str()) {
+        return Ok(id.to_string());
     }
 
-    anyhow::bail!(
-        "Registration failed: HTTP {} - {}",
-        resp.status(),
-        resp.text().await.unwrap_or_default()
-    )
+    anyhow::bail!("Server did not return pending_id");
 }
 
 async fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
@@ -163,27 +156,14 @@ async fn run_adoption_and_update_loop(
     server_url: &str,
     running_flag: Option<&AtomicBool>
 ) -> Result<()> {
+    let (device_type, device_model) = get_device_info_basic();
+
     let mut device_id = get_local_device_id();
-    let (_, device_type, device_model) = get_device_info_basic();
 
     if device_id.is_none() {
-        loop {
-            if send_heartbeat(client, server_url, "", &device_type, &device_model).await {
-                let resp = client
-                    .get(format!("{}/api/devices/assign", server_url))
-                    .send()
-                    .await?
-                    .json::<serde_json::Value>()
-                    .await?;
-
-                if let Some(id) = resp.get("device_id").and_then(|v| v.as_str()) {
-                    device_id = Some(id.to_string());
-                    write_local_device_id(id)?;
-                    break;
-                }
-            }
-            sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
-        }
+        let id = register_device(client, server_url, &device_type, &device_model).await?;
+        write_local_device_id(&id)?;
+        device_id = Some(id);
     }
 
     let device_id = device_id.unwrap();
