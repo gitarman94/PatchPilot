@@ -122,6 +122,34 @@ async fn send_system_update(client: &Client, server_url: &str, device_id: &str) 
     }
 }
 
+async fn send_heartbeat(
+    client: &Client,
+    server_url: &str,
+    device_id: &str,
+    device_type: &str,
+    device_model: &str
+) -> bool {
+    let resp = client
+        .post(format!("{}/api/devices/heartbeat", server_url))
+        .json(&json!({
+            "device_id": device_id,
+            "device_type": device_type,
+            "device_model": device_model,
+            "ip_address": get_ip_address(),
+            "network_interfaces": "eth0,wlan0"
+        }))
+        .send()
+        .await;
+
+    if let Ok(r) = resp {
+        if let Ok(v) = r.json::<serde_json::Value>().await {
+            return v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false);
+        }
+    }
+
+    false
+}
+
 async fn run_adoption_and_update_loop(
     client: &Client,
     server_url: &str,
@@ -134,25 +162,39 @@ async fn run_adoption_and_update_loop(
 
     // Adoption loop: keep registering until approved
     while device_id.is_none() {
-        if let Some(flag) = running_flag {
-            if !flag.load(Ordering::SeqCst) {
-                info!("Stopping adoption loop due to service stop signal.");
-                return;
-            }
-        }
-
         match register_device(client, server_url, &device_type, &device_model).await {
             Ok(id) => {
                 info!("Registered with temporary device_id {}", id);
                 device_id = Some(id);
             }
-            Err(e) => {
-                error!("Registration attempt failed: {:?}", e);
-            }
+            Err(e) => error!("Registration attempt failed: {:?}", e)
         }
 
         sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
     }
+
+    let device_id = device_id.unwrap();
+    write_local_device_id(&device_id).ok();
+
+    info!("Entering heartbeat adoption loop for {}", device_id);
+
+    loop {
+        let adopted = send_heartbeat(
+            client,
+            server_url,
+            &device_id,
+            &device_type,
+            &device_model,
+        ).await;
+
+        if adopted {
+            info!("Device {} adopted by server!", device_id);
+            break;
+        }
+
+        sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
+    }
+
 
     let device_id = device_id.unwrap();
     write_local_device_id(&device_id).ok();
