@@ -3,7 +3,7 @@ use reqwest::Client;
 use serde_json::json;
 use std::{fs, time::Duration};
 use crate::system_info::{SystemInfo, get_system_info};
-use log::{info, error};
+use log;
 use local_ip_address::local_ip;
 use tokio::time::sleep;
 use std::sync::atomic::{AtomicBool, Ordering};
