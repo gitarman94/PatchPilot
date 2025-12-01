@@ -1,1 +1,211 @@
- 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Device — PatchPilot</title>
+
+  <!-- Bootstrap -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body{background:#f6f8fb;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;}
+    .header {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+    .device-title {font-weight:600}
+    .meta {color:#6c757d}
+    .card-soft {background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+    .stat {font-size:1.25rem;font-weight:600}
+    .muted {color:#6c757d}
+    .tab-pane {padding-top:10px;}
+  </style>
+</head>
+<body>
+  <div class="container py-3">
+    <div class="header">
+      <div>
+        <div class="device-title" id="deviceName">Loading…</div>
+        <div class="meta" id="deviceIdLine">—</div>
+      </div>
+      <div class="text-end">
+        <div id="statusBadge"></div>
+        <div class="muted" id="lastCheckinLine">—</div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-lg-4">
+        <div class="card card-soft p-3 mb-3">
+          <div class="mb-2"><strong>Summary</strong></div>
+          <div class="small-muted mb-2" id="osLine"></div>
+          <div class="mb-2"><span class="muted">IP:</span> <span id="ipAddr">—</span></div>
+          <div class="mb-2"><span class="muted">Type / Model:</span> <span id="typeModel">—</span></div>
+          <div class="mb-2"><span class="muted">Uptime:</span> <span id="uptime">—</span></div>
+          <div class="mb-2"><span class="muted">Updates:</span> <span id="updatesFlag">—</span></div>
+        </div>
+
+        <div class="card card-soft p-3">
+          <div class="mb-2"><strong>Quick Actions</strong></div>
+          <div class="d-grid gap-2">
+            <button id="btnCheckin" class="btn btn-outline-primary btn-sm">Force Check-in</button>
+            <button id="btnPatch" class="btn btn-outline-warning btn-sm">Force Patch</button>
+            <button id="btnReinstall" class="btn btn-outline-danger btn-sm">Force Reinstall</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-8">
+        <ul class="nav nav-tabs" id="detailTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="perf-tab" data-bs-toggle="tab" data-bs-target="#perf" type="button">Performance</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="hardware-tab" data-bs-toggle="tab" data-bs-target="#hardware" type="button">Hardware</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="network-tab" data-bs-toggle="tab" data-bs-target="#network" type="button">Network</button>
+          </li>
+        </ul>
+
+        <div class="tab-content card card-soft p-3">
+          <div class="tab-pane fade show active" id="perf">
+            <div class="row">
+              <div class="col-md-6">
+                <h6 class="mb-2">CPU Usage</h6>
+                <canvas id="cpuChart" height="140"></canvas>
+              </div>
+              <div class="col-md-6">
+                <h6 class="mb-2">RAM Usage</h6>
+                <canvas id="ramChart" height="140"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-pane fade" id="hardware">
+            <div class="row">
+              <div class="col-6"><div class="muted">CPU Cores</div><div id="cpuCores" class="stat">—</div></div>
+              <div class="col-6"><div class="muted">CPU Brand</div><div id="cpuBrand" class="stat">—</div></div>
+            </div>
+            <hr/>
+            <div class="row">
+              <div class="col-6"><div class="muted">RAM</div><div id="ramRaw" class="stat">—</div></div>
+              <div class="col-6"><div class="muted">Disk (used/total)</div><div id="diskRaw" class="stat">—</div></div>
+            </div>
+          </div>
+
+          <div class="tab-pane fade" id="network">
+            <div class="mb-2"><span class="muted">Interfaces</span><div id="ifaces">—</div></div>
+            <div class="mb-2"><span class="muted">Throughput</span><div id="throughput">—</div></div>
+            <div class="mb-2"><span class="muted">Ping</span><div id="ping">—</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const deviceID = params.get('deviceID');
+
+    function prettyBytes(n){
+      if (!n && n !== 0) return '—';
+      const thresh = 1024;
+      if (Math.abs(n) < thresh) return n + ' B';
+      const units = ['KB','MB','GB','TB'];
+      let u = -1;
+      do { n /= thresh; ++u; } while(Math.abs(n) >= thresh && u < units.length-1);
+      return n.toFixed(1) + ' ' + units[u];
+    }
+
+    function safe(v, fallback='—'){ return v == null ? fallback : v; }
+
+    // simple chart helper (uses Chart.js)
+    function makeLineChart(ctx, data, label){
+      if (!ctx) return null;
+      return new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.map((_,i)=>i+1),
+          datasets: [{ label, data, tension:0.25, fill:false, borderWidth:2 }]
+        },
+        options: { responsive:true, plugins:{legend:{display:false}} }
+      });
+    }
+
+    async function loadDetails(){
+      try{
+        const r = await fetch(`/api/device/${encodeURIComponent(deviceID)}`);
+        if (!r.ok){ throw new Error('Not found'); }
+        const device = await r.json();
+
+        // header
+        const title = device.hostname || device.device_name || device.id || device.device_name;
+        $('#deviceName').text(title);
+        $('#deviceIdLine').text(`ID: ${device.id || device.device_name || '—'}`);
+        $('#osLine').text((device.os_name || '—') + (device.architecture ? ' · ' + device.architecture : ''));
+
+        $('#ipAddr').text(safe(device.ip_address));
+        $('#typeModel').text(((device.device_type || device.device_model) || '—'));
+        $('#uptime').text(safe(device.uptime));
+        $('#updatesFlag').text(device.updates_available ? 'Yes' : 'No');
+
+        // status
+        const last = device.last_checkin ? new Date(device.last_checkin) : null;
+        $('#lastCheckinLine').text(last ? `Last: ${last.toLocaleString()}` : 'No check-ins');
+        const statusEl = $('#statusBadge').empty();
+        if (device.pending) {
+          statusEl.append(`<span class="badge badge-pending">Pending approval</span>`);
+        } else {
+          if (!last) statusEl.append(`<span class="badge bg-secondary">Offline</span>`);
+          else {
+            const diff = (Date.now() - new Date(last)) / 1000;
+            statusEl.append(diff < 600 ? `<span class="badge bg-success">Online</span>` : `<span class="badge bg-secondary">Offline</span>`);
+          }
+        }
+
+        // hardware
+        $('#cpuCores').text(device.cpu_count ?? '—');
+        $('#cpuBrand').text(device.cpu_brand ?? '—');
+        $('#ramRaw').text(`${prettyBytes(device.ram_used ?? 0)} used / ${prettyBytes(device.ram_total ?? 0)} total`);
+        $('#diskRaw').text(`${prettyBytes((device.disk_total ?? 0) - (device.disk_free ?? 0))} used / ${prettyBytes(device.disk_total ?? 0)} total`);
+
+        // network
+        $('#ifaces').text(device.network_interfaces || '—');
+        $('#throughput').text(device.network_throughput ? `${device.network_throughput} bytes` : '—');
+        $('#ping').text(device.ping_latency ? `${device.ping_latency} ms` : '—');
+
+        // performance charts: use fields cpu_usage_history etc if present, otherwise use single point
+        const cpuData = (device.cpu_usage_history && device.cpu_usage_history.length) ? device.cpu_usage_history : (device.cpu_usage != null ? [device.cpu_usage] : []);
+        const ramPct = (device.ram_total && device.ram_total>0) ? ((device.ram_used/device.ram_total)*100) : null;
+        const ramData = (device.ram_usage_history && device.ram_usage_history.length) ? device.ram_usage_history : (ramPct != null ? [ramPct] : []);
+
+        // create charts (destroy previous if exist)
+        if (window._cpuChart) window._cpuChart.destroy();
+        if (window._ramChart) window._ramChart.destroy();
+        window._cpuChart = makeLineChart(document.getElementById('cpuChart'), cpuData, 'CPU %');
+        window._ramChart = makeLineChart(document.getElementById('ramChart'), ramData, 'RAM %');
+
+      }catch(e){
+        console.error(e);
+        $('#deviceName').text('Failed to load device');
+        $('#deviceIdLine').text('');
+      }
+    }
+
+    // quick action placeholders
+    $('#btnCheckin').on('click', ()=> alert('Force check-in requested (server action not implemented here)'));
+    $('#btnPatch').on('click', ()=> alert('Force patch requested (server action not implemented here)'));
+    $('#btnReinstall').on('click', ()=> alert('Force reinstall requested (server action not implemented here)'));
+
+    if (!deviceID) {
+      $('#deviceName').text('No device specified');
+    } else {
+      loadDetails();
+    }
+  </script>
+</body>
+</html>
