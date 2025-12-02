@@ -23,16 +23,15 @@ const SERVER_URL_FILE: &str = "C:\\ProgramData\\PatchPilot\\server_url.txt";
 pub fn init_logging() -> anyhow::Result<()> {
     use std::fs;
     use flexi_logger::{
-        Logger, FileSpec, Age, Cleanup, Criterion, Naming, Duplicate,
+        Logger, FileSpec, Age, Cleanup, Criterion, Naming, Duplicate, WriteMode
     };
 
-    // Absolute log directory in your installation path
+    // Absolute log directory for Linux installation
     let log_dir = "/opt/patchpilot_client/logs";
 
-    // Ensure directory exists (flexi_logger won’t do this automatically)
+    // Ensure directory exists
     fs::create_dir_all(log_dir)?;
 
-    // Create a FileSpec that ensures parent directories are created
     let file_spec = FileSpec::default()
         .directory(log_dir)
         .basename("patchpilot")
@@ -40,13 +39,14 @@ pub fn init_logging() -> anyhow::Result<()> {
 
     Logger::try_with_str("info")?
         .log_to_file(file_spec)
+        .write_mode(WriteMode::Direct)   // <── required for immediate flush (your fix!)
         .duplicate_to_stderr(Duplicate::Info)
         .rotate(
             Criterion::Age(Age::Day),
             Naming::Timestamps,
             Cleanup::KeepLogFiles(7),
         )
-        .start()?;
+        .start()?; // start logger
 
     Ok(())
 }
