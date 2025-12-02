@@ -5,7 +5,9 @@ use std::{fs, path::Path};
 use crate::service::init_logging;
 
 //
-// Systemd service installation and validation (Linux only)
+// Systemd Setup (Linux Only)
+// Ensures the PatchPilot systemd service exists, is enabled,
+// and the dedicated service user is present.
 //
 #[cfg(target_os = "linux")]
 fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,7 +28,7 @@ fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
-    // Create service definition if missing
+    // Create service unit file if missing
     if !Path::new(service_path).exists() {
         let service_contents = r#"[Unit]
 Description=PatchPilot Client
@@ -48,7 +50,7 @@ WantedBy=multi-user.target
             .output();
     }
 
-    // Ensure service is enabled
+    // Enable service
     let status = std::process::Command::new("systemctl")
         .arg("is-enabled")
         .arg("patchpilot_client.service")
@@ -66,9 +68,12 @@ WantedBy=multi-user.target
     Ok(())
 }
 
-// Runtime directory and configuration validation
+//
+// Runtime Environment Setup
+// Creates directories, enforces permissions, and validates
+// expected configuration files.
+//
 fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
-    // Platform base directory
     #[cfg(target_os = "linux")]
     let base_dir = "/opt/patchpilot_client";
 
@@ -86,7 +91,7 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
     let logs_dir = format!("{}/logs", base_dir);
     let server_url_file = format!("{}/server_url.txt", base_dir);
 
-    // Create required directories
+    // Ensure application directory structure
     if !Path::new(base_dir).exists() {
         fs::create_dir_all(base_dir)?;
     }
@@ -94,7 +99,7 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(&logs_dir)?;
     }
 
-    // Linux: enforce directory ownership and permissions
+    // Linux-specific permission enforcement
     #[cfg(target_os = "linux")]
     {
         let _ = std::process::Command::new("chown")
@@ -103,31 +108,27 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
             .arg(base_dir)
             .output();
 
-        let _ = std::process::Command::new("chown")
-            .arg("-R")
-            .arg("patchpilot:patchpilot")
-            .arg(&logs_dir)
-            .output();
-
         let _ = std::process::Command::new("chmod")
             .arg("755")
             .arg(&logs_dir)
             .output();
     }
 
-    // Report missing configuration file
+    // Warn (not error) if missing configuration
     if !Path::new(&server_url_file).exists() {
-        log::error!("Server configuration file is missing.");
-        log::error!(
-            "Expected at: {} (example content: http://192.168.1.10:8080)",
+        println!(
+            "WARNING: Missing server URL configuration file at {}",
             server_url_file
         );
+        println!("Create it with the PatchPilot server URL (e.g. http://192.168.1.10:8080).");
     }
 
     Ok(())
 }
 
-// Initial system information logging
+//
+// Initial System Information Logging
+//
 fn log_initial_system_info() {
     use system_info::SystemInfo;
 
@@ -157,7 +158,7 @@ fn log_initial_system_info() {
 }
 
 //
-// Application entry point
+// Application Entry Point
 //
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -177,7 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(unix)]
     {
         if let Err(e) = service::run_unix_service().await {
-            log::error!("Service error: {}", e);
+            log::error!("Service error: {}", e.to_string());
             return Err(Box::<dyn std::error::Error>::from(e));
         }
     }
@@ -185,7 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     {
         if let Err(e) = service::run_service().await {
-            log::error!("Service error: {}", e);
+            log::error!("Service error: {}", e.to_string());
             return Err(Box::<dyn std::error::Error>::from(e));
         }
     }
