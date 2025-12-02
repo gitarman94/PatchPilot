@@ -8,7 +8,7 @@ use crate::service::init_logging;
 fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
     let service_path = "/etc/systemd/system/patchpilot_client.service";
 
-    // Create patchpilot user if missing
+    // Ensure service user exists
     let _ = std::process::Command::new("id")
         .arg("patchpilot")
         .output()
@@ -26,15 +26,13 @@ fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
     // Create service file if missing
     if !Path::new(service_path).exists() {
         let service_contents = r#"[Unit]
-Description=PatchPilot Client Service
+Description=PatchPilot Client
 After=network.target
 
 [Service]
-Type=simple
 User=patchpilot
 ExecStart=/opt/patchpilot_client/patchpilot_client
 Restart=always
-RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
@@ -42,13 +40,12 @@ WantedBy=multi-user.target
 
         fs::write(service_path, service_contents)?;
 
-        // Reload systemd
         let _ = std::process::Command::new("systemctl")
             .arg("daemon-reload")
             .output();
     }
 
-    // Enable service if disabled
+    // Enable service if not yet enabled
     let status = std::process::Command::new("systemctl")
         .arg("is-enabled")
         .arg("patchpilot_client.service")
@@ -67,6 +64,7 @@ WantedBy=multi-user.target
 }
 
 fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
+    // Establish runtime base directory
     #[cfg(target_os = "linux")]
     let base_dir = "/opt/patchpilot_client";
 
@@ -84,7 +82,7 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
     let logs_dir = format!("{}/logs", base_dir);
     let server_url_file = format!("{}/server_url.txt", base_dir);
 
-    // Ensure directories exist
+    // Ensure required directories exist
     if !Path::new(base_dir).exists() {
         fs::create_dir_all(base_dir)?;
     }
@@ -92,12 +90,16 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(&logs_dir)?;
     }
 
-    // Ensure server_url.txt exists
+    // Check for server config file
     if !Path::new(&server_url_file).exists() {
-        fs::write(&server_url_file, "http://0.0.0.0:8080")?;
+        log::error!("Server configuration missing.");
+        log::error!(
+            "Create file at: {} containing the server URL (example: http://192.168.1.10:8080)",
+            server_url_file
+        );
     }
 
-    // Linux: correct ownership
+    // Linux: enforce correct ownership
     #[cfg(target_os = "linux")]
     {
         let _ = std::process::Command::new("chown")
@@ -140,26 +142,23 @@ fn log_initial_system_info() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Directory and config validation
     setup_runtime_environment()?;
 
-    // Linux self-healing service check
     #[cfg(target_os = "linux")]
     ensure_systemd_service()?;
 
     if let Err(e) = init_logging() {
-        eprintln!("Failed to initialize logging: {}", e);
+        eprintln!("Logging initialization failed: {}", e);
         return Err(Box::<dyn std::error::Error>::from(e));
     }
 
     log::info!("PatchPilot client starting...");
     log_initial_system_info();
 
-    // Start platform-specific service handler
     #[cfg(unix)]
     {
         if let Err(e) = service::run_unix_service().await {
-            log::error!("Unix service error: {}", e);
+            log::error!("Service error: {}", e);
             return Err(Box::<dyn std::error::Error>::from(e));
         }
     }
@@ -167,7 +166,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     {
         if let Err(e) = service::run_service().await {
-            log::error!("Windows service error: {}", e);
+            log::error!("Service error: {}", e);
             return Err(Box::<dyn std::error::Error>::from(e));
         }
     }

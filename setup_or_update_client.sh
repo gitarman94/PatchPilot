@@ -13,11 +13,7 @@ SYSTEMD_DIR="/etc/systemd/system"
 FORCE_INSTALL=false
 UPDATE=false
 
-# --- Prompt for server address ---
 echo "PatchPilot Client Installer"
-read -p "Enter PatchPilot server IP or hostname: " SERVER_IP
-mkdir -p /etc/patchpilot
-echo "$SERVER_IP" > /etc/patchpilot/server_address
 
 # --- Parse arguments ---
 for arg in "$@"; do
@@ -46,7 +42,7 @@ else
     exit 1
 fi
 
-# --- Optional cleanup for forced reinstall ---
+# --- Optional cleanup ---
 if [[ "$FORCE_INSTALL" = true ]]; then
     echo "Removing previous installation..."
 
@@ -70,7 +66,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl git build-essential pkg-config libssl-dev
 
-# --- Install Rust toolchain (isolated) ---
+# --- Install Rust toolchain ---
 CARGO_HOME="$APP_DIR/.cargo"
 RUSTUP_HOME="$APP_DIR/.rustup"
 mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
@@ -103,13 +99,28 @@ echo "Building PatchPilot client..."
 cp "target/release/$BINARY_NAME" "$CLIENT_BINARY"
 chmod +x "$CLIENT_BINARY"
 
-# --- Create service user ---
+# --- Service user ---
 if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -s /usr/sbin/nologin patchpilot
 fi
 
 chown -R patchpilot:patchpilot "$APP_DIR"
 chmod -R 755 "$APP_DIR"
+
+# --- Ask for server IP (optional) ---
+echo
+echo "Enter PatchPilot server IP or hostname (leave blank to set later):"
+read -p "Server: " SERVER_IP
+echo
+
+mkdir -p /etc/patchpilot
+
+if [[ -n "$SERVER_IP" ]]; then
+    echo "$SERVER_IP" > /etc/patchpilot/server_address
+    echo "Saved server address: $SERVER_IP"
+else
+    echo "No server address provided. Client will log instructions on startup."
+fi
 
 # --- Configure systemd service ---
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
@@ -132,7 +143,7 @@ EOF
 systemctl daemon-reload
 systemctl enable --now "$SERVICE_NAME"
 
-# --- Cleanup build directory ---
+# --- Cleanup ---
 rm -rf "$SRC_DIR"
 
 echo "Installation complete. PatchPilot client is now running."
