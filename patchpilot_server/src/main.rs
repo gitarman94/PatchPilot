@@ -6,7 +6,7 @@ use rocket::serde::json::Json;
 use rocket::fs::{FileServer, NamedFile};
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use log::info;
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 use chrono::Utc;
 use local_ip_address::local_ip;
 use std::sync::{Mutex, Arc, RwLock};
@@ -31,7 +31,6 @@ pub struct AppState {
     pub pending_devices: Arc<RwLock<HashMap<String, DeviceInfo>>>,
     pub settings: Arc<RwLock<ServerSettings>>,
 }
-
 
 fn init_logger() {
     Logger::try_with_str("info")
@@ -120,12 +119,10 @@ fn insert_or_update_device(
 async fn register_device(
     state: &State<AppState>,
     payload: Json<DeviceInfo>,
-) -> Result<Json<serde_json::Value>, String> 
+) -> Result<Json<serde_json::Value>, String>
 {
-    // New temporary ID (not final; not approved)
     let pending_id = format!("pending-{}", Uuid::new_v4());
 
-    // Store EXACTLY what the client sent
     let mut pending = state.pending_devices.write().unwrap();
     pending.insert(pending_id.clone(), payload.into_inner());
 
@@ -134,7 +131,6 @@ async fn register_device(
         "status": "pending_adoption"
     })))
 }
-
 
 // CLIENT attempts DB update → only allowed if already approved
 #[post("/devices/<device_id>", format = "json", data = "<device_info>")]
@@ -177,18 +173,45 @@ async fn register_or_update_device(
 async fn heartbeat(
     state: &State<AppState>,
     pool: &State<DbPool>,
-    payload: Json<DeviceInfo>,
+    payload: Json<JsonValue>,
 ) -> Json<serde_json::Value>
 {
     use crate::schema::devices::dsl::*;
 
     let pool_clone = pool.inner().clone();
-    let incoming = payload.into_inner();
+    let payload_value = payload.into_inner();
 
-    let device_id = incoming.system_info.hostname.clone().unwrap_or_default();
+    // device_id can be provided as top-level "device_id" or inside system_info.hostname
+    let device_id = payload_value.get("device_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            payload_value.get("system_info")
+                .and_then(|si| si.get("hostname"))
+                .and_then(|h| h.as_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_default();
+
     if device_id.is_empty() {
-        return Json(json!({ "adopted": false, "error": "missing hostname/device_id" }));
+        return Json(json!({ "adopted": false, "error": "missing device_id or system_info.hostname" }));
     }
+
+    // Try to deserialize DeviceInfo from the payload; fallback to minimal DeviceInfo
+    let incoming_info: DeviceInfo = match serde_json::from_value(payload_value.clone()) {
+        Ok(di) => di,
+        Err(_) => {
+            // build minimal DeviceInfo from available fields
+            let sys = payload_value.get("system_info").and_then(|si| serde_json::from_value(si.clone()).ok()).unwrap_or(SystemInfo::default());
+            let dtype = payload_value.get("device_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let dmodel = payload_value.get("device_model").and_then(|v| v.as_str()).map(|s| s.to_string());
+            DeviceInfo {
+                system_info: sys,
+                device_type: dtype,
+                device_model: dmodel,
+            }
+        }
+    };
 
     let auto_approve = {
         let cfg = state.settings.read().unwrap();
@@ -196,6 +219,7 @@ async fn heartbeat(
     };
 
     let pending_ref = Arc::clone(&state.pending_devices);
+    let incoming_clone = incoming_info.clone();
 
     let adopted = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = match pool_clone.get() {
@@ -210,27 +234,15 @@ async fn heartbeat(
             .unwrap_or(false);
 
         if is_approved {
-            let newdev = NewDevice::from_device_info(&device_id, &incoming);
+            let existing = devices
+                .filter(device_name.eq(&device_id))
+                .first::<Device>(&mut conn)
+                .ok();
 
-            diesel::update(devices.filter(device_name.eq(&device_id)))
-                .set((
-                    last_checkin.eq(Utc::now().naive_utc()),
-                    ip_address.eq(newdev.ip_address.clone().filter(|v| !v.is_empty())),
-                    network_interfaces.eq(newdev.network_interfaces.clone().filter(|v| !v.is_empty())),
-                    hostname.eq(newdev.hostname.clone().filter(|v| !v.is_empty())),
-                    os_name.eq(newdev.os_name.clone().filter(|v| !v.is_empty())),
-                    architecture.eq(newdev.architecture.clone().filter(|v| !v.is_empty())),
-                    cpu_brand.eq(newdev.cpu_brand.clone().filter(|v| !v.is_empty())),
-                    disk_health.eq(newdev.disk_health.clone().filter(|v| !v.is_empty())),
-                    cpu_usage.eq(newdev.cpu_usage),
-                    cpu_count.eq(newdev.cpu_count),
-                    ram_total.eq(newdev.ram_total),
-                    ram_used.eq(newdev.ram_used),
-                    disk_total.eq(newdev.disk_total),
-                    disk_free.eq(newdev.disk_free),
-                    network_throughput.eq(newdev.network_throughput),
-                    ping_latency.eq(newdev.ping_latency),
-                ))
+            let newdev = NewDevice::from_device_info(&device_id, &incoming_clone, existing.as_ref());
+
+            let _ = diesel::update(devices.filter(device_name.eq(&device_id)))
+                .set(&newdev)
                 .execute(&mut conn)
                 .ok();
 
@@ -238,7 +250,7 @@ async fn heartbeat(
         }
 
         if auto_approve {
-            let mut newdev = NewDevice::from_device_info(&device_id, &incoming);
+            let mut newdev = NewDevice::from_device_info(&device_id, &incoming_clone, None);
             newdev.approved = true;
 
             let _ = diesel::insert_into(devices)
@@ -254,8 +266,8 @@ async fn heartbeat(
         let mut pending = pending_ref.write().unwrap();
         pending
             .entry(device_id.clone())
-            .and_modify(|existing| existing.merge_with(&incoming))
-            .or_insert(incoming);
+            .and_modify(|existing| existing.merge_with(&incoming_clone))
+            .or_insert(incoming_clone);
 
         false
     })
@@ -264,7 +276,6 @@ async fn heartbeat(
 
     Json(json!({ "adopted": adopted }))
 }
-
 
 #[post("/settings/auto_approve/<enable>")]
 fn set_auto_approve(state: &State<AppState>, enable: bool) -> Json<serde_json::Value> {
@@ -306,7 +317,6 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     Json(json!({
         "status": "ok",
         "server_time": Utc::now().to_rfc3339(),
-        // use associated function (matches your environment)
         "uptime_seconds": System::uptime(),
         "cpu_count": sys.cpus().len(),
         "cpu_usage_per_core_percent": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
@@ -318,20 +328,17 @@ fn status(state: &State<AppState>) -> Json<serde_json::Value> {
     }))
 }
 
-
 // Return all devices (approved from DB + pending in-memory)
 #[get("/devices")]
 async fn get_devices(pool: &State<DbPool>, state: &State<AppState>) -> Result<Json<Vec<serde_json::Value>>, String> {
     use crate::schema::devices::dsl::*;
 
-    // clone pool and pending ref for blocking task
     let pool = pool.inner().clone();
     let pending_ref = Arc::clone(&state.pending_devices);
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|e| e.to_string())?;
 
-        // load approved devices from DB
         let mut list: Vec<serde_json::Value> = devices
             .load::<Device>(&mut conn)
             .map_err(|e| e.to_string())?
@@ -362,7 +369,6 @@ async fn get_devices(pool: &State<DbPool>, state: &State<AppState>) -> Result<Js
             }))
             .collect();
 
-        // append pending (in-memory)
         let pending = pending_ref.read().unwrap();
         for (pending_id, p) in pending.iter() {
             list.push(json!({
@@ -419,7 +425,7 @@ async fn approve_device(
 
         let mut conn = pool.get().map_err(|e| format!("DB pool error: {}", e))?;
 
-        let mut new_dev = NewDevice::from_device_info(&dev_id, &info);
+        let mut new_dev = NewDevice::from_device_info(&dev_id, &info, None);
         new_dev.approved = true;
 
         diesel::insert_into(devices)
