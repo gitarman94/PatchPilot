@@ -26,20 +26,20 @@ pub fn init_logging() -> anyhow::Result<()> {
         Logger, FileSpec, Age, Cleanup, Criterion, Naming, Duplicate,
     };
 
-    // ALWAYS write logs to the install dir
+    // Absolute log directory in your installation path
     let log_dir = "/opt/patchpilot_client/logs";
 
-    // Ensure the directory exists
+    // Ensure directory exists (flexi_logger won’t do this automatically)
     fs::create_dir_all(log_dir)?;
 
+    // Create a FileSpec that ensures parent directories are created
+    let file_spec = FileSpec::default()
+        .directory(log_dir)
+        .basename("patchpilot")
+        .suffix("log");
+
     Logger::try_with_str("info")?
-        .log_to_file(
-            FileSpec::default()
-                .directory(log_dir)
-                .basename("patchpilot")
-                .suffix("log"),
-        )
-        .create_missing_directories(true) // <– important!
+        .log_to_file(file_spec)
         .duplicate_to_stderr(Duplicate::Info)
         .rotate(
             Criterion::Age(Age::Day),
