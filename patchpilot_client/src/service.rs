@@ -39,17 +39,16 @@ pub fn init_logging() -> anyhow::Result<()> {
         .basename("patchpilot")
         .suffix("log");
 
-    Logger::try_with_str("info")?
-        .log_to_file(file_spec)
-        .write_mode(WriteMode::Direct)
-        .duplicate_to_stderr(Duplicate::Info)
-        .rotate(
-            Criterion::Age(Age::Day),
-            Naming::Timestamps,
-            Cleanup::KeepLogFiles(7),
-        )
-        .start()
-        .or_else(|e| e.reconfigure())?;
+        Logger::try_with_str("info")?
+            .log_to_file(file_spec)
+            .write_mode(WriteMode::Direct)
+            .duplicate_to_stderr(Duplicate::Info)
+            .rotate(
+                Criterion::Age(Age::Day),
+                Naming::Timestamps,
+                Cleanup::KeepLogFiles(7),
+            )
+            .start()?;
     Ok(())
 }
 
