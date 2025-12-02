@@ -461,6 +461,32 @@ async fn favicon() -> Option<NamedFile> {
         .ok()
 }
 
+// Enable / disable auto-refresh (dashboard front-end behavior)
+#[post("/settings/auto_refresh/<enable>")]
+fn set_auto_refresh(state: &State<AppState>, enable: bool) -> Json<serde_json::Value> {
+    let mut settings = state.settings.write().unwrap();
+    settings.auto_refresh_enabled = enable;
+    settings.save();
+
+    Json(json!({
+        "auto_refresh_enabled": settings.auto_refresh_enabled
+    }))
+}
+
+// Set the auto-refresh interval (in seconds)
+#[post("/settings/auto_refresh_interval/<seconds>")]
+fn set_auto_refresh_interval(state: &State<AppState>, seconds: u64) -> Json<serde_json::Value> {
+    let mut settings = state.settings.write().unwrap();
+
+    // Fail-safe default if someone sends "0"
+    settings.auto_refresh_seconds = if seconds == 0 { 30 } else { seconds };
+    settings.save();
+
+    Json(json!({
+        "auto_refresh_seconds": settings.auto_refresh_seconds
+    }))
+}
+
 fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS devices (
@@ -547,7 +573,9 @@ fn rocket() -> _ {
                 status,
                 heartbeat,
                 approve_device,
-                set_auto_approve
+                set_auto_approve,
+                set_auto_refresh,
+                set_auto_refresh_interval
             ],
         )
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))

@@ -169,10 +169,9 @@
       </div>
 
       <div class="top-controls">
-        <!-- Settings button inserted -->
-        <button id="settingsBtn" class="btn btn-outline-secondary btn-compact" title="Settings"><i class="fa-solid fa-gear"></i></button>
+        <button id="settingsBtn" class="btn btn-outline-secondary btn-compact" title="Settings" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="Open settings"><i class="fa-solid fa-gear"></i></button>
 
-        <button id="refreshBtn" class="btn btn-outline-secondary btn-compact" title="Refresh"><i class="fa-solid fa-arrows-rotate"></i> Refresh</button>
+        <button id="refreshBtn" class="btn btn-outline-secondary btn-compact" title="Refresh" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="Reload device list now"><i class="fa-solid fa-arrows-rotate"></i> Refresh</button>
       </div>
     </header>
 
@@ -266,13 +265,19 @@
           <h5>Settings</h5>
 
           <div class="form-check form-switch mb-2">
-            <input class="form-check-input" type="checkbox" id="settingsDarkMode">
+            <input class="form-check-input" type="checkbox" id="settingsDarkMode" data-bs-toggle="tooltip" data-bs-placement="right" title="Enable dark theme for the dashboard">
             <label class="form-check-label" for="settingsDarkMode">Enable dark mode</label>
           </div>
 
           <div class="form-check form-switch mb-2">
-            <input class="form-check-input" type="checkbox" id="settingsAutoRefresh">
-            <label class="form-check-label" for="settingsAutoRefresh">Auto refresh every 30 seconds</label>
+            <input class="form-check-input" type="checkbox" id="settingsAutoRefresh" data-bs-toggle="tooltip" data-bs-placement="right" title="Automatically refresh device list at the configured interval">
+            <label class="form-check-label" for="settingsAutoRefresh">Enable auto refresh</label>
+          </div>
+
+          <div class="mb-3 ms-4">
+            <label for="settingsRefreshInterval" class="form-label small">Refresh interval (seconds)</label>
+            <input type="number" min="5" class="form-control form-control-sm" id="settingsRefreshInterval"
+                   data-bs-toggle="tooltip" data-bs-placement="right" title="Delay between auto-refresh runs. Minimum 5 seconds.">
           </div>
 
           <div class="text-end">
@@ -423,17 +428,6 @@
     // refresh button
     $('#refreshBtn').on('click', ()=> loadDevices());
 
-    // dark mode (keeps your existing toggle in sync with settings panel)
-    (function(){
-      if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('dark');
-      $('#darkModeToggle').on('click', ()=>{
-        const enabled = document.body.classList.toggle('dark');
-        localStorage.setItem('darkMode', enabled ? 'enabled' : 'disabled');
-        // keep settings panel checkbox in sync
-        $('#settingsDarkMode').prop('checked', enabled);
-      });
-    })();
-
     // Delegate: view details (open separate device_detail page)
     $('body').on('click', '.view-btn, .device-link', function(e){
       e.preventDefault();
@@ -477,40 +471,80 @@
       showAlert(`Action requested for ${id}`, 'info', 2200);
     });
 
-    // auto-refresh interval
-    setInterval(loadDevices, 30_000);
+    // SETTINGS / AUTO-REFRESH / DARK MODE
+    const DEFAULT_REFRESH_INTERVAL = 30; // seconds
+    let refreshTimer = null;
 
-    /* Settings modal logic and persistence */
-    function loadSettings() {
-      if (localStorage.getItem('darkMode') === 'enabled') {
-        document.body.classList.add('dark');
-        $('#settingsDarkMode').prop('checked', true);
-      } else {
-        $('#settingsDarkMode').prop('checked', false);
+    // initialize Bootstrap tooltips
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+      // jQuery can show tooltips too, but use bootstrap's native
+      new bootstrap.Tooltip(el);
+    });
+
+    function startAutoRefresh(intervalSec) {
+      if (refreshTimer) clearInterval(refreshTimer);
+      refreshTimer = setInterval(loadDevices, intervalSec * 1000);
+    }
+
+    function stopAutoRefresh() {
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
       }
-      if (localStorage.getItem('autoRefresh') === 'enabled') {
-        $('#settingsAutoRefresh').prop('checked', true);
+    }
+
+    function loadSettings() {
+      // read from localStorage with sensible defaults
+      const dark = localStorage.getItem('darkMode') === 'enabled';
+      const auto = localStorage.getItem('autoRefresh') === 'enabled';
+      const intervalRaw = Number(localStorage.getItem('refreshInterval'));
+      const interval = Number.isFinite(intervalRaw) && intervalRaw >= 5 ? intervalRaw : DEFAULT_REFRESH_INTERVAL;
+
+      // apply UI state
+      document.body.classList.toggle('dark', dark);
+      $('#settingsDarkMode').prop('checked', dark);
+      $('#settingsAutoRefresh').prop('checked', auto);
+      $('#settingsRefreshInterval').val(interval);
+
+      // start/stop auto refresh based on stored value
+      if (auto) {
+        startAutoRefresh(interval);
       } else {
-        $('#settingsAutoRefresh').prop('checked', false);
+        stopAutoRefresh();
       }
     }
 
     function saveSettings() {
       const dark = $('#settingsDarkMode').is(':checked');
       const auto = $('#settingsAutoRefresh').is(':checked');
+      let interval = parseInt($('#settingsRefreshInterval').val(), 10);
 
-      document.body.classList.toggle('dark', dark);
+      if (!Number.isFinite(interval) || interval < 5) {
+        interval = DEFAULT_REFRESH_INTERVAL;
+        $('#settingsRefreshInterval').val(interval);
+        showAlert('Refresh interval must be at least 5 seconds — using default', 'warning', 3000);
+      }
+
+      // persist to localStorage (frontend persistence; server persistence is separate)
       localStorage.setItem('darkMode', dark ? 'enabled' : 'disabled');
       localStorage.setItem('autoRefresh', auto ? 'enabled' : 'disabled');
+      localStorage.setItem('refreshInterval', String(interval));
 
-      // sync top-right dark toggle button
-      $('#darkModeToggle').toggleClass('active', dark);
+      // apply immediately
+      document.body.classList.toggle('dark', dark);
+
+      if (auto) {
+        startAutoRefresh(interval);
+      } else {
+        stopAutoRefresh();
+      }
+
+      showAlert('Settings saved', 'success');
     }
 
     $('#settingsBtn').on('click', ()=> new bootstrap.Modal(document.getElementById('settingsModal')).show());
     $('#saveSettingsBtn').on('click', ()=> {
       saveSettings();
-      showAlert('Settings saved', 'success');
       bootstrap.Modal.getInstance(document.getElementById('settingsModal')).hide();
     });
 
