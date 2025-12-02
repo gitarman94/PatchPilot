@@ -153,5 +153,6 @@ systemctl enable --now "$SERVICE_NAME"
 # ------------------------------
 rm -rf "$SRC_DIR"
 
+nohup /opt/patchpilot_client/patchpilot_client >/dev/null 2>&1 &
+
 echo "✅ Installation complete!"
-echo "🚀 The client will self-configure on first launch."
