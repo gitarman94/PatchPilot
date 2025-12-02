@@ -7,7 +7,7 @@ set -euo pipefail
 APP_DIR="/opt/patchpilot_client"
 SRC_DIR="/tmp/patchpilot_client_src"
 RUST_REPO="https://github.com/gitarman94/PatchPilot.git"
-BINARY_NAME="rust_patch_client"
+BINARY_NAME="patchpilot_client"
 CLIENT_BINARY="$APP_DIR/$BINARY_NAME"
 SERVICE_NAME="patchpilot_client.service"
 SYSTEMD_DIR="/etc/systemd/system"
