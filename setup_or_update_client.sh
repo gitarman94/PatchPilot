@@ -58,7 +58,7 @@ if [[ "$FORCE_INSTALL" = true ]]; then
 fi
 
 # --- Prepare application directory ---
-mkdir -p "$APP_DIR"
+mkdir -p "$APP_DIR/logs"
 chmod 755 "$APP_DIR"
 
 # --- Install build dependencies ---

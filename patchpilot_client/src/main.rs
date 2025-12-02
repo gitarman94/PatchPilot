@@ -4,6 +4,9 @@ mod service;
 use std::{fs, path::Path};
 use crate::service::init_logging;
 
+//
+// Systemd service installation and validation (Linux only)
+//
 #[cfg(target_os = "linux")]
 fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
     let service_path = "/etc/systemd/system/patchpilot_client.service";
@@ -23,7 +26,7 @@ fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
-    // Create service file if missing
+    // Create service definition if missing
     if !Path::new(service_path).exists() {
         let service_contents = r#"[Unit]
 Description=PatchPilot Client
@@ -45,7 +48,7 @@ WantedBy=multi-user.target
             .output();
     }
 
-    // Enable service if not yet enabled
+    // Ensure service is enabled
     let status = std::process::Command::new("systemctl")
         .arg("is-enabled")
         .arg("patchpilot_client.service")
@@ -63,8 +66,9 @@ WantedBy=multi-user.target
     Ok(())
 }
 
+// Runtime directory and configuration validation
 fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
-    // Establish runtime base directory
+    // Platform base directory
     #[cfg(target_os = "linux")]
     let base_dir = "/opt/patchpilot_client";
 
@@ -82,7 +86,7 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
     let logs_dir = format!("{}/logs", base_dir);
     let server_url_file = format!("{}/server_url.txt", base_dir);
 
-    // Ensure required directories exist
+    // Create required directories
     if !Path::new(base_dir).exists() {
         fs::create_dir_all(base_dir)?;
     }
@@ -90,16 +94,7 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(&logs_dir)?;
     }
 
-    // Check for server config file
-    if !Path::new(&server_url_file).exists() {
-        log::error!("Server configuration missing.");
-        log::error!(
-            "Create file at: {} containing the server URL (example: http://192.168.1.10:8080)",
-            server_url_file
-        );
-    }
-
-    // Linux: enforce correct ownership
+    // Linux: enforce directory ownership and permissions
     #[cfg(target_os = "linux")]
     {
         let _ = std::process::Command::new("chown")
@@ -107,11 +102,32 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
             .arg("patchpilot:patchpilot")
             .arg(base_dir)
             .output();
+
+        let _ = std::process::Command::new("chown")
+            .arg("-R")
+            .arg("patchpilot:patchpilot")
+            .arg(&logs_dir)
+            .output();
+
+        let _ = std::process::Command::new("chmod")
+            .arg("755")
+            .arg(&logs_dir)
+            .output();
+    }
+
+    // Report missing configuration file
+    if !Path::new(&server_url_file).exists() {
+        log::error!("Server configuration file is missing.");
+        log::error!(
+            "Expected at: {} (example content: http://192.168.1.10:8080)",
+            server_url_file
+        );
     }
 
     Ok(())
 }
 
+// Initial system information logging
 fn log_initial_system_info() {
     use system_info::SystemInfo;
 
@@ -140,6 +156,9 @@ fn log_initial_system_info() {
     log::info!("Serial Number: {:?}", info.serial_number);
 }
 
+//
+// Application entry point
+//
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_runtime_environment()?;
