@@ -98,11 +98,12 @@ async fn register_device(
 
     let json_resp: serde_json::Value = resp.json().await?;
 
-    if let Some(id) = json_resp.get("pending_id").and_then(|v| v.as_str()) {
+    if let Some(id) = json_resp.get("device_id").and_then(|v| v.as_str()) {
         return Ok(id.to_string());
     }
 
-    anyhow::bail!("Server did not return pending_id");
+    anyhow::bail!("Server did not return device_id");
+
 }
 
 async fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
