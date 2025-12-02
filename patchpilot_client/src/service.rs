@@ -7,8 +7,6 @@ use local_ip_address::local_ip;
 use tokio::time::sleep;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use flexi_logger::{Logger, FileSpec, Criterion, Naming, Cleanup, Duplicate};
-
 const ADOPTION_CHECK_INTERVAL: u64 = 10;
 const SYSTEM_UPDATE_INTERVAL: u64 = 600;
 

@@ -33,16 +33,16 @@ fn log_initial_system_info() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging to local file.
+    // Initialize logging — guaranteed to write to a real file now.
     if let Err(e) = init_logging() {
         eprintln!("❌ Failed to initialize logging: {e}");
         return Err(Box::new(e));
     }
 
     log::info!("📌 PatchPilot client starting up...");
-
-    // System info logs directly into the file
+    //Immediately log system info to that file
     log_initial_system_info();
+    //Launch the OS-specific service
 
     #[cfg(unix)]
     {
