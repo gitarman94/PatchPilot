@@ -21,35 +21,32 @@ const SERVER_URL_FILE: &str = "/opt/patchpilot_client/server_url.txt";
 const SERVER_URL_FILE: &str = "C:\\ProgramData\\PatchPilot\\server_url.txt";
 
 pub fn init_logging() -> anyhow::Result<()> {
-    log::set_max_level(log::LevelFilter::Off);
-
-    use std::fs;
     use flexi_logger::{
-        Logger, FileSpec, Age, Cleanup, Criterion, Naming, Duplicate, WriteMode
+        Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming, WriteMode
     };
 
-    // Absolute log directory for Linux installation
     let log_dir = "/opt/patchpilot_client/logs";
 
-    // Ensure directory exists
-    fs::create_dir_all(log_dir)?;
+    // Ensure log directory exists
+    std::fs::create_dir_all(log_dir)?;
 
-    let file_spec = FileSpec::default()
-        .directory(log_dir)
-        .basename("patchpilot")
-        .suffix("log");
-
-        Logger::try_with_str("info")?
-            .log_to_file(file_spec)
-            .write_mode(WriteMode::Direct)
-            .duplicate_to_stderr(Duplicate::Info)
-            .rotate(
-                Criterion::Age(Age::Day),
-                Naming::Timestamps,
-                Cleanup::KeepLogFiles(7),
-            )
-            .start()?;
-    Ok(())
+    Logger::try_with_str("info")?
+        .log_to_file(
+            FileSpec::default()
+                .directory(log_dir)
+                .basename("patchpilot")
+                .suffix("log")
+        )
+        .write_mode(WriteMode::Direct)
+        .duplicate_to_stderr(Duplicate::Info)
+        .rotate(
+            Criterion::Age(Age::Day),
+            Naming::Timestamps,
+            Cleanup::KeepLogFiles(7),
+        )
+        .start()
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!("Failed to start logger: {}", e))
 }
 
 async fn read_server_url() -> Result<String> {
