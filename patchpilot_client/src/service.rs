@@ -21,6 +21,8 @@ const SERVER_URL_FILE: &str = "/opt/patchpilot_client/server_url.txt";
 const SERVER_URL_FILE: &str = "C:\\ProgramData\\PatchPilot\\server_url.txt";
 
 pub fn init_logging() -> anyhow::Result<()> {
+    log::set_max_level(log::LevelFilter::Off);
+
     use std::fs;
     use flexi_logger::{
         Logger, FileSpec, Age, Cleanup, Criterion, Naming, Duplicate, WriteMode
