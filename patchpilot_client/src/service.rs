@@ -48,8 +48,8 @@ pub fn init_logging() -> anyhow::Result<()> {
             Naming::Timestamps,
             Cleanup::KeepLogFiles(7),
         )
-        .start()?;
-        .or_else(|e| e.reconfigure())?;
+        .start()
+            .or_else(|e| e.reconfigure())?;
     Ok(())
 }
 
