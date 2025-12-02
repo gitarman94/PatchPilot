@@ -4,11 +4,9 @@ mod service;
 use std::{fs, path::Path};
 use crate::service::init_logging;
 
-//
-// Systemd Setup (Linux Only)
-// Ensures the PatchPilot systemd service exists, is enabled,
-// and the dedicated service user is present.
-//
+/// Systemd Setup (Linux Only)
+/// Ensures the PatchPilot systemd service exists, is enabled,
+/// and the dedicated service user is present.
 #[cfg(target_os = "linux")]
 fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
     let service_path = "/etc/systemd/system/patchpilot_client.service";
@@ -51,7 +49,7 @@ WantedBy=multi-user.target
     }
 
     // Enable service
-    let status = std::process::Command::new("systemctl")
+    let status = std::process::Command::Command::new("systemctl")
         .arg("is-enabled")
         .arg("patchpilot_client.service")
         .output();
@@ -68,11 +66,9 @@ WantedBy=multi-user.target
     Ok(())
 }
 
-//
-// Runtime Environment Setup
-// Creates directories, enforces permissions, and validates
-// expected configuration files.
-//
+/// Runtime Environment Setup
+/// Creates directories, enforces permissions, and validates
+/// expected configuration files.
 fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     let base_dir = "/opt/patchpilot_client";
@@ -126,9 +122,7 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-//
-// Initial System Information Logging
-//
+/// Initial System Information Logging
 fn log_initial_system_info() {
     use system_info::SystemInfo;
 
@@ -157,9 +151,7 @@ fn log_initial_system_info() {
     log::info!("Serial Number: {:?}", info.serial_number);
 }
 
-//
-// Application Entry Point
-//
+/// Application Entry Point
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_runtime_environment()?;
