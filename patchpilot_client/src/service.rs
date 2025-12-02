@@ -49,7 +49,7 @@ pub fn init_logging() -> anyhow::Result<()> {
             Cleanup::KeepLogFiles(7),
         )
         .start()
-            .or_else(|e| e.reconfigure())?;
+        .or_else(|e| e.reconfigure())?;
     Ok(())
 }
 
