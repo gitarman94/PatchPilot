@@ -4,10 +4,69 @@ mod service;
 use std::{fs, path::Path};
 use crate::service::init_logging;
 
-/// Ensures runtime directories and config files exist.
-/// All OS-specific differences handled inside this function.
+#[cfg(target_os = "linux")]
+fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
+    let service_path = "/etc/systemd/system/patchpilot_client.service";
+
+    // Create patchpilot user if missing
+    let _ = std::process::Command::new("id")
+        .arg("patchpilot")
+        .output()
+        .map(|output| {
+            if !output.status.success() {
+                let _ = std::process::Command::new("useradd")
+                    .arg("-r")
+                    .arg("-s")
+                    .arg("/usr/sbin/nologin")
+                    .arg("patchpilot")
+                    .output();
+            }
+        });
+
+    // Create service file if missing
+    if !Path::new(service_path).exists() {
+        let service_contents = r#"[Unit]
+Description=PatchPilot Client Service
+After=network.target
+
+[Service]
+Type=simple
+User=patchpilot
+ExecStart=/opt/patchpilot_client/patchpilot_client
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+"#;
+
+        fs::write(service_path, service_contents)?;
+
+        // Reload systemd
+        let _ = std::process::Command::new("systemctl")
+            .arg("daemon-reload")
+            .output();
+    }
+
+    // Enable service if disabled
+    let status = std::process::Command::new("systemctl")
+        .arg("is-enabled")
+        .arg("patchpilot_client.service")
+        .output();
+
+    if let Ok(out) = status {
+        if !out.status.success() {
+            let _ = std::process::Command::new("systemctl")
+                .arg("enable")
+                .arg("patchpilot_client.service")
+                .output();
+        }
+    }
+
+    Ok(())
+}
+
 fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
-    // --- Cross-platform base directory selection ---
     #[cfg(target_os = "linux")]
     let base_dir = "/opt/patchpilot_client";
 
@@ -25,22 +84,20 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
     let logs_dir = format!("{}/logs", base_dir);
     let server_url_file = format!("{}/server_url.txt", base_dir);
 
-    // --- Ensure base directory exists ---
+    // Ensure directories exist
     if !Path::new(base_dir).exists() {
         fs::create_dir_all(base_dir)?;
     }
-
-    // --- Ensure logs dir exists ---
     if !Path::new(&logs_dir).exists() {
         fs::create_dir_all(&logs_dir)?;
     }
 
-    // --- Ensure server_url.txt exists ---
+    // Ensure server_url.txt exists
     if !Path::new(&server_url_file).exists() {
         fs::write(&server_url_file, "http://0.0.0.0:8080")?;
     }
 
-    // --- Linux-only: fix permissions for patchpilot user ---
+    // Linux: correct ownership
     #[cfg(target_os = "linux")]
     {
         let _ = std::process::Command::new("chown")
@@ -62,7 +119,7 @@ fn log_initial_system_info() {
     let (disk_total, disk_free) = info.disk_usage();
     let net = info.network_throughput();
 
-    log::info!("=== Initial System Information ===");
+    log::info!("Initial system information:");
     log::info!("Hostname: {:?}", info.hostname);
     log::info!("OS Name: {:?}", info.os_name);
     log::info!("OS Version: {:?}", info.os_version);
@@ -73,7 +130,7 @@ fn log_initial_system_info() {
         info.ram_total, info.ram_used, info.ram_free
     );
     log::info!("Disk: total {} bytes, free {} bytes", disk_total, disk_free);
-    log::info!("Network throughput (initial): {} bytes", net);
+    log::info!("Initial network throughput: {} bytes", net);
     log::info!("IP Address: {:?}", info.ip_address);
     log::info!("Architecture: {}", info.architecture);
     log::info!("Device Type: {:?}", info.device_type);
@@ -83,23 +140,26 @@ fn log_initial_system_info() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 🔧 Ensure all directories exist before logging initializes
+    // Directory and config validation
     setup_runtime_environment()?;
 
-    // Initialize flexi_logger
+    // Linux self-healing service check
+    #[cfg(target_os = "linux")]
+    ensure_systemd_service()?;
+
     if let Err(e) = init_logging() {
-        eprintln!("❌ Failed to initialize logging: {e}");
+        eprintln!("Failed to initialize logging: {}", e);
         return Err(Box::<dyn std::error::Error>::from(e));
     }
 
-    log::info!("📌 PatchPilot client starting up...");
+    log::info!("PatchPilot client starting...");
     log_initial_system_info();
 
-    // ------------ Platform-specific service start ------------
+    // Start platform-specific service handler
     #[cfg(unix)]
     {
         if let Err(e) = service::run_unix_service().await {
-            log::error!("Unix service error: {e}");
+            log::error!("Unix service error: {}", e);
             return Err(Box::<dyn std::error::Error>::from(e));
         }
     }
@@ -107,7 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     {
         if let Err(e) = service::run_service().await {
-            log::error!("Windows service error: {e}");
+            log::error!("Windows service error: {}", e);
             return Err(Box::<dyn std::error::Error>::from(e));
         }
     }
