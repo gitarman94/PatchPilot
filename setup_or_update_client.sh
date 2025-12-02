@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ------------------------------
-# Basic configuration
-# ------------------------------
+# --- Configuration ---
 APP_DIR="/opt/patchpilot_client"
 SRC_DIR="/tmp/patchpilot_client_src"
 RUST_REPO="https://github.com/gitarman94/PatchPilot.git"
@@ -15,9 +13,13 @@ SYSTEMD_DIR="/etc/systemd/system"
 FORCE_INSTALL=false
 UPDATE=false
 
-# ------------------------------
-# Parse arguments
-# ------------------------------
+# --- Prompt for server address ---
+echo "PatchPilot Client Installer"
+read -p "Enter PatchPilot server IP or hostname: " SERVER_IP
+mkdir -p /etc/patchpilot
+echo "$SERVER_IP" > /etc/patchpilot/server_address
+
+# --- Parse arguments ---
 for arg in "$@"; do
     case "$arg" in
         --force) FORCE_INSTALL=true ;;
@@ -29,28 +31,24 @@ for arg in "$@"; do
     esac
 done
 
-# ------------------------------
-# OS check
-# ------------------------------
+# --- OS validation ---
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
         debian|ubuntu|linuxmint|pop|raspbian) ;;
         *)
-            echo "❌ This installer works only on Debian-based systems."
+            echo "Unsupported distribution. Debian-based systems only."
             exit 1
             ;;
     esac
 else
-    echo "❌ Cannot determine OS – /etc/os-release missing."
+    echo "/etc/os-release not found."
     exit 1
 fi
 
-# ------------------------------
-# Force install cleanup
-# ------------------------------
+# --- Optional cleanup for forced reinstall ---
 if [[ "$FORCE_INSTALL" = true ]]; then
-    echo "🧹 Cleaning up old installation..."
+    echo "Removing previous installation..."
 
     if systemctl list-units --full --all | grep -q "$SERVICE_NAME"; then
         systemctl stop "$SERVICE_NAME" || true
@@ -63,38 +61,30 @@ if [[ "$FORCE_INSTALL" = true ]]; then
     rm -rf "$SRC_DIR"
 fi
 
-# ------------------------------
-# Ensure clean app directory
-# ------------------------------
+# --- Prepare application directory ---
 mkdir -p "$APP_DIR"
 chmod 755 "$APP_DIR"
 
-# ------------------------------
-# Install required build dependencies
-# ------------------------------
+# --- Install build dependencies ---
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl git build-essential pkg-config libssl-dev
 
-# ------------------------------
-# Install Rust toolchain locally (isolated)
-# ------------------------------
+# --- Install Rust toolchain (isolated) ---
 CARGO_HOME="$APP_DIR/.cargo"
 RUSTUP_HOME="$APP_DIR/.rustup"
 mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
 export CARGO_HOME RUSTUP_HOME PATH="$CARGO_HOME/bin:$PATH"
 
 if ! command -v cargo >/dev/null 2>&1; then
-    echo "🛠️ Installing Rust..."
+    echo "Installing Rust toolchain..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
 "$CARGO_HOME/bin/rustup" default stable
 
-# ------------------------------
-# Clone + build client
-# ------------------------------
+# --- Clone and build source code ---
 rm -rf "$SRC_DIR"
 mkdir -p "$SRC_DIR"
 git clone "$RUST_REPO" "$SRC_DIR"
@@ -106,18 +96,14 @@ export OPENSSL_INCLUDE_DIR=/usr/include
 export OPENSSL_DIR=/usr
 export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig"
 
-echo "🔨 Building PatchPilot client..."
+echo "Building PatchPilot client..."
 "$CARGO_HOME/bin/cargo" build --release
 
-# ------------------------------
-# Install the compiled binary
-# ------------------------------
+# --- Install compiled binary ---
 cp "target/release/$BINARY_NAME" "$CLIENT_BINARY"
 chmod +x "$CLIENT_BINARY"
 
-# ------------------------------
-# Create service account if needed
-# ------------------------------
+# --- Create service user ---
 if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -s /usr/sbin/nologin patchpilot
 fi
@@ -125,9 +111,7 @@ fi
 chown -R patchpilot:patchpilot "$APP_DIR"
 chmod -R 755 "$APP_DIR"
 
-# ------------------------------
-# Systemd service setup
-# ------------------------------
+# --- Configure systemd service ---
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Client
@@ -148,11 +132,7 @@ EOF
 systemctl daemon-reload
 systemctl enable --now "$SERVICE_NAME"
 
-# ------------------------------
-# Cleanup source build directory
-# ------------------------------
+# --- Cleanup build directory ---
 rm -rf "$SRC_DIR"
 
-nohup /opt/patchpilot_client/patchpilot_client >/dev/null 2>&1 &
-
-echo "✅ Installation complete!"
+echo "Installation complete. PatchPilot client is now running."
