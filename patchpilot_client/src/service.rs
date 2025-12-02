@@ -163,13 +163,23 @@ async fn run_adoption_and_update_loop(
     running_flag: Option<&AtomicBool>
 ) -> Result<()> {
     let (device_type, device_model) = get_device_info_basic();
-
     let mut device_id = get_local_device_id();
 
     if device_id.is_none() {
-        let id = register_device(client, server_url, &device_type, &device_model).await?;
-        write_local_device_id(&id)?;
-        device_id = Some(id);
+        loop {
+            match register_device(client, server_url, &device_type, &device_model).await {
+                Ok(id) => {
+                    log::info!("Received device_id from server: {}", id);
+                    write_local_device_id(&id)?;
+                    device_id = Some(id);
+                    break;
+                }
+                Err(e) => {
+                    log::warn!("No device_id yet (server has not approved?). Retrying...: {}", e);
+                    sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
+                }
+            }
+        }
     }
 
     let device_id = device_id.unwrap();
