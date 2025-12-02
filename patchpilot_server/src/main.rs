@@ -556,7 +556,13 @@ fn rocket() -> _ {
     let port = 8080;
     info!("Server running at http://{}:{}/", ip, port);
 
-    rocket::build()
+    let config = rocket::Config {
+        address: "0.0.0.0".parse().unwrap(),
+        port: 8080,
+        ..Default::default()
+    };
+
+    rocket::custom(config)
         .manage(pool)
         .manage(AppState {
             system: Mutex::new(System::new_all()),
