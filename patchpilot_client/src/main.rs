@@ -33,9 +33,15 @@ fn log_initial_system_info() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    init_logging()?;
+    // Force logging to initialize and fail loudly if it can't.
+    if let Err(e) = init_logging() {
+        eprintln!("Failed to initialize logging: {e}");
+        return Err(Box::new(e));
+    }
+
     log::info!("Starting PatchPilot client...");
 
+    // System info logging now guaranteed to reach an actual file
     log_initial_system_info();
 
     #[cfg(unix)]

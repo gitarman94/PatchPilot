@@ -22,25 +22,23 @@ const SERVER_URL_FILE: &str = "/opt/patchpilot_client/server_url.txt";
 #[cfg(windows)]
 const SERVER_URL_FILE: &str = "C:\\ProgramData\\PatchPilot\\server_url.txt";
 
-pub fn init_logging() -> Result<()> {
-    let base = {
-        #[cfg(windows)]
-        { PathBuf::from("C:\\ProgramData\\PatchPilot\\logs") }
+pub fn init_logging() -> anyhow::Result<()> {
+    use std::fs;
+    use flexi_logger::{Logger, Duplicate, FileSpec, Age, Criterion, Naming, Cleanup};
 
-        #[cfg(any(unix, target_os = "macos"))]
-        { PathBuf::from("/opt/patchpilot_client/logs") }
-    };
+    let log_dir = "logs";
 
-    fs::create_dir_all(&base)?;
+    // Ensure log directory ALWAYS exists
+    fs::create_dir_all(log_dir)?;
 
     Logger::try_with_str("info")?
-        .log_to_file(FileSpec::default().directory(base))
+        .log_to_file(FileSpec::default().directory(log_dir))
+        .duplicate_to_stderr(Duplicate::Info)
         .rotate(
-            Criterion::Age(flexi_logger::Age::Day),
-            Naming::Numbers,
+            Criterion::Age(Age::Day),
+            Naming::Timestamps,
             Cleanup::KeepLogFiles(7),
         )
-        .duplicate_to_stdout(Duplicate::All)
         .start()?;
 
     Ok(())
@@ -143,7 +141,9 @@ async fn send_heartbeat(
 
     if let Ok(r) = resp {
         if let Ok(v) = r.json::<serde_json::Value>().await {
-            return v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false);
+            // Accept both { "adopted": true } or { "status": "adopted" }
+            return v
+                .get("adopted").and_then(|x| x.as_bool()).unwrap_or(false) || v.get("status").and_then(|x| x.as_str()) == Some("adopted");
         }
     }
 
