@@ -23,7 +23,7 @@ default = []
 windows = ["windows-service"]
 
 [[bin]]
-name = "rust_patch_client"
+name = "patchpilot_client"
 path = "src/main.rs"
 
 [[bin]]
