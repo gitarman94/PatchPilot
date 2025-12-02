@@ -52,7 +52,7 @@ fi
 
 #Also makes parent directories if doesn't exist
 mkdir -p "$APP_DIR"/logs
-sudo chmod -R 755 "$APP_DIR"
+chmod -R 755 "$APP_DIR"
 
 # --- Install dependencies ---
 export DEBIAN_FRONTEND=noninteractive
