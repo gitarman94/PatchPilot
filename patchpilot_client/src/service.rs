@@ -96,14 +96,23 @@ async fn register_device(
         .await
         .context("Registration request failed")?;
 
-    let json_resp: serde_json::Value = resp.json().await?;
+    // Read the response body as a string instead of forcing JSON
+    let body = resp.text().await.unwrap_or_default();
+
+    // If empty → server has not approved yet
+    if body.trim().is_empty() {
+        anyhow::bail!("Server has not approved yet (empty response)");
+    }
+
+    // Try to parse JSON only if there's actually content
+    let json_resp: serde_json::Value =
+        serde_json::from_str(&body).context("Invalid JSON from server")?;
 
     if let Some(id) = json_resp.get("device_id").and_then(|v| v.as_str()) {
         return Ok(id.to_string());
     }
 
     anyhow::bail!("Server did not return device_id");
-
 }
 
 async fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
