@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::json;
-use std::{fs, time::Duration, path::PathBuf};
+use std::{fs, time::Duration};
 use crate::system_info::{SystemInfo, get_system_info};
 use local_ip_address::local_ip;
 use tokio::time::sleep;
@@ -23,20 +23,22 @@ const SERVER_URL_FILE: &str = "/opt/patchpilot_client/server_url.txt";
 const SERVER_URL_FILE: &str = "C:\\ProgramData\\PatchPilot\\server_url.txt";
 
 pub fn init_logging() -> anyhow::Result<()> {
-    use std::fs;
-    use flexi_logger::{Logger, Duplicate, FileSpec, Age, Criterion, Naming, Cleanup};
-
-    let log_dir = "logs";
-
+    use flexi_logger::{Age, Cleanup, Criterion as C, Duplicate as D, FileSpec as F, Logger as L, Naming as N};
     // Ensure log directory ALWAYS exists
+    let log_dir = "logs";
     fs::create_dir_all(log_dir)?;
 
-    Logger::try_with_str("info")?
-        .log_to_file(FileSpec::default().directory(log_dir))
-        .duplicate_to_stderr(Duplicate::Info)
+    L::try_with_str("info")?
+        .log_to_file(
+            F::default()
+                .directory(log_dir)
+                .basename("patchpilot")
+                .suffix("log"),
+        )
+        .duplicate_to_stderr(D::Info)
         .rotate(
-            Criterion::Age(Age::Day),
-            Naming::Timestamps,
+            C::Age(Age::Day),
+            N::Timestamps,
             Cleanup::KeepLogFiles(7),
         )
         .start()?;
@@ -143,7 +145,8 @@ async fn send_heartbeat(
         if let Ok(v) = r.json::<serde_json::Value>().await {
             // Accept both { "adopted": true } or { "status": "adopted" }
             return v
-                .get("adopted").and_then(|x| x.as_bool()).unwrap_or(false) || v.get("status").and_then(|x| x.as_str()) == Some("adopted");
+                .get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
+                || v.get("status").and_then(|x| x.as_str()) == Some("adopted");
         }
     }
 
@@ -204,6 +207,7 @@ pub async fn run_service() -> Result<()> {
     let running_flag = Arc::new(AtomicBool::new(true));
     let running_flag_clone = running_flag.clone();
 
+    // service_main runs the blocking executor inside the service thread
     fn service_main(flag: Arc<AtomicBool>) -> Result<()> {
         let client = Client::new();
         let server_url = futures::executor::block_on(read_server_url())?;
@@ -214,9 +218,17 @@ pub async fn run_service() -> Result<()> {
         ))
     }
 
-    let _status = service_control_handler::register("PatchPilot", |control| match control {
-        ServiceControl::Stop => ServiceControlHandlerResult::NoError,
-        _ => ServiceControlHandlerResult::NotImplemented,
+    // Move a clone of the flag into the handler so we can stop the loop on Stop.
+    let flag_for_handler = running_flag.clone();
+
+    let _status = service_control_handler::register("PatchPilot", move |control| {
+        match control {
+            ServiceControl::Stop => {
+                flag_for_handler.store(false, Ordering::SeqCst);
+                ServiceControlHandlerResult::NoError
+            }
+            _ => ServiceControlHandlerResult::NotImplemented,
+        }
     })?;
 
     service_main(running_flag_clone)

@@ -33,31 +33,32 @@ fn log_initial_system_info() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging and fail loudly if needed.
+    // Initialize logging to local file.
     if let Err(e) = init_logging() {
         eprintln!("❌ Failed to initialize logging: {e}");
         return Err(Box::new(e));
     }
 
-    log::info!("Starting PatchPilot client...");
+    log::info!("📌 PatchPilot client starting up...");
 
-    // Guaranteed to write to a real file now
-    if let Err(e) = log_initial_system_info() {
-        log::error!("Failed to log initial system info: {e}");
-    }
+    // System info logs directly into the file
+    log_initial_system_info();
 
     #[cfg(unix)]
-    if let Err(e) = service::run_unix_service().await {
-        log::error!("Unix service error: {e}");
-        return Err(Box::new(e));
+    {
+        if let Err(e) = service::run_unix_service().await {
+            log::error!("Unix service error: {e}");
+            return Err(Box::new(e));
+        }
     }
 
     #[cfg(windows)]
-    if let Err(e) = service::run_service().await {
-        log::error!("Windows service error: {e}");
-        return Err(Box::new(e));
+    {
+        if let Err(e) = service::run_service().await {
+            log::error!("Windows service error: {e}");
+            return Err(Box::new(e));
+        }
     }
 
     Ok(())
 }
-
