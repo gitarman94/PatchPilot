@@ -36,19 +36,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging — guaranteed to write to a real file now.
     if let Err(e) = init_logging() {
         eprintln!("❌ Failed to initialize logging: {e}");
-        return Err(Box::new(e));
+        return Err(Box::<dyn std::error::Error>::from(e));
     }
 
     log::info!("📌 PatchPilot client starting up...");
-    //Immediately log system info to that file
     log_initial_system_info();
-    //Launch the OS-specific service
 
     #[cfg(unix)]
     {
         if let Err(e) = service::run_unix_service().await {
             log::error!("Unix service error: {e}");
-            return Err(Box::new(e));
+            return Err(Box::<dyn std::error::Error>::from(e));
         }
     }
 
@@ -56,7 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         if let Err(e) = service::run_service().await {
             log::error!("Windows service error: {e}");
-            return Err(Box::new(e));
+            return Err(Box::<dyn std::error::Error>::from(e));
         }
     }
 
