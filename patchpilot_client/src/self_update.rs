@@ -24,17 +24,35 @@ struct ReleaseInfo {
 const GITHUB_USER: &str = "gitarman94";
 const GITHUB_REPO: &str = "PatchPilot";
 
-#[cfg(windows)]
+// ---- Executable Names ----
+
+#[cfg(target_os = "windows")]
 const EXE_NAME: &str = "rust_patch_client.exe";
-#[cfg(not(windows))]
+
+#[cfg(not(target_os = "windows"))]
 const EXE_NAME: &str = "rust_patch_client";
 
-#[cfg(windows)]
+// ---- Updater Names ----
+
+#[cfg(target_os = "windows")]
 const UPDATER_NAME: &str = "patchpilot_updater.exe";
-#[cfg(not(windows))]
+
+#[cfg(not(target_os = "windows"))]
 const UPDATER_NAME: &str = "patchpilot_updater";
 
-/// Checks for a newer release on GitHub and launches updater if needed
+// ---- Runtime Base Directory ----
+
+#[cfg(target_os = "windows")]
+const RUNTIME_DIR: &str = "C:\\ProgramData\\PatchPilot";
+
+#[cfg(all(unix, not(target_os = "macos")))]
+const RUNTIME_DIR: &str = "/opt/patchpilot_client";
+
+#[cfg(target_os = "macos")]
+const RUNTIME_DIR: &str = "/Library/Application Support/PatchPilot";
+
+
+/// Checks GitHub releases and updates the agent if needed
 pub fn check_and_update() -> Result<()> {
     let client = Client::builder()
         .timeout(Duration::from_secs(15))
@@ -56,48 +74,66 @@ pub fn check_and_update() -> Result<()> {
         .json::<ReleaseInfo>()?;
 
     let latest_version = resp.tag_name.as_str();
+
     if latest_version == current_version {
-        log::info!("Already on the latest version: {}", latest_version);
+        log::info!("Already up-to-date: {}", latest_version);
         return Ok(());
     }
 
-    log::info!("New version found: {}", latest_version);
+    log::info!("🚀 New version available: {}", latest_version);
 
-    // Find the correct executable asset
-    let asset = resp.assets.iter()
+    // Find the correct binary asset for this OS
+    let asset = resp
+        .assets
+        .iter()
         .find(|a| a.name == EXE_NAME)
-        .ok_or_else(|| anyhow::anyhow!("Executable asset not found in release"))?;
+        .ok_or_else(|| anyhow::anyhow!("Executable '{}' not found in release assets", EXE_NAME))?;
 
-    log::info!("Downloading new executable: {}", asset.browser_download_url);
+    log::info!("Found asset: {}", asset.browser_download_url);
 
-    let tmp_dir = env::temp_dir();
-    let new_exe_path = tmp_dir.join(EXE_NAME);
+    // Download into the runtime directory, not /tmp
+    let new_exe_path = PathBuf::from(RUNTIME_DIR).join(format!("{}.new", EXE_NAME));
+
+    fs::create_dir_all(RUNTIME_DIR).ok();
     download_file(&client, &asset.browser_download_url, &new_exe_path)?;
 
+    log::info!(
+        "Downloaded new version to {}",
+        new_exe_path.display()
+    );
+
     // Determine updater path
-    let updater_path = env::current_exe()?
-        .parent()
-        .expect("Executable must have a parent directory")
-        .join(UPDATER_NAME);
+    let updater_path = PathBuf::from(RUNTIME_DIR).join(UPDATER_NAME);
+
+    if !updater_path.exists() {
+        bail!(
+            "Updater not found at {} — cannot continue",
+            updater_path.display()
+        );
+    }
 
     log::info!("Launching updater: {}", updater_path.display());
 
+    // Arguments: <old_exe> <new_exe>
+    let old_exe_path = env::current_exe()?;
+
     let status = Command::new(&updater_path)
-        .arg(env::current_exe()?)
+        .arg(old_exe_path)
         .arg(&new_exe_path)
         .status()?;
 
     if !status.success() {
-        bail!("Updater helper failed to launch");
+        bail!("Updater failed to execute successfully");
     }
 
-    log::info!("Update launched successfully — exiting current version.");
+    log::info!("Update launched — shutting down current client…");
     exit(0);
 }
 
+
 /// Download a file to a local path
 fn download_file(client: &Client, url: &str, dest: &PathBuf) -> Result<()> {
-    log::info!("Downloading from: {}", url);
+    log::info!("Downloading: {}", url);
 
     let mut resp = client
         .get(url)
@@ -105,9 +141,11 @@ fn download_file(client: &Client, url: &str, dest: &PathBuf) -> Result<()> {
         .send()?
         .error_for_status()?;
 
-    log::info!("Saving file to: {}", dest.display());
+    log::info!("Saving to: {}", dest.display());
+
     let mut file = fs::File::create(dest)?;
     std::io::copy(&mut resp, &mut file)?;
+
     log::info!("Download complete.");
     Ok(())
 }

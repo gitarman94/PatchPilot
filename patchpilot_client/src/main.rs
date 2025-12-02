@@ -1,7 +1,57 @@
 mod system_info;
 mod service;
 
+use std::{fs, path::Path};
 use crate::service::init_logging;
+
+/// Ensures runtime directories and config files exist.
+/// All OS-specific differences handled inside this function.
+fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
+    // --- Cross-platform base directory selection ---
+    #[cfg(target_os = "linux")]
+    let base_dir = "/opt/patchpilot_client";
+
+    #[cfg(target_os = "macos")]
+    let base_dir = "/Library/Application Support/patchpilot_client";
+
+    #[cfg(target_os = "windows")]
+    let base_dir = {
+        let mut path = dirs::data_local_dir()
+            .unwrap_or(std::path::PathBuf::from("C:\\PatchPilot"));
+        path.push("PatchPilotClient");
+        path.to_str().unwrap().into()
+    };
+
+    let logs_dir = format!("{}/logs", base_dir);
+    let server_url_file = format!("{}/server_url.txt", base_dir);
+
+    // --- Ensure base directory exists ---
+    if !Path::new(base_dir).exists() {
+        fs::create_dir_all(base_dir)?;
+    }
+
+    // --- Ensure logs dir exists ---
+    if !Path::new(&logs_dir).exists() {
+        fs::create_dir_all(&logs_dir)?;
+    }
+
+    // --- Ensure server_url.txt exists ---
+    if !Path::new(&server_url_file).exists() {
+        fs::write(&server_url_file, "http://0.0.0.0:8080")?;
+    }
+
+    // --- Linux-only: fix permissions for patchpilot user ---
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("chown")
+            .arg("-R")
+            .arg("patchpilot:patchpilot")
+            .arg(base_dir)
+            .output();
+    }
+
+    Ok(())
+}
 
 fn log_initial_system_info() {
     use system_info::SystemInfo;
@@ -33,7 +83,10 @@ fn log_initial_system_info() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging — guaranteed to write to a real file now.
+    // 🔧 Ensure all directories exist before logging initializes
+    setup_runtime_environment()?;
+
+    // Initialize flexi_logger
     if let Err(e) = init_logging() {
         eprintln!("❌ Failed to initialize logging: {e}");
         return Err(Box::<dyn std::error::Error>::from(e));
@@ -42,6 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("📌 PatchPilot client starting up...");
     log_initial_system_info();
 
+    // ------------ Platform-specific service start ------------
     #[cfg(unix)]
     {
         if let Err(e) = service::run_unix_service().await {

@@ -2,23 +2,43 @@ use std::{fs, process::Command, thread, time::Duration};
 use log::{info, warn, error};
 use flexi_logger::{Logger, FileSpec, Duplicate, Criterion, Naming, Age, Cleanup};
 
-/// Initialize logger (same as main.rs)
+#[cfg(windows)]
+const LOG_DIR: &str = "C:\\ProgramData\\PatchPilot\\logs";
+#[cfg(not(windows))]
+const LOG_DIR: &str = "/opt/patchpilot_client/logs";
+
 fn init_logger() {
+    std::fs::create_dir_all(LOG_DIR).ok();
+
     Logger::try_with_str("info")
         .unwrap()
-        .log_to_file(FileSpec::default().directory("logs"))
+        .log_to_file(FileSpec::default().directory(LOG_DIR))
         .duplicate_to_stderr(Duplicate::Info)
         .rotate(
-            Criterion::Age(Age::Day), // rotate daily
-            Naming::Numbers,          // file naming strategy
-            Cleanup::KeepLogFiles(7), // keep last 7 log files
+            Criterion::Age(Age::Day),
+            Naming::Numbers,
+            Cleanup::KeepLogFiles(7),
         )
         .start()
-        .unwrap_or_else(|e| panic!("Logger initialization failed: {}", e));
+        .unwrap();
+}
+
+#[cfg(windows)]
+fn launch_app(path: &str) -> std::io::Result<()> {
+    Command::new("cmd")
+        .arg("/C")
+        .arg(format!("start \"\" \"{}\"", path))
+        .spawn()?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn launch_app(path: &str) -> std::io::Result<()> {
+    Command::new(path).spawn()?;
+    Ok(())
 }
 
 fn main() {
-    // Initialize logger
     init_logger();
     info!("PatchPilot updater started.");
 
@@ -34,7 +54,7 @@ fn main() {
     info!("Waiting 2 seconds for main process to exit...");
     thread::sleep(Duration::from_secs(2));
 
-    const MAX_RETRIES: u32 = 5;
+    const MAX_RETRIES: u32 = 8;
     let mut retries = MAX_RETRIES;
 
     while retries > 0 {
@@ -45,8 +65,11 @@ fn main() {
             }
             Err(e) => {
                 retries -= 1;
-                warn!("Failed to replace binary ({:?}). Retries left: {}...", e, retries);
-                thread::sleep(Duration::from_secs(1));
+                warn!(
+                    "Failed to replace binary ({e}). Retries left: {}...",
+                    retries
+                );
+                thread::sleep(Duration::from_millis(800));
             }
         }
     }
@@ -56,15 +79,11 @@ fn main() {
         std::process::exit(1);
     }
 
-    // Attempt to restart the updated binary
-    info!("Attempting to restart updated application...");
-    match Command::new(old_path).spawn() {
-        Ok(_) => info!("✔ Update complete. Application restarted successfully."),
-        Err(e) => {
-            error!("✖ Failed to restart application: {:?}", e);
-            std::process::exit(1);
-        }
+    info!("Restarting application: {}", old_path);
+    if let Err(e) = launch_app(old_path) {
+        error!("✖ Restart failed: {:?}", e);
+        std::process::exit(1);
     }
 
-    info!("PatchPilot update process completed successfully.");
+    info!("Update complete.");
 }
