@@ -112,8 +112,18 @@ impl DeviceInfo {
         if !o.architecture.is_empty()       { s.architecture = o.architecture.clone(); }
         if !o.cpu_brand.is_empty()          { s.cpu_brand = o.cpu_brand.clone(); }
         if !o.disk_health.is_empty()        { s.disk_health = o.disk_health.clone(); }
-        if !o.ip_address.is_empty()         { s.ip_address = o.ip_address.clone(); }
-        if !o.network_interfaces.is_empty() { s.network_interfaces = o.network_interfaces.clone(); }
+
+        if let Some(ip) = &o.ip_address {
+            if !ip.is_empty() {
+                s.ip_address = Some(ip.clone());
+            }
+        }
+
+        if let Some(nics) = &o.network_interfaces {
+            if !nics.is_empty() {
+                s.network_interfaces = Some(nics.clone());
+            }
+        }
 
         s.cpu_usage = o.cpu_usage;
         s.cpu_count = o.cpu_count;
@@ -140,7 +150,6 @@ impl DeviceInfo {
         }
     }
 }
-
 
 impl Device {
     pub fn compute_uptime(&self) -> String {
