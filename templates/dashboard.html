@@ -169,9 +169,11 @@
       </div>
 
       <div class="top-controls">
-        <button id="settingsBtn" class="btn btn-outline-secondary btn-compact" title="Settings" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="Open settings"><i class="fa-solid fa-gear"></i></button>
+        <button id="settingsBtn" class="btn btn-outline-secondary btn-compact" title="Settings" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-solid fa-gear"></i></button>
+        <button id="refreshBtn" class="btn btn-outline-secondary btn-compact" title="Refresh" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-solid fa-arrows-rotate"></i> Refresh</button>
+        <button id="toggleDarkMode" class="btn btn-outline-secondary btn-compact" title="Toggle dark mode" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-solid fa-moon"></i>
+</button>
 
-        <button id="refreshBtn" class="btn btn-outline-secondary btn-compact" title="Refresh" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="Reload device list now"><i class="fa-solid fa-arrows-rotate"></i> Refresh</button>
       </div>
     </header>
 
@@ -295,53 +297,101 @@
   <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
 
   <script>
-    // Utilities
-    function showAlert(msg, type='success', timeout=3500){
-      const id = 'a'+Date.now();
-      const el = $(`<div id="${id}" class="alert alert-${type} shadow-sm" role="alert" style="min-width:260px;">${msg}</div>`);
+    // --------------------- Utilities ---------------------
+    function showAlert(msg, type = 'success', timeout = 3500) {
+      const id = 'a' + Date.now();
+      const el = $(
+        `<div id="${id}" class="alert alert-${type} shadow-sm" role="alert" style="min-width:260px;">${msg}</div>`
+      );
       $('#alerts').append(el);
-      setTimeout(()=> el.fadeOut(300, ()=> el.remove()), timeout);
+      setTimeout(() => el.fadeOut(300, () => el.remove()), timeout);
     }
 
-    function fmtPercent(num){
+    // --------------------- Dark Mode ---------------------
+    function applyDarkMode(enabled) {
+      document.body.classList.toggle('dark', enabled);
+      localStorage.setItem('darkMode', enabled ? 'enabled' : 'disabled');
+
+      // update the toggle icon (sun for dark, moon for light)
+      $('#toggleDarkMode i').removeClass('fa-sun fa-moon');
+      $('#toggleDarkMode i').addClass(enabled ? 'fa-sun' : 'fa-moon');
+      // also update the modal checkbox state if out of sync
+      $('#settingsDarkMode').prop('checked', enabled);
+    }
+
+    // toggle from top-right button
+    $('#toggleDarkMode').on('click', () => {
+      const enabled = !document.body.classList.contains('dark');
+      applyDarkMode(enabled);
+      showAlert(`Dark mode ${enabled ? 'enabled' : 'disabled'}`, 'info', 1400);
+    });
+
+    // toggle from settings modal checkbox
+    $('#settingsDarkMode').on('change', function () {
+      const enabled = $(this).prop('checked');
+      applyDarkMode(enabled);
+      showAlert(`Dark mode ${enabled ? 'enabled' : 'disabled'}.`, 'info', 1200);
+    });
+
+    // apply stored state on load
+    const storedDark = localStorage.getItem('darkMode') === 'enabled';
+    applyDarkMode(storedDark);
+
+    // --------------------- Formatters ---------------------
+    function fmtPercent(num) {
       if (num == null) return '—';
       const v = Number(num);
       if (Number.isFinite(v)) return v.toFixed(1) + '%';
       return '—';
     }
 
-    function fmtPctFromUsed(used, total){
+    function fmtPctFromUsed(used, total) {
       if (!total || total === 0) return '—';
-      return ((used/total)*100).toFixed(1) + '%';
+      return ((used / total) * 100).toFixed(1) + '%';
     }
 
-    // DataTable init
+    // --------------------- DataTable ---------------------
     const table = $('#devicesTable').DataTable({
       responsive: true,
       columns: [
-        { data: 'hostname', render: (d, type, row) => {
+        {
+          data: 'hostname',
+          render: (d, type, row) => {
             const id = row.device_name || row.id || '';
             return `<a href="#" class="device-link" data-id="${id}">${d || id || '—'}</a>`;
-        }},
+          },
+        },
         { data: 'os_name' },
-        { data: 'device_type', render: d => `<div class="device-type">${d || '—'}</div>` },
-        { data: null, render: d => {
+        { data: 'device_type', render: (d) => `<div class="device-type">${d || '—'}</div>` },
+        {
+          data: null,
+          render: (d) => {
             if (d.pending) return `<span class="badge badge-pending">Pending</span>`;
             const last = d.last_checkin ? new Date(d.last_checkin) : null;
             if (!last) return `<span class="small-muted">Offline</span>`;
             const diff = (Date.now() - new Date(last)) / 1000;
             if (diff < 600) return `<span><span class="status-dot status-online"></span>Online</span>`;
             return `<span><span class="status-dot status-offline"></span>Offline</span>`;
-        }},
+          },
+        },
         { data: 'cpu_usage', className: 'text-end', render: (d) => fmtPercent(d) },
-        { data: null, className: 'text-end', render: d => fmtPctFromUsed(d.ram_used, d.ram_total) },
-        { data: null, className: 'text-end', render: d => {
+        { data: null, className: 'text-end', render: (d) => fmtPctFromUsed(d.ram_used, d.ram_total) },
+        {
+          data: null,
+          className: 'text-end',
+          render: (d) => {
             if (!d.disk_total || d.disk_total === 0) return '—';
             return `${(((d.disk_total - d.disk_free) / d.disk_total) * 100).toFixed(1)}%`;
-        }},
-        { data: 'ping_latency', className: 'text-end', render: d => d!=null ? `${d} ms` : '—' },
-        { data: 'last_checkin', className: 'text-end', render: d => d ? new Date(d).toLocaleString() : '—' },
-        { data: null, orderable:false, searchable:false, className:'text-center', render: d => {
+          },
+        },
+        { data: 'ping_latency', className: 'text-end', render: (d) => (d != null ? `${d} ms` : '—') },
+        { data: 'last_checkin', className: 'text-end', render: (d) => (d ? new Date(d).toLocaleString() : '—') },
+        {
+          data: null,
+          orderable: false,
+          searchable: false,
+          className: 'text-center',
+          render: (d) => {
             const canonicalId = d.device_name || d.id || '';
             let actions = `<div class="table-actions">`;
             actions += `<button class="btn btn-sm btn-outline-primary btn-compact view-btn" data-id="${canonicalId}" title="View"><i class="fa-solid fa-eye"></i></button>`;
@@ -349,39 +399,40 @@
               actions += ` <button class="btn btn-sm btn-warning btn-compact approve-btn" data-id="${canonicalId}" data-host="${d.hostname || d.device_name || canonicalId}" title="Approve"><i class="fa-solid fa-check"></i> Approve</button>`;
             } else {
               actions += ` <div class="btn-group">` +
-                         `<button class="btn btn-sm btn-outline-secondary btn-compact dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-ellipsis"></i></button>` +
-                         `<ul class="dropdown-menu dropdown-menu-end">` +
-                         `<li><a class="dropdown-item force-checkin" data-id="${canonicalId}" href="#">Force Check-in</a></li>` +
-                         `<li><a class="dropdown-item force-patch" data-id="${canonicalId}" href="#">Force Patch</a></li>` +
-                         `</ul></div>`;
+                `<button class="btn btn-sm btn-outline-secondary btn-compact dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-ellipsis"></i></button>` +
+                `<ul class="dropdown-menu dropdown-menu-end">` +
+                `<li><a class="dropdown-item force-checkin" data-id="${canonicalId}" href="#">Force Check-in</a></li>` +
+                `<li><a class="dropdown-item force-patch" data-id="${canonicalId}" href="#">Force Patch</a></li>` +
+                `</ul></div>`;
             }
             actions += '</div>';
             return actions;
-        }}
+          },
+        },
       ],
       pageLength: 25,
-      lengthMenu: [10,25,50,100],
+      lengthMenu: [10, 25, 50, 100],
       deferRender: true,
-      language: {
-        emptyTable: "No devices yet — check registration / heartbeat"
-      }
+      language: { emptyTable: 'No devices yet — check registration / heartbeat' },
     });
 
-    // Load devices from server and populate table + summaries
-    async function loadDevices(){
-      try{
+    // --------------------- Load Devices ---------------------
+    async function loadDevices() {
+      try {
         const res = await fetch('/api/devices');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const devices = await res.json();
 
         // compute stats
         const total = devices.length;
-        let online = 0, pending = 0, updates = 0;
-        devices.forEach(d => {
+        let online = 0,
+          pending = 0,
+          updates = 0;
+        devices.forEach((d) => {
           if (d.pending) pending++;
           else {
             const last = d.last_checkin ? new Date(d.last_checkin) : null;
-            if (last && ((Date.now() - new Date(last)) / 1000) < 600) online++;
+            if (last && (Date.now() - new Date(last)) / 1000 < 600) online++;
           }
           if (d.updates_available) updates++;
         });
@@ -393,7 +444,7 @@
         $('#lastRefresh').text(new Date().toLocaleTimeString());
 
         // normalize objects for display (ensure keys exist)
-        const normalized = devices.map(d => ({
+        const normalized = devices.map((d) => ({
           id: d.id ?? null,
           device_name: d.device_name || d.id || null,
           hostname: d.hostname || d.device_name || d.id || '—',
@@ -412,11 +463,11 @@
           approved: d.approved ?? false,
           pending: d.pending ?? false,
           ip_address: d.ip_address || null,
-          network_interfaces: d.network_interfaces || null
+          network_interfaces: d.network_interfaces || null,
         }));
 
         table.clear().rows.add(normalized).draw(false);
-      }catch(err){
+      } catch (err) {
         console.error('Failed to load devices', err);
         showAlert('Failed to load devices', 'danger', 4500);
       }
@@ -425,20 +476,21 @@
     // initial load
     loadDevices();
 
-    // refresh button
-    $('#refreshBtn').on('click', ()=> loadDevices());
+    // manual refresh button
+    $('#refreshBtn').on('click', () => loadDevices());
 
-    // Delegate: view details (open separate device_detail page)
-    $('body').on('click', '.view-btn, .device-link', function(e){
+    // --------------------- Delegated actions ---------------------
+    // view details (open in new tab)
+    $('body').on('click', '.view-btn, .device-link', function (e) {
       e.preventDefault();
       const id = $(this).data('id');
       if (!id) return;
       window.open(`/device_detail.html?deviceID=${encodeURIComponent(id)}`, '_blank');
     });
 
-    // Approve flow
+    // approve flow
     let selectedApproveId = null;
-    $('body').on('click', '.approve-btn', function(){
+    $('body').on('click', '.approve-btn', function () {
       selectedApproveId = $(this).data('id');
       const host = $(this).data('host') || selectedApproveId;
       $('#approveHostname').text(host);
@@ -446,12 +498,12 @@
       m.show();
     });
 
-    $('#confirmApproveBtn').on('click', async function(){
+    $('#confirmApproveBtn').on('click', async function () {
       if (!selectedApproveId) return;
       try {
         const res = await fetch(`/api/devices/${encodeURIComponent(selectedApproveId)}/approve`, { method: 'POST' });
         if (!res.ok) {
-          const text = await res.text().catch(()=> 'unknown');
+          const text = await res.text().catch(() => 'unknown');
           throw new Error(`HTTP ${res.status} - ${text}`);
         }
         showAlert('Device approved', 'success');
@@ -464,22 +516,16 @@
       }
     });
 
-    // Example small action placeholders (force actions)
-    $('body').on('click', '.force-checkin, .force-patch', function(e){
+    // force actions (placeholders)
+    $('body').on('click', '.force-checkin, .force-patch', function (e) {
       e.preventDefault();
       const id = $(this).data('id');
       showAlert(`Action requested for ${id}`, 'info', 2200);
     });
 
-    // SETTINGS / AUTO-REFRESH / DARK MODE
+    // --------------------- Settings: Auto-refresh ---------------------
     const DEFAULT_REFRESH_INTERVAL = 30; // seconds
     let refreshTimer = null;
-
-    // initialize Bootstrap tooltips
-    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
-      // jQuery can show tooltips too, but use bootstrap's native
-      new bootstrap.Tooltip(el);
-    });
 
     function startAutoRefresh(intervalSec) {
       if (refreshTimer) clearInterval(refreshTimer);
@@ -493,25 +539,34 @@
       }
     }
 
+    // --------------------- Tooltips ---------------------
+    // initialize Bootstrap tooltips for elements that exist now
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
+      try { new bootstrap.Tooltip(el); } catch (e) { /* ignore */ }
+    });
+
+    // --------------------- Settings persistence (localStorage) ---------------------
     function loadSettings() {
       // read from localStorage with sensible defaults
       const dark = localStorage.getItem('darkMode') === 'enabled';
       const auto = localStorage.getItem('autoRefresh') === 'enabled';
+
       const intervalRaw = Number(localStorage.getItem('refreshInterval'));
       const interval = Number.isFinite(intervalRaw) && intervalRaw >= 5 ? intervalRaw : DEFAULT_REFRESH_INTERVAL;
 
-      // apply UI state
-      document.body.classList.toggle('dark', dark);
+      // apply dark mode + sync both UI controls
+      applyDarkMode(dark);
       $('#settingsDarkMode').prop('checked', dark);
+
+      // sync top toggle icon on load (sun when dark)
+      $('#toggleDarkMode i').toggleClass('fa-sun', dark).toggleClass('fa-moon', !dark);
+
+      // auto-refresh UI
       $('#settingsAutoRefresh').prop('checked', auto);
       $('#settingsRefreshInterval').val(interval);
 
       // start/stop auto refresh based on stored value
-      if (auto) {
-        startAutoRefresh(interval);
-      } else {
-        stopAutoRefresh();
-      }
+      if (auto) startAutoRefresh(interval); else stopAutoRefresh();
     }
 
     function saveSettings() {
@@ -531,26 +586,22 @@
       localStorage.setItem('refreshInterval', String(interval));
 
       // apply immediately
-      document.body.classList.toggle('dark', dark);
+      applyDarkMode(dark);
 
-      if (auto) {
-        startAutoRefresh(interval);
-      } else {
-        stopAutoRefresh();
-      }
+      if (auto) startAutoRefresh(interval); else stopAutoRefresh();
 
-      showAlert('Settings saved', 'success');
+      showAlert('Settings saved', 'success', 1200);
     }
 
-    $('#settingsBtn').on('click', ()=> new bootstrap.Modal(document.getElementById('settingsModal')).show());
-    $('#saveSettingsBtn').on('click', ()=> {
+    // open settings modal
+    $('#settingsBtn').on('click', () => new bootstrap.Modal(document.getElementById('settingsModal')).show());
+    $('#saveSettingsBtn').on('click', () => {
       saveSettings();
       bootstrap.Modal.getInstance(document.getElementById('settingsModal')).hide();
     });
 
-    // initial settings load
+    // load saved settings on startup
     loadSettings();
-
   </script>
 </body>
 </html>
