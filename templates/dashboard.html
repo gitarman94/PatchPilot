@@ -154,7 +154,10 @@
       color:#fff1c9 !important;
       border:none !important;
     }
-</style>
+
+    /* Settings modal minimal tweaks */
+    #settingsModal .modal-content { padding: 12px; }
+  </style>
 
 </head>
 <body>
@@ -166,6 +169,9 @@
       </div>
 
       <div class="top-controls">
+        <!-- Settings button inserted -->
+        <button id="settingsBtn" class="btn btn-outline-secondary btn-compact" title="Settings"><i class="fa-solid fa-gear"></i></button>
+
         <button id="refreshBtn" class="btn btn-outline-secondary btn-compact" title="Refresh"><i class="fa-solid fa-arrows-rotate"></i> Refresh</button>
         <button id="darkModeToggle" class="btn btn-outline-secondary btn-compact" title="Toggle dark mode"><i class="fa-solid fa-moon"></i></button>
       </div>
@@ -253,6 +259,31 @@
   <!-- Alerts container -->
   <div id="alerts" style="position:fixed; top:1rem; right:1rem; z-index:1200;"></div>
 
+  <!-- Settings modal (minimal) -->
+  <div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-body">
+          <h5>Settings</h5>
+
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" id="settingsDarkMode">
+            <label class="form-check-label" for="settingsDarkMode">Enable dark mode</label>
+          </div>
+
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" id="settingsAutoRefresh">
+            <label class="form-check-label" for="settingsAutoRefresh">Auto refresh every 30 seconds</label>
+          </div>
+
+          <div class="text-end">
+            <button id="saveSettingsBtn" class="btn btn-primary btn-sm">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Dependencies -->
   <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -263,10 +294,7 @@
     // Utilities
     function showAlert(msg, type='success', timeout=3500){
       const id = 'a'+Date.now();
-      const el = $(`
-        <div id="${id}" class="alert alert-${type} shadow-sm" role="alert" style="min-width:260px;">
-          ${msg}
-        </div>`);
+      const el = $(`<div id="${id}" class="alert alert-${type} shadow-sm" role="alert" style="min-width:260px;">${msg}</div>`);
       $('#alerts').append(el);
       setTimeout(()=> el.fadeOut(300, ()=> el.remove()), timeout);
     }
@@ -288,14 +316,12 @@
       responsive: true,
       columns: [
         { data: 'hostname', render: (d, type, row) => {
-            // hostname should be clickable for details
             const id = row.device_name || row.id || '';
             return `<a href="#" class="device-link" data-id="${id}">${d || id || '—'}</a>`;
         }},
         { data: 'os_name' },
         { data: 'device_type', render: d => `<div class="device-type">${d || '—'}</div>` },
         { data: null, render: d => {
-            // status: approved/pending/online/offline decision
             if (d.pending) return `<span class="badge badge-pending">Pending</span>`;
             const last = d.last_checkin ? new Date(d.last_checkin) : null;
             if (!last) return `<span class="small-muted">Offline</span>`;
@@ -331,7 +357,6 @@
       ],
       pageLength: 25,
       lengthMenu: [10,25,50,100],
-      // allow empty / missing fields gracefully
       deferRender: true,
       language: {
         emptyTable: "No devices yet — check registration / heartbeat"
@@ -399,12 +424,14 @@
     // refresh button
     $('#refreshBtn').on('click', ()=> loadDevices());
 
-    // dark mode
+    // dark mode (keeps your existing toggle in sync with settings panel)
     (function(){
       if (localStorage.getItem('darkMode') === 'enabled') document.body.classList.add('dark');
       $('#darkModeToggle').on('click', ()=>{
         const enabled = document.body.classList.toggle('dark');
         localStorage.setItem('darkMode', enabled ? 'enabled' : 'disabled');
+        // keep settings panel checkbox in sync
+        $('#settingsDarkMode').prop('checked', enabled);
       });
     })();
 
@@ -413,7 +440,6 @@
       e.preventDefault();
       const id = $(this).data('id');
       if (!id) return;
-      // open device detail page in new tab (device_detail.html reads deviceID from query param)
       window.open(`/device_detail.html?deviceID=${encodeURIComponent(id)}`, '_blank');
     });
 
@@ -454,6 +480,44 @@
 
     // auto-refresh interval
     setInterval(loadDevices, 30_000);
+
+    /* Settings modal logic and persistence */
+    function loadSettings() {
+      if (localStorage.getItem('darkMode') === 'enabled') {
+        document.body.classList.add('dark');
+        $('#settingsDarkMode').prop('checked', true);
+      } else {
+        $('#settingsDarkMode').prop('checked', false);
+      }
+      if (localStorage.getItem('autoRefresh') === 'enabled') {
+        $('#settingsAutoRefresh').prop('checked', true);
+      } else {
+        $('#settingsAutoRefresh').prop('checked', false);
+      }
+    }
+
+    function saveSettings() {
+      const dark = $('#settingsDarkMode').is(':checked');
+      const auto = $('#settingsAutoRefresh').is(':checked');
+
+      document.body.classList.toggle('dark', dark);
+      localStorage.setItem('darkMode', dark ? 'enabled' : 'disabled');
+      localStorage.setItem('autoRefresh', auto ? 'enabled' : 'disabled');
+
+      // sync top-right dark toggle button
+      $('#darkModeToggle').toggleClass('active', dark);
+    }
+
+    $('#settingsBtn').on('click', ()=> new bootstrap.Modal(document.getElementById('settingsModal')).show());
+    $('#saveSettingsBtn').on('click', ()=> {
+      saveSettings();
+      showAlert('Settings saved', 'success');
+      bootstrap.Modal.getInstance(document.getElementById('settingsModal')).hide();
+    });
+
+    // initial settings load
+    loadSettings();
+
   </script>
 </body>
 </html>
