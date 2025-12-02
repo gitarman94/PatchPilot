@@ -91,7 +91,13 @@ fn insert_or_update_device(
 ) -> Result<Device, ApiError> {
     use crate::schema::devices::dsl::*;
 
-    let new_device = NewDevice::from_device_info(device_id, info);
+    // Pull existing dev if present
+    let existing = devices
+        .filter(device_name.eq(device_id))
+        .first::<Device>(conn)
+        .ok();
+
+    let new_device = NewDevice::from_device_info(device_id, info, existing.as_ref());
 
     diesel::insert_into(devices)
         .values(&new_device)
@@ -113,31 +119,16 @@ fn insert_or_update_device(
 #[post("/register", format = "json", data = "<payload>")]
 async fn register_device(
     state: &State<AppState>,
-    payload: Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, String> {
-
-    let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let ip_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let ifaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-    // TEMPORARY ID — NOT THE FINAL UUID
+    payload: Json<DeviceInfo>,
+) -> Result<Json<serde_json::Value>, String> 
+{
+    // New temporary ID (not final; not approved)
     let pending_id = format!("pending-{}", Uuid::new_v4());
 
-    let device_info = DeviceInfo {
-        system_info: SystemInfo {
-            ip_address: Some(ip_val),
-            network_interfaces: Some(ifaces_val),
-            ..Default::default()
-        },
-        device_type: Some(device_type_val),
-        device_model: Some(device_model_val),
-    };
-
+    // Store EXACTLY what the client sent
     let mut pending = state.pending_devices.write().unwrap();
-    pending.insert(pending_id.clone(), device_info);
+    pending.insert(pending_id.clone(), payload.into_inner());
 
-    // Return temporary ID — NOT the final UUID
     Ok(Json(json!({
         "pending_id": pending_id,
         "status": "pending_adoption"
@@ -186,68 +177,85 @@ async fn register_or_update_device(
 async fn heartbeat(
     state: &State<AppState>,
     pool: &State<DbPool>,
-    payload: Json<serde_json::Value>,
-) -> Json<serde_json::Value> {
-
+    payload: Json<DeviceInfo>,
+) -> Json<serde_json::Value>
+{
     use crate::schema::devices::dsl::*;
 
     let pool_clone = pool.inner().clone();
+    let incoming = payload.into_inner();
 
-    let device_id = payload.get("device_id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-    let device_type_val = payload.get("device_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let device_model_val = payload.get("device_model").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let ip_val = payload.get("ip_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let ifaces_val = payload.get("network_interfaces").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let device_id = incoming.system_info.hostname.clone().unwrap_or_default();
+    if device_id.is_empty() {
+        return Json(json!({ "adopted": false, "error": "missing hostname/device_id" }));
+    }
+
+    let auto_approve = {
+        let cfg = state.settings.read().unwrap();
+        cfg.auto_approve_devices
+    };
 
     let pending_ref = Arc::clone(&state.pending_devices);
 
-    // ✅ FIX: capture auto-approve flag before spawn_blocking
-    let auto_approve = {
-        let s = state.settings.read().unwrap();
-        s.auto_approve_devices
-    };
-
     let adopted = rocket::tokio::task::spawn_blocking(move || {
-        if let Ok(mut conn) = pool_clone.get() {
+        let mut conn = match pool_clone.get() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
 
-            let approved_state = devices
-                .filter(device_name.eq(&device_id))
-                .select(approved)
-                .first::<bool>(&mut conn)
-                .unwrap_or(false);
+        let is_approved = devices
+            .filter(device_name.eq(&device_id))
+            .select(approved)
+            .first::<bool>(&mut conn)
+            .unwrap_or(false);
 
-            if approved_state {
-                let _ = diesel::update(devices.filter(device_name.eq(&device_id)))
-                    .set((
-                        last_checkin.eq(Utc::now().naive_utc()),
-                        ip_address.eq(Some(ip_val)),
-                        network_interfaces.eq(Some(ifaces_val)),
-                    ))
-                    .execute(&mut conn);
+        if is_approved {
+            let newdev = NewDevice::from_device_info(&device_id, &incoming);
 
-                return true;
-            }
+            diesel::update(devices.filter(device_name.eq(&device_id)))
+                .set((
+                    last_checkin.eq(Utc::now().naive_utc()),
+                    ip_address.eq(newdev.ip_address.clone().filter(|v| !v.is_empty())),
+                    network_interfaces.eq(newdev.network_interfaces.clone().filter(|v| !v.is_empty())),
+                    hostname.eq(newdev.hostname.clone().filter(|v| !v.is_empty())),
+                    os_name.eq(newdev.os_name.clone().filter(|v| !v.is_empty())),
+                    architecture.eq(newdev.architecture.clone().filter(|v| !v.is_empty())),
+                    cpu_brand.eq(newdev.cpu_brand.clone().filter(|v| !v.is_empty())),
+                    disk_health.eq(newdev.disk_health.clone().filter(|v| !v.is_empty())),
+                    cpu_usage.eq(newdev.cpu_usage),
+                    cpu_count.eq(newdev.cpu_count),
+                    ram_total.eq(newdev.ram_total),
+                    ram_used.eq(newdev.ram_used),
+                    disk_total.eq(newdev.disk_total),
+                    disk_free.eq(newdev.disk_free),
+                    network_throughput.eq(newdev.network_throughput),
+                    ping_latency.eq(newdev.ping_latency),
+                ))
+                .execute(&mut conn)
+                .ok();
 
-            if auto_approve {
-                return true;
-            }
-
-            let mut pending = pending_ref.write().unwrap();
-            pending.insert(
-                device_id.clone(),
-                DeviceInfo {
-                    system_info: SystemInfo {
-                        ip_address: Some(ip_val),
-                        network_interfaces: Some(ifaces_val),
-                        ..Default::default()
-                    },
-                    device_type: Some(device_type_val),
-                    device_model: Some(device_model_val),
-                },
-            );
-
-            return false;
+            return true;
         }
+
+        if auto_approve {
+            let mut newdev = NewDevice::from_device_info(&device_id, &incoming);
+            newdev.approved = true;
+
+            let _ = diesel::insert_into(devices)
+                .values(&newdev)
+                .on_conflict(device_name)
+                .do_update()
+                .set(&newdev)
+                .execute(&mut conn);
+
+            return true;
+        }
+
+        let mut pending = pending_ref.write().unwrap();
+        pending
+            .entry(device_id.clone())
+            .and_modify(|existing| existing.merge_with(&incoming))
+            .or_insert(incoming);
 
         false
     })

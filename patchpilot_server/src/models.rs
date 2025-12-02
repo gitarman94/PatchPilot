@@ -104,41 +104,43 @@ pub struct DeviceInfo {
 }
 
 impl DeviceInfo {
-    pub fn to_device(&self, device_id: &str) -> Device {
-        Device {
-            id: 0,
-            device_name: device_id.to_string(),
-            hostname: device_id.to_string(),
-            os_name: self.system_info.os_name.clone(),
-            architecture: self.system_info.architecture.clone(),
-            last_checkin: Utc::now().naive_utc(),
-            approved: false,
+    pub fn merge_with(&mut self, other: &DeviceInfo) {
+        let s = &mut self.system_info;
+        let o = &other.system_info;
 
-            cpu_usage: self.system_info.cpu_usage,
-            cpu_count: self.system_info.cpu_count,
-            cpu_brand: self.system_info.cpu_brand.clone(),
+        if !o.os_name.is_empty()            { s.os_name = o.os_name.clone(); }
+        if !o.architecture.is_empty()       { s.architecture = o.architecture.clone(); }
+        if !o.cpu_brand.is_empty()          { s.cpu_brand = o.cpu_brand.clone(); }
+        if !o.disk_health.is_empty()        { s.disk_health = o.disk_health.clone(); }
+        if !o.ip_address.is_empty()         { s.ip_address = o.ip_address.clone(); }
+        if !o.network_interfaces.is_empty() { s.network_interfaces = o.network_interfaces.clone(); }
 
-            ram_total: self.system_info.ram_total,
-            ram_used: self.system_info.ram_used,
+        s.cpu_usage = o.cpu_usage;
+        s.cpu_count = o.cpu_count;
 
-            disk_total: self.system_info.disk_total,
-            disk_free: self.system_info.disk_free,
-            disk_health: self.system_info.disk_health.clone(),
+        s.ram_total = o.ram_total;
+        s.ram_used  = o.ram_used;
 
-            network_throughput: self.system_info.network_throughput,
-            ping_latency: self.system_info.ping_latency,
+        s.disk_total = o.disk_total;
+        s.disk_free  = o.disk_free;
 
-            device_type: self.device_type.clone().unwrap_or_default(),
-            device_model: self.device_model.clone().unwrap_or_default(),
+        s.network_throughput = o.network_throughput;
+        s.ping_latency = o.ping_latency;
 
-            uptime: Some("0h 0m".into()),
-            updates_available: false,
+        if let Some(t) = &other.device_type {
+            if !t.is_empty() {
+                self.device_type = Some(t.clone());
+            }
+        }
 
-            network_interfaces: self.system_info.network_interfaces.clone(),
-            ip_address: self.system_info.ip_address.clone(),
+        if let Some(m) = &other.device_model {
+            if !m.is_empty() {
+                self.device_model = Some(m.clone());
+            }
         }
     }
 }
+
 
 impl Device {
     pub fn compute_uptime(&self) -> String {
@@ -159,37 +161,91 @@ impl Device {
 }
 
 impl NewDevice {
-    pub fn from_device_info(device_id: &str, info: &DeviceInfo) -> Self {
+    pub fn from_device_info(device_id: &str, info: &DeviceInfo, existing: Option<&Device>) -> Self {
+        // Helpers to merge values safely
+        fn pick_string(new: String, old: &str) -> String {
+            if new.trim().is_empty() { old.to_string() } else { new }
+        }
+
+        fn pick_i64(new: i64, old: i64) -> i64 {
+            if new == 0 { old } else { new }
+        }
+
+        fn pick_f32(new: f32, old: f32) -> f32 {
+            if new == 0.0 { old } else { new }
+        }
+
+        fn pick_option<T: Clone>(new: Option<T>, old: Option<T>) -> Option<T> {
+            if new.is_none() { old } else { new }
+        }
+
+        let si = &info.system_info;
+
+        let (old, approved) = match existing {
+            Some(dev) => (dev, dev.approved),
+            None => (
+                &Device {
+                    id: 0,
+                    device_name: device_id.to_string(),
+                    hostname: device_id.to_string(),
+                    os_name: "".into(),
+                    architecture: "".into(),
+                    last_checkin: Utc::now().naive_utc(),
+                    approved: false,
+                    cpu_usage: 0.0,
+                    cpu_count: 0,
+                    cpu_brand: "".into(),
+                    ram_total: 0,
+                    ram_used: 0,
+                    disk_total: 0,
+                    disk_free: 0,
+                    disk_health: "".into(),
+                    network_throughput: 0,
+                    ping_latency: None,
+                    device_type: "".into(),
+                    device_model: "".into(),
+                    uptime: Some("0h 0m".into()),
+                    updates_available: false,
+                    network_interfaces: None,
+                    ip_address: None,
+                },
+                false,
+            ),
+        };
+
         Self {
             device_name: device_id.to_string(),
             hostname: device_id.to_string(),
-            os_name: info.system_info.os_name.clone(),
-            architecture: info.system_info.architecture.clone(),
+
+            os_name: pick_string(si.os_name.clone(), &old.os_name),
+            architecture: pick_string(si.architecture.clone(), &old.architecture),
+
             last_checkin: Utc::now().naive_utc(),
-            approved: false,
+            approved,
 
-            cpu_usage: info.system_info.cpu_usage,
-            cpu_count: info.system_info.cpu_count,
-            cpu_brand: info.system_info.cpu_brand.clone(),
+            cpu_usage: pick_f32(si.cpu_usage, old.cpu_usage),
+            cpu_count: if si.cpu_count == 0 { old.cpu_count } else { si.cpu_count },
+            cpu_brand: pick_string(si.cpu_brand.clone(), &old.cpu_brand),
 
-            ram_total: info.system_info.ram_total,
-            ram_used: info.system_info.ram_used,
+            ram_total: pick_i64(si.ram_total, old.ram_total),
+            ram_used: pick_i64(si.ram_used, old.ram_used),
 
-            disk_total: info.system_info.disk_total,
-            disk_free: info.system_info.disk_free,
-            disk_health: info.system_info.disk_health.clone(),
+            disk_total: pick_i64(si.disk_total, old.disk_total),
+            disk_free: pick_i64(si.disk_free, old.disk_free),
+            disk_health: pick_string(si.disk_health.clone(), &old.disk_health),
 
-            network_throughput: info.system_info.network_throughput,
-            ping_latency: info.system_info.ping_latency,
+            network_throughput: pick_i64(si.network_throughput, old.network_throughput),
+            ping_latency: pick_option(si.ping_latency, old.ping_latency),
 
-            device_type: info.device_type.clone().unwrap_or_default(),
-            device_model: info.device_model.clone().unwrap_or_default(),
+            device_type: pick_string(info.device_type.clone().unwrap_or_default(), &old.device_type),
+            device_model: pick_string(info.device_model.clone().unwrap_or_default(), &old.device_model),
 
-            uptime: Some("0h 0m".into()),
-            updates_available: false,
+            uptime: pick_option(Some("0h 0m".into()), old.uptime.clone()),
 
-            network_interfaces: info.system_info.network_interfaces.clone(),
-            ip_address: info.system_info.ip_address.clone(),
+            updates_available: old.updates_available, // server controls this, not client
+
+            network_interfaces: pick_option(si.network_interfaces.clone(), old.network_interfaces.clone()),
+            ip_address: pick_option(si.ip_address.clone(), old.ip_address.clone()),
         }
     }
 }
