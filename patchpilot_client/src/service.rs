@@ -84,19 +84,12 @@ async fn register_device(
     device_type: &str,
     device_model: &str
 ) -> Result<String> {
-    let mut sys_info = match get_system_info() {
-        Ok(info) => info,
-        Err(_) => SystemInfo::new(),
-    };
-
-    sys_info.refresh();
 
     let resp = client
         .post(format!("{}/api/register", server_url))
         .json(&json!({
             "device_type": device_type,
             "device_model": device_model,
-            "system_info": sys_info,
             "ip_address": get_ip_address()
         }))
         .send()
@@ -108,12 +101,13 @@ async fn register_device(
 
     // If server already adopted device
     if let Some(id) = json_resp.get("device_id").and_then(|v| v.as_str()) {
+        write_local_device_id(id)?;
         return Ok(id.to_string());
     }
 
-    // If server returns pending adoption
+    // If server returned pending adoption ID
     if let Some(pending) = json_resp.get("pending_id").and_then(|v| v.as_str()) {
-        // Save pending ID as temporary device ID
+        write_local_device_id(pending)?;
         return Ok(pending.to_string());
     }
 

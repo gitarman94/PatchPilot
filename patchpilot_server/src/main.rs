@@ -32,6 +32,32 @@ pub struct AppState {
     pub settings: Arc<RwLock<ServerSettings>>,
 }
 
+use std::time::{Instant, Duration};
+use rocket::tokio;
+
+pub fn spawn_pending_cleanup(state: Arc<AppState>) {
+    tokio::spawn(async move {
+        let check_every = Duration::from_secs(5);
+        let max_age = Duration::from_secs(15);
+
+        loop {
+            tokio::time::sleep(check_every).await;
+
+            let mut pending = state.pending_devices.write().unwrap();
+            let now = Instant::now();
+
+            pending.retain(|_, dev| {
+                if let Some(last) = dev.last_seen {
+                    now.duration_since(last) < max_age
+                } else {
+                    false
+                }
+            });
+        }
+    });
+}
+
+
 fn init_logger() {
     Logger::try_with_str("info")
         .unwrap()
