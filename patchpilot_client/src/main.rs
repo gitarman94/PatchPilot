@@ -3,7 +3,8 @@ mod service;
 
 use std::{fs, path::Path};
 use crate::service::init_logging;
-
+use sysinfo::Uid;
+ 
 /// Systemd Setup (Linux Only)
 /// Ensures the PatchPilot systemd service exists, is enabled,
 /// and the dedicated service user is present.
@@ -80,7 +81,7 @@ fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
     // If running as root, ensure correct ownership for systemd user
     #[cfg(target_os = "linux")]
     {
-        if nix::unistd::Uid::effective().is_root() {
+        if Uid::effective().is_root() {
             let _ = std::process::Command::new("chown")
                 .arg("-R")
                 .arg("patchpilot:patchpilot")
