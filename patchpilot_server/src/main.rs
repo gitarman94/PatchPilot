@@ -45,16 +45,16 @@ pub fn spawn_pending_cleanup(state: Arc<AppState>) {
 
         loop {
             tokio::time::sleep(check_every).await;
-
-            let mut pending = state.pending_devices.write().unwrap();
             let now = Instant::now();
 
-            // Update last-seen timestamps for anything still present
+            // Lock pending map and refresh timestamps for every currently-present pending id.
+            let mut pending = state.pending_devices.write().unwrap();
             for id in pending.keys() {
-                last_seen.entry(id.clone()).or_insert_with(Instant::now);
+                // insert/overwrite with current time to refresh the "last seen"
+                last_seen.insert(id.clone(), now);
             }
 
-            // Remove entries too old OR whose timestamp was lost
+            // Remove pending entries that are too old (or missing a timestamp)
             pending.retain(|id, _| {
                 if let Some(t) = last_seen.get(id) {
                     now.duration_since(*t) < max_age
@@ -63,12 +63,11 @@ pub fn spawn_pending_cleanup(state: Arc<AppState>) {
                 }
             });
 
-            // Clean timestamps for removed pending entries
+            // Remove timestamps for entries that were removed from pending
             last_seen.retain(|id, _| pending.contains_key(id));
         }
     });
-
-
+}
 
 fn init_logger() {
     Logger::try_with_str("info")
