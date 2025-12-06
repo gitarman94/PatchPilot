@@ -426,47 +426,57 @@
         // compute stats
         const total = devices.length;
         let online = 0,
-          pending = 0,
-          updates = 0;
+            pending = 0,
+            updates = 0;
+
         devices.forEach((d) => {
-          if (d.pending) pending++;
-          else {
+          if (d.pending) {
+            pending++;
+          } else {
             const last = d.last_checkin ? new Date(d.last_checkin) : null;
-            if (last && (Date.now() - new Date(last)) / 1000 < 600) online++;
+            if (last && (Date.now() - last) / 1000 < 600) online++;
           }
           if (d.updates_available) updates++;
         });
 
-        $('#totalDevices').text(total);
-        $('#onlineDevices').text(online);
-        $('#pendingDevices').text(pending);
-        $('#updatesAvailable').text(updates);
-        $('#lastRefresh').text(new Date().toLocaleTimeString());
+        document.getElementById('totalDevices').textContent = total;
+        document.getElementById('onlineDevices').textContent = online;
+        document.getElementById('pendingDevices').textContent = pending;
+        document.getElementById('updatesAvailable').textContent = updates;
+        document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
 
-        // normalize objects for display (ensure keys exist)
-        const normalized = devices.map((d) => ({
-          id: d.id ?? null,
-          device_name: d.device_name || d.id || null,
-          hostname: d.hostname || d.device_name || d.id || '—',
-          os_name: d.os_name || '',
-          device_type: d.device_type || d.device_model || '',
-          cpu_usage: d.cpu_usage ?? null,
-          ram_total: d.ram_total ?? 0,
-          ram_used: d.ram_used ?? 0,
-          disk_total: d.disk_total ?? 0,
-          disk_free: d.disk_free ?? 0,
-          disk_health: d.disk_health || '',
-          network_throughput: d.network_throughput ?? 0,
-          ping_latency: d.ping_latency ?? null,
-          last_checkin: d.last_checkin ?? null,
-          updates_available: d.updates_available ?? false,
-          approved: d.approved ?? false,
-          pending: d.pending ?? false,
-          ip_address: d.ip_address || null,
-          network_interfaces: d.network_interfaces || null,
-        }));
+        // normalize objects for display
+        const normalized = devices.map((d) => {
+          const id = d.device_name || d.id || null;
+          const hn = d.hostname || id || '—';
+
+          return {
+            id: d.id ?? null,
+            device_name: id,
+            hostname: hn,
+            hostname_display: d.pending ? `${hn} (pending)` : hn,
+
+            os_name: d.os_name || '',
+            device_type: d.device_type || d.device_model || '',
+            cpu_usage: d.cpu_usage ?? null,
+            ram_total: d.ram_total ?? 0,
+            ram_used: d.ram_used ?? 0,
+            disk_total: d.disk_total ?? 0,
+            disk_free: d.disk_free ?? 0,
+            disk_health: d.disk_health || '',
+            network_throughput: d.network_throughput ?? 0,
+            ping_latency: d.ping_latency ?? null,
+            last_checkin: d.last_checkin ?? null,
+            updates_available: d.updates_available ?? false,
+            approved: d.approved ?? false,
+            pending: d.pending ?? false,
+            ip_address: d.ip_address || null,
+            network_interfaces: d.network_interfaces || null,
+          };
+        });
 
         table.clear().rows.add(normalized).draw(false);
+
       } catch (err) {
         console.error('Failed to load devices', err);
         showAlert('Failed to load devices', 'danger', 4500);
@@ -477,7 +487,7 @@
     loadDevices();
 
     // manual refresh button
-    $('#refreshBtn').on('click', () => loadDevices());
+    document.getElementById('refreshBtn').addEventListener('click', () => loadDevices());
 
     // --------------------- Delegated actions ---------------------
     // view details (open in new tab)
