@@ -84,36 +84,36 @@ async fn register_device(
     device_type: &str,
     device_model: &str
 ) -> Result<String> {
+    // collect full system info for registration
+    let mut sys_info = match get_system_info() {
+        Ok(info) => info,
+        Err(_) => SystemInfo::new(),
+    };
+
+    sys_info.refresh();
+
     let resp = client
         .post(format!("{}/api/register", server_url))
         .json(&json!({
             "device_type": device_type,
             "device_model": device_model,
-            "ip_address": get_ip_address(),
-            "network_interfaces": "eth0,wlan0"
+            "system_info": sys_info,
+            "ip_address": get_ip_address()
         }))
         .send()
         .await
         .context("Registration request failed")?;
 
-    // Read the response body as a string instead of forcing JSON
-    let body = resp.text().await.unwrap_or_default();
-
-    // If empty → server has not approved yet
-    if body.trim().is_empty() {
-        anyhow::bail!("Server has not approved yet (empty response)");
-    }
-
-    // Try to parse JSON only if there's actually content
     let json_resp: serde_json::Value =
-        serde_json::from_str(&body).context("Invalid JSON from server")?;
+        resp.json().await.context("Invalid JSON from server")?;
 
     if let Some(id) = json_resp.get("device_id").and_then(|v| v.as_str()) {
         return Ok(id.to_string());
     }
 
-    anyhow::bail!("Server did not return device_id");
+    anyhow::bail!("Server did not return device_id")
 }
+
 
 async fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
     let mut sys_info = match get_system_info() {
@@ -139,32 +139,36 @@ async fn send_heartbeat(
     client: &Client,
     server_url: &str,
     device_id: &str,
-    device_type: &str,
-    device_model: &str
+    _device_type: &str,
+    _device_model: &str
 ) -> bool {
+    let mut sys_info = match get_system_info() {
+        Ok(info) => info,
+        Err(_) => SystemInfo::new(),
+    };
+
+    sys_info.refresh();
+
     let resp = client
         .post(format!("{}/api/devices/heartbeat", server_url))
         .json(&json!({
             "device_id": device_id,
-            "device_type": device_type,
-            "device_model": device_model,
-            "ip_address": get_ip_address(),
-            "network_interfaces": "eth0,wlan0"
+            "system_info": sys_info,
+            "ip_address": get_ip_address()
         }))
         .send()
         .await;
 
     if let Ok(r) = resp {
         if let Ok(v) = r.json::<serde_json::Value>().await {
-            // Accept both { "adopted": true } or { "status": "adopted" }
-            return v
-                .get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
+            return v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
                 || v.get("status").and_then(|x| x.as_str()) == Some("adopted");
         }
     }
 
     false
 }
+
 
 async fn run_adoption_and_update_loop(
     client: &Client,
