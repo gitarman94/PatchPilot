@@ -40,22 +40,34 @@ pub fn spawn_pending_cleanup(state: Arc<AppState>) {
         let check_every = Duration::from_secs(5);
         let max_age = Duration::from_secs(15);
 
+        // Track "last seen" times for pending IDs separately
+        let mut last_seen: HashMap<String, Instant> = HashMap::new();
+
         loop {
             tokio::time::sleep(check_every).await;
 
             let mut pending = state.pending_devices.write().unwrap();
             let now = Instant::now();
 
-            pending.retain(|_, dev| {
-                if let Some(last) = dev.last_seen {
-                    now.duration_since(last) < max_age
+            // Update last-seen timestamps for anything still present
+            for id in pending.keys() {
+                last_seen.entry(id.clone()).or_insert_with(Instant::now);
+            }
+
+            // Remove entries too old OR whose timestamp was lost
+            pending.retain(|id, _| {
+                if let Some(t) = last_seen.get(id) {
+                    now.duration_since(*t) < max_age
                 } else {
                     false
                 }
             });
+
+            // Clean timestamps for removed pending entries
+            last_seen.retain(|id, _| pending.contains_key(id));
         }
     });
-}
+
 
 
 fn init_logger() {
