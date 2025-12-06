@@ -66,10 +66,34 @@ WantedBy=multi-user.target
     Ok(())
 }
 
-/// Runtime Environment Setup
-/// Creates directories, enforces permissions, and validates
-/// expected configuration files.
+fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "linux")]
+    let base_dir = "/opt/patchpilot_client";
+
+    let logs_dir = format!("{}/logs", base_dir);
+
+    // Create directory if missing
+    if !Path::new(&logs_dir).exists() {
+        std::fs::create_dir_all(&logs_dir)?;
+    }
+
+    // If running as root, ensure correct ownership for systemd user
+    #[cfg(target_os = "linux")]
+    {
+        if nix::unistd::Uid::effective().is_root() {
+            let _ = std::process::Command::new("chown")
+                .arg("-R")
+                .arg("patchpilot:patchpilot")
+                .arg(&logs_dir)
+                .output();
+        }
+    }
+
+    Ok(())
+}
+
 fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
+    // Determine base directory per OS
     #[cfg(target_os = "linux")]
     let base_dir = "/opt/patchpilot_client";
 
@@ -84,18 +108,14 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
         path.to_str().unwrap().into()
     };
 
-    let logs_dir = format!("{}/logs", base_dir);
     let server_url_file = format!("{}/server_url.txt", base_dir);
 
-    // Ensure application directory structure
+    // Ensure application root directory exists
     if !Path::new(base_dir).exists() {
         fs::create_dir_all(base_dir)?;
     }
-    if !Path::new(&logs_dir).exists() {
-        fs::create_dir_all(&logs_dir)?;
-    }
 
-    // Linux-specific permission enforcement
+    // Linux-specific ownership and permissions on base directory
     #[cfg(target_os = "linux")]
     {
         let _ = std::process::Command::new("chown")
@@ -103,24 +123,20 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
             .arg("patchpilot:patchpilot")
             .arg(base_dir)
             .output();
-
-        let _ = std::process::Command::new("chmod")
-            .arg("755")
-            .arg(&logs_dir)
-            .output();
     }
 
-    // Warn (not error) if missing configuration
+    // Warn (does not block) if server URL configuration is missing
     if !Path::new(&server_url_file).exists() {
         println!(
             "WARNING: Missing server URL configuration file at {}",
             server_url_file
         );
-        println!("Create it with the PatchPilot server URL (e.g. http://192.168.1.10:8080).");
+        println!("Create it with the PatchPilot server URL inside (e.g. http://192.168.1.10:8080 ).");
     }
 
     Ok(())
 }
+
 
 /// Initial System Information Logging
 fn log_initial_system_info() {
@@ -154,12 +170,17 @@ fn log_initial_system_info() {
 /// Application Entry Point
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    setup_runtime_environment()?;
+setup_runtime_environment()?;
+
+    // Ensure log directory exists *before* flexi_logger starts.
+    ensure_logs_dir()?;
 
     #[cfg(target_os = "linux")]
     ensure_systemd_service()?;
 
+    // Logging must happen AFTER directories exist + ownership fixed.
     if let Err(e) = init_logging() {
+
         eprintln!("Logging initialization failed: {}", e);
         return Err(Box::<dyn std::error::Error>::from(e));
     }
