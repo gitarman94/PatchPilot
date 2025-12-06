@@ -104,20 +104,32 @@ if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -s /usr/sbin/nologin patchpilot
 fi
 
-# --- Ask for server IP (optional) ---
+# --- Ask for server IP or hostname ---
 echo
-echo "Enter PatchPilot server IP or hostname (ex. 192.168.1.10):"
-read -p "Server: " SERVER_IP
+echo "Enter PatchPilot server IP or hostname (ex. 192.168.1.10 or patchpilot.local):"
+read -p "Server: " SERVER_INPUT
 echo
 
+if [[ -n "$SERVER_INPUT" ]]; then
+    # If the user did not include a scheme, assume http://
+    if [[ "$SERVER_INPUT" =~ ^https?:// ]]; then
+        SERVER_URL="$SERVER_INPUT"
+    else
+        SERVER_URL="http://$SERVER_INPUT"
+    fi
 
-if [[ -n "$SERVER_IP" ]]; then
-    echo "$SERVER_IP" > "$APP_DIR/server_ip.txt"
-    echo "Saved server address: $SERVER_IP"
+    # If user did not include a port, append :8080
+    if [[ ! "$SERVER_URL" =~ :[0-9]+$ ]]; then
+        SERVER_URL="${SERVER_URL}:8080"
+    fi
+
+    echo "$SERVER_URL" > "$APP_DIR/server_url.txt"
+    echo "Saved server URL: $SERVER_URL"
 else
-    echo "" > "$APP_DIR/server_ip.txt"
-    echo "No server address provided. Client will log instructions on startup."
+    echo "" > "$APP_DIR/server_url.txt"
+    echo "No server address provided. Client will show instructions on startup."
 fi
+
 
 chown -R patchpilot:patchpilot "$APP_DIR"
 chmod -R 775 "$APP_DIR"
