@@ -84,7 +84,6 @@ async fn register_device(
     device_type: &str,
     device_model: &str
 ) -> Result<String> {
-    // collect full system info for registration
     let mut sys_info = match get_system_info() {
         Ok(info) => info,
         Err(_) => SystemInfo::new(),
@@ -107,13 +106,19 @@ async fn register_device(
     let json_resp: serde_json::Value =
         resp.json().await.context("Invalid JSON from server")?;
 
+    // If server already adopted device
     if let Some(id) = json_resp.get("device_id").and_then(|v| v.as_str()) {
         return Ok(id.to_string());
     }
 
-    anyhow::bail!("Server did not return device_id")
-}
+    // If server returns pending adoption
+    if let Some(pending) = json_resp.get("pending_id").and_then(|v| v.as_str()) {
+        // Save pending ID as temporary device ID
+        return Ok(pending.to_string());
+    }
 
+    anyhow::bail!("Server did not return device_id or pending_id")
+}
 
 async fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
     let mut sys_info = match get_system_info() {
