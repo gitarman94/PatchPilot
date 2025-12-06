@@ -49,7 +49,7 @@ WantedBy=multi-user.target
     }
 
     // Enable service
-    let status = std::process::Command::Command::new("systemctl")
+    let status = std::process::Command::new("systemctl")
         .arg("is-enabled")
         .arg("patchpilot_client.service")
         .output();
