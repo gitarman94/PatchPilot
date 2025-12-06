@@ -109,14 +109,13 @@ chmod -R 755 "$APP_DIR"
 
 # --- Ask for server IP (optional) ---
 echo
-echo "Enter PatchPilot server IP or hostname (leave blank to set later):"
+echo "Enter PatchPilot server IP or hostname (ex. 192.168.1.10):"
 read -p "Server: " SERVER_IP
 echo
 
-mkdir -p /etc/patchpilot
 
 if [[ -n "$SERVER_IP" ]]; then
-    echo "$SERVER_IP" > /etc/patchpilot/server_address
+    echo "$SERVER_IP" > "$APP_DIR/server_ip.txt"
     echo "Saved server address: $SERVER_IP"
 else
     echo "No server address provided. Client will log instructions on startup."
