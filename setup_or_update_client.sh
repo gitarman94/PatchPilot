@@ -115,6 +115,7 @@ if [[ -n "$SERVER_IP" ]]; then
     echo "$SERVER_IP" > "$APP_DIR/server_ip.txt"
     echo "Saved server address: $SERVER_IP"
 else
+    echo "" > "$APP_DIR/server_ip.txt"
     echo "No server address provided. Client will log instructions on startup."
 fi
 
