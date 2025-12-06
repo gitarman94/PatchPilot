@@ -104,9 +104,6 @@ if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -s /usr/sbin/nologin patchpilot
 fi
 
-chown -R patchpilot:patchpilot "$APP_DIR"
-chmod -R 755 "$APP_DIR"
-
 # --- Ask for server IP (optional) ---
 echo
 echo "Enter PatchPilot server IP or hostname (ex. 192.168.1.10):"
@@ -120,6 +117,9 @@ if [[ -n "$SERVER_IP" ]]; then
 else
     echo "No server address provided. Client will log instructions on startup."
 fi
+
+chown -R patchpilot:patchpilot "$APP_DIR"
+chmod -R 775 "$APP_DIR"
 
 # --- Configure systemd service ---
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
