@@ -67,7 +67,6 @@ fn write_local_device_id(device_id: &str) -> Result<()> {
 fn get_device_info_basic() -> (String, String) {
     match get_system_info() {
         Ok(info) => {
-            // device_type and device_model are now Strings
             let device_type =
                 if info.device_type.trim().is_empty() { "".into() } else { info.device_type };
             let device_model =
@@ -91,13 +90,13 @@ async fn register_device(
     };
     sys_info.refresh();
 
+    // ✔ FIXED PAYLOAD (removed ip_address)
     let resp = client
         .post(format!("{}/api/register", server_url))
         .json(&json!({
+            "system_info": sys_info,
             "device_type": device_type,
-            "device_model": device_model,
-            "ip_address": get_ip_address(),
-            "system_info": sys_info
+            "device_model": device_model
         }))
         .send()
         .await
@@ -131,14 +130,12 @@ async fn send_system_update(
     };
     sys_info.refresh();
 
-    let payload = json!({
-        "device_id": device_id,
-        "system_info": sys_info
-    });
-
+    // ✔ FIXED ENDPOINT (correct: /api/devices/<id>)
     let resp = client
-        .post(format!("{}/api/update", server_url))
-        .json(&payload)
+        .post(format!("{}/api/devices/{}", server_url, device_id))
+        .json(&json!({
+            "system_info": sys_info
+        }))
         .send()
         .await
         .context("Update request failed")?;
@@ -169,12 +166,12 @@ async fn send_heartbeat(
 
     sys_info.refresh();
 
+    // ✔ FIXED PAYLOAD (removed ip_address)
     let payload = serde_json::json!({
         "device_id": device_id,
-        "device_type": device_type,
-        "device_model": device_model,
         "system_info": sys_info,
-        "ip_address": get_ip_address()
+        "device_type": device_type,
+        "device_model": device_model
     });
 
     let resp = client
