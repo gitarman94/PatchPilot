@@ -21,21 +21,19 @@ const SERVER_URL_FILE: &str = "/opt/patchpilot_client/server_url.txt";
 const SERVER_URL_FILE: &str = "C:\\ProgramData\\PatchPilot\\server_url.txt";
 
 pub fn init_logging() -> anyhow::Result<()> {
-    use flexi_logger::{
-        Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming, WriteMode
-    };
+    use flexi_logger::{Age, Cleanup, Criterion, Duplicate, FileSpec,
+                       Logger, Naming, WriteMode};
 
     let log_dir = "/opt/patchpilot_client/logs";
 
-    // Ensure log directory exists
-    std::fs::create_dir_all(log_dir)?;
+    // Try to create dir but don't fail if it already exists
+    let _ = std::fs::create_dir_all(log_dir);
 
     Logger::try_with_str("info")?
         .log_to_file(
             FileSpec::default()
                 .directory(log_dir)
-                .basename("patchpilot")
-                .suffix("log")
+                .basename("client")
         )
         .write_mode(WriteMode::Direct)
         .duplicate_to_stderr(Duplicate::Info)
