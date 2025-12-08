@@ -52,7 +52,7 @@ async fn read_server_url() -> Result<String> {
     Ok(url.trim().to_string())
 }
 
-fn get_ip_address() -> String {
+pub fn get_ip_address() -> String {
     local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "0.0.0.0".into())
 }
 
