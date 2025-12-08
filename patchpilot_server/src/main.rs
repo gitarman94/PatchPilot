@@ -288,7 +288,9 @@ async fn heartbeat(
 
         if auto_approve {
             let mut newdev = NewDevice::from_device_info(&device_id, &incoming_clone, None);
-            newdev.approved = true;
+            newdev.approved = true; 
+
+            newdev.last_checkin = Utc::now().naive_utc();
 
             let _ = diesel::insert_into(devices)
                 .values(&newdev)
@@ -464,6 +466,7 @@ async fn approve_device(
 
         let mut new_dev = NewDevice::from_device_info(&dev_id, &info, None);
         new_dev.approved = true;
+        new_dev.last_checkin = Utc::now().naive_utc();
 
         diesel::insert_into(devices)
             .values(&new_dev)
