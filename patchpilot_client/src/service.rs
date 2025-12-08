@@ -24,15 +24,16 @@ pub fn init_logging() -> anyhow::Result<()> {
     use flexi_logger::{Age, Cleanup, Criterion, Duplicate, FileSpec,
                        Logger, Naming, WriteMode};
 
-    let log_dir = "/opt/patchpilot_client/logs";
+    // unified base dir (Linux, macOS, Windows)
+    let base_dir = crate::get_base_dir();
+    let log_dir = format!("{}/logs", base_dir);
 
-    // Try to create dir but don't fail if it already exists
-    let _ = std::fs::create_dir_all(log_dir);
+    let _ = std::fs::create_dir_all(&log_dir);
 
     Logger::try_with_str("info")?
         .log_to_file(
             FileSpec::default()
-                .directory(log_dir)
+                .directory(&log_dir)
                 .basename("client")
         )
         .write_mode(WriteMode::Direct)
