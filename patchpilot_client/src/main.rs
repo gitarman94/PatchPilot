@@ -81,12 +81,10 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // NOTE: We no longer print here. Warning is logged later after init_logging().
     if !Path::new(&server_url_file).exists() {
-        println!(
-            "WARNING: Missing server URL configuration at {}",
-            server_url_file
-        );
-        println!("Create file containing the server URL (e.g. http://192.168.1.10:8080).");
+        // Store a marker so we can warn after logging initializes
+        std::fs::write(format!("{}/.missing_server_url_flag", base_dir), b"1").ok();
     }
 
     Ok(())
@@ -126,6 +124,10 @@ ExecStart=/opt/patchpilot_client/patchpilot_client
 Restart=always
 Environment=RUST_LOG=info
 ReadWritePaths=/opt/patchpilot_client/logs
+
+# Prevent journald logging if desired
+StandardOutput=null
+StandardError=null
 
 [Install]
 WantedBy=multi-user.target
@@ -193,9 +195,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     ensure_systemd_service()?;
 
+    // --- Initialize logging BEFORE anything else ---
     if let Err(e) = init_logging() {
         eprintln!("Logging initialization failed: {}", e);
         return Err(Box::<dyn std::error::Error>::from(e));
+    }
+
+    // Now we can warn safely using logger
+    let base_dir = get_base_dir();
+    if Path::new(&format!("{}/.missing_server_url_flag", base_dir)).exists() {
+        log::warn!(
+            "Missing server URL configuration at {}/server_url.txt. \
+             Create file containing the server URL (e.g. http://192.168.1.10:8080).",
+            base_dir
+        );
+        let _ = fs::remove_file(format!("{}/.missing_server_url_flag", base_dir));
     }
 
     log::info!("PatchPilot client starting...");
