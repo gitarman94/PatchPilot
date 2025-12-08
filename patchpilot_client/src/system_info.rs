@@ -20,13 +20,14 @@ pub struct NetworkInterface {
     pub ipv6: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct SystemInfo {
     #[serde(skip)]
     sys: System,
     #[serde(skip)]
     prev_network: HashMap<String, u64>,
 
+    // Always use concrete types so serialization produces non-null values.
     pub hostname: String,
     pub ip_address: String,
     pub os_name: String,
@@ -90,27 +91,18 @@ impl SystemInfo {
         let disk_total: u64 = disks.list().iter().map(|d| d.total_space()).sum();
         let disk_free: u64 = disks.list().iter().map(|d| d.available_space()).sum();
 
-        // Networks
+        // Networks: keep interface info minimal and safe across sysinfo versions.
+        // We populate name and leave mac/ips empty if unavailable.
         let networks_raw = Networks::new_with_refreshed_list();
         let network_interfaces: Vec<NetworkInterface> = networks_raw
             .list()
             .iter()
-            .map(|(name, iface)| {
+            .map(|(name, _iface)| {
                 NetworkInterface {
                     name: name.clone(),
-                    mac: iface.mac_address().to_string(),
-                    ipv4: iface
-                        .ips()
-                        .iter()
-                        .find(|i| i.is_ipv4())
-                        .map(|i| i.to_string())
-                        .unwrap_or_default(),
-                    ipv6: iface
-                        .ips()
-                        .iter()
-                        .find(|i| i.is_ipv6())
-                        .map(|i| i.to_string())
-                        .unwrap_or_default(),
+                    mac: String::new(),
+                    ipv4: String::new(),
+                    ipv6: String::new(),
                 }
             })
             .collect();
@@ -150,49 +142,61 @@ impl SystemInfo {
     }
 
     pub fn refresh(&mut self) {
+        // Refresh system data
         self.sys.refresh_specifics(RefreshKind::everything());
 
+        // Update hostname, os, uptime
         self.hostname = System::host_name().unwrap_or_default();
         self.os_name = System::name().unwrap_or_default();
         self.os_version = System::os_version().unwrap_or_default();
         self.kernel_version = System::kernel_version().unwrap_or_default();
         self.uptime = format!("{}s", System::uptime());
 
+        // IP address might change
         self.ip_address = local_ip().ok().map(|ip| ip.to_string()).unwrap_or_default();
 
+        // CPU usage
         self.cpu_usage = self.sys.global_cpu_usage();
 
+        // Memory
         self.ram_total = self.sys.total_memory();
         self.ram_used = self.sys.used_memory();
         self.ram_free = self.ram_total.saturating_sub(self.ram_used);
 
-        // Disk refresh
+        // Disks: refresh via Disks struct
         let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
         self.disk_total = disks.list().iter().map(|d| d.total_space()).sum();
         self.disk_free = disks.list().iter().map(|d| d.available_space()).sum();
 
-        // Network refresh
+        // Network interfaces: keep minimal (name only) to avoid sysinfo API differences
         let networks = Networks::new_with_refreshed_list();
         self.network_interfaces = networks
             .list()
             .iter()
-            .map(|(name, iface)| NetworkInterface {
+            .map(|(name, _)| NetworkInterface {
                 name: name.clone(),
-                mac: iface.mac_address().to_string(),
-                ipv4: iface
-                    .ips()
-                    .iter()
-                    .find(|i| i.is_ipv4())
-                    .map(|i| i.to_string())
-                    .unwrap_or_default(),
-                ipv6: iface
-                    .ips()
-                    .iter()
-                    .find(|i| i.is_ipv6())
-                    .map(|i| i.to_string())
-                    .unwrap_or_default(),
+                mac: String::new(),
+                ipv4: String::new(),
+                ipv6: String::new(),
             })
             .collect();
+    }
+
+    /// Return current CPU usage. Caller may pass &mut SystemInfo when they already have
+    /// a mutable instance (refresh() is separate).
+    pub fn cpu_usage(&mut self) -> f32 {
+        // refresh CPU counters and return
+        self.sys.refresh_cpu();
+        self.sys.global_cpu_usage()
+    }
+
+    /// Return (total, free) disk space — uses refreshed disk info.
+    pub fn disk_usage(&mut self) -> (u64, u64) {
+        self.sys.refresh_disks_list();
+        let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
+        let total = disks.list().iter().map(|d| d.total_space()).sum();
+        let free = disks.list().iter().map(|d| d.available_space()).sum();
+        (total, free)
     }
 
     pub fn network_throughput(&mut self) -> u64 {
@@ -200,6 +204,7 @@ impl SystemInfo {
         let mut total = 0;
 
         for (name, iface) in networks.list().iter() {
+            // received() and transmitted() are stable sysinfo APIs
             let current = iface.received() + iface.transmitted();
             let prev = *self.prev_network.get(name).unwrap_or(&current);
             total += current.saturating_sub(prev);
