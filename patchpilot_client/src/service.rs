@@ -82,15 +82,23 @@ async fn register_device(
     client: &Client,
     server_url: &str,
     device_type: &str,
-    device_model: &str
+    device_model: &str,
 ) -> Result<String> {
+
+    // gather system info (required by server)
+    let mut sys_info = match get_system_info() {
+        Ok(info) => info,
+        Err(_) => SystemInfo::new(),
+    };
+    sys_info.refresh();
 
     let resp = client
         .post(format!("{}/api/register", server_url))
         .json(&json!({
             "device_type": device_type,
             "device_model": device_model,
-            "ip_address": get_ip_address()
+            "ip_address": get_ip_address(),
+            "system_info": sys_info
         }))
         .send()
         .await
@@ -99,13 +107,11 @@ async fn register_device(
     let json_resp: serde_json::Value =
         resp.json().await.context("Invalid JSON from server")?;
 
-    // If server already adopted device
     if let Some(id) = json_resp.get("device_id").and_then(|v| v.as_str()) {
         write_local_device_id(id)?;
         return Ok(id.to_string());
     }
 
-    // If server returned pending adoption ID
     if let Some(pending) = json_resp.get("pending_id").and_then(|v| v.as_str()) {
         write_local_device_id(pending)?;
         return Ok(pending.to_string());
@@ -114,24 +120,35 @@ async fn register_device(
     anyhow::bail!("Server did not return device_id or pending_id")
 }
 
-async fn send_system_update(client: &Client, server_url: &str, device_id: &str) {
+async fn send_system_update(
+    client: &Client,
+    server_url: &str,
+    device_id: &str,
+) -> Result<()> {
+
     let mut sys_info = match get_system_info() {
         Ok(info) => info,
         Err(_) => SystemInfo::new(),
     };
-
     sys_info.refresh();
 
-    let _ = client
-        .post(format!("{}/api/devices/{}", server_url, device_id))
-        .json(&json!({
-            "device_id": device_id,
-            "status": "active",
-            "system_info": sys_info,
-            "ip_address": get_ip_address(),
-        }))
+    let payload = json!({
+        "device_id": device_id,
+        "system_info": sys_info
+    });
+
+    let resp = client
+        .post(format!("{}/api/update", server_url))
+        .json(&payload)
         .send()
-        .await;
+        .await
+        .context("Update request failed")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("Server update rejected: {}", resp.status());
+    }
+
+    Ok(())
 }
 
 async fn send_heartbeat(
@@ -139,13 +156,12 @@ async fn send_heartbeat(
     server_url: &str,
     device_id: &str,
     _device_type: &str,
-    _device_model: &str
+    _device_model: &str,
 ) -> bool {
     let mut sys_info = match get_system_info() {
         Ok(info) => info,
         Err(_) => SystemInfo::new(),
     };
-
     sys_info.refresh();
 
     let resp = client
@@ -158,14 +174,28 @@ async fn send_heartbeat(
         .send()
         .await;
 
-    if let Ok(r) = resp {
-        if let Ok(v) = r.json::<serde_json::Value>().await {
-            return v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
-                || v.get("status").and_then(|x| x.as_str()) == Some("adopted");
+    match resp {
+        Ok(r) => {
+            if !r.status().is_success() {
+                log::warn!("Heartbeat request returned non-OK: {}", r.status());
+                return false;
+            }
+            match r.json::<serde_json::Value>().await {
+                Ok(v) => {
+                    v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
+                        || v.get("status").and_then(|x| x.as_str()) == Some("adopted")
+                }
+                Err(e) => {
+                    log::warn!("Failed to parse heartbeat JSON response: {}", e);
+                    false
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("Failed to send heartbeat: {}", e);
+            false
         }
     }
-
-    false
 }
 
 
