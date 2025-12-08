@@ -240,7 +240,9 @@ async fn run_adoption_and_update_loop(
             }
         }
 
-        send_system_update(client, server_url, &device_id).await;
+        if let Err(e) = send_system_update(client, server_url, &device_id).await {
+            log::warn!("system_update failed: {}", e);
+        }
         sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL)).await;
     }
 }
