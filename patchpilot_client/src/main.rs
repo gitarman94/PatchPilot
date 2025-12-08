@@ -179,7 +179,7 @@ fn log_initial_system_info() {
     );
     log::info!("Disk: total {} bytes, free {} bytes", disk_total, disk_free);
     log::info!("Initial network throughput: {} bytes", net);
-    log::info!("IP Address: {:?}", info.ip_address);
+    log::info!("IP Address: {:?}", service::get_ip_address());
     log::info!("Architecture: {}", info.architecture);
     log::info!("Device Type: {:?}", info.device_type);
     log::info!("Device Model: {:?}", info.device_model);
