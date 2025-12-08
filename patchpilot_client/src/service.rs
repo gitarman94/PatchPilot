@@ -150,51 +150,54 @@ async fn send_system_update(
     Ok(())
 }
 
-async fn send_heartbeat(
+pub async fn send_heartbeat(
     client: &Client,
     server_url: &str,
     device_id: &str,
-    _device_type: &str,
-    _device_model: &str,
+    device_type: &str,
+    device_model: &str,
 ) -> bool {
-    let mut sys_info = match get_system_info() {
+    // Safe system_info creation — replace missing fields with ""
+    let sys_info = match get_system_info() {
         Ok(info) => info,
-        Err(_) => SystemInfo::new(),
+        Err(_) => {
+            // Build a fully empty fallback object so JSON never fails
+            serde_json::json!({
+                "hostname": "",
+                "os_name": "",
+                "os_version": "",
+                "kernel_version": "",
+                "architecture": "",
+                "cpu_brand": "",
+                "cpu_cores": 0,
+                "total_memory": 0,
+                "used_memory": 0,
+                "total_swap": 0,
+                "used_swap": 0
+            })
+        }
     };
-    sys_info.refresh();
 
     let resp = client
         .post(format!("{}/api/devices/heartbeat", server_url))
-        .json(&json!({
+        .json(&serde_json::json!({
             "device_id": device_id,
+            "device_type": device_type,
+            "device_model": device_model,
             "system_info": sys_info,
-            "ip_address": get_ip_address()
+            "ip_address": get_ip_address().unwrap_or_else(|| "".into())
         }))
         .send()
         .await;
 
-    match resp {
-        Ok(r) => {
-            if !r.status().is_success() {
-                log::warn!("Heartbeat request returned non-OK: {}", r.status());
-                return false;
-            }
-            match r.json::<serde_json::Value>().await {
-                Ok(v) => {
-                    v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
-                        || v.get("status").and_then(|x| x.as_str()) == Some("adopted")
-                }
-                Err(e) => {
-                    log::warn!("Failed to parse heartbeat JSON response: {}", e);
-                    false
-                }
-            }
-        }
-        Err(e) => {
-            log::warn!("Failed to send heartbeat: {}", e);
-            false
+    if let Ok(r) = resp {
+        if let Ok(v) = r.json::<serde_json::Value>().await {
+            return v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
+                || v.get("status").and_then(|x| x.as_str()) == Some("adopted");
         }
     }
+
+    false
 }
 
 
