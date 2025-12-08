@@ -262,7 +262,6 @@ async fn run_adoption_and_update_loop(
 
 #[cfg(any(unix, target_os = "macos"))]
 pub async fn run_unix_service() -> Result<()> {
-    init_logging()?;
     let client = Client::new();
     let server_url = read_server_url().await?;
     run_adoption_and_update_loop(&client, &server_url, None).await
@@ -270,7 +269,6 @@ pub async fn run_unix_service() -> Result<()> {
 
 #[cfg(windows)]
 pub async fn run_service() -> Result<()> {
-    init_logging()?;
     use windows_service::{
         service::{ServiceControl, ServiceControlHandlerResult},
         service_control_handler,
