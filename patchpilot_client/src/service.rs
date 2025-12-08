@@ -122,6 +122,8 @@ async fn send_system_update(
     client: &Client,
     server_url: &str,
     device_id: &str,
+    device_type: &str,
+    device_model: &str,
 ) -> Result<()> {
 
     let mut sys_info = match get_system_info() {
@@ -130,12 +132,15 @@ async fn send_system_update(
     };
     sys_info.refresh();
 
-    // ✔ FIXED ENDPOINT (correct: /api/devices/<id>)
+    let payload = json!({
+        "system_info": sys_info,
+        "device_type": device_type,
+        "device_model": device_model
+    });
+
     let resp = client
         .post(format!("{}/api/devices/{}", server_url, device_id))
-        .json(&json!({
-            "system_info": sys_info
-        }))
+        .json(&payload)
         .send()
         .await
         .context("Update request failed")?;
@@ -146,6 +151,7 @@ async fn send_system_update(
 
     Ok(())
 }
+
 
 async fn send_heartbeat(
     client: &Client,
@@ -246,7 +252,7 @@ async fn run_adoption_and_update_loop(
             }
         }
 
-        if let Err(e) = send_system_update(client, server_url, &device_id).await {
+        if let Err(e) = send_system_update(client, server_url, &device_id, &device_type, &device_model).await {
             log::warn!("system_update failed: {}", e);
         }
 
