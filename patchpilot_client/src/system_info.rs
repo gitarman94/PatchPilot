@@ -24,10 +24,10 @@ pub struct NetworkInterface {
 pub struct SystemInfo {
     #[serde(skip)]
     sys: System,
+
     #[serde(skip)]
     prev_network: HashMap<String, u64>,
 
-    // Always use concrete types so serialization produces non-null values.
     pub hostname: String,
     pub ip_address: String,
     pub os_name: String,
@@ -91,19 +91,16 @@ impl SystemInfo {
         let disk_total: u64 = disks.list().iter().map(|d| d.total_space()).sum();
         let disk_free: u64 = disks.list().iter().map(|d| d.available_space()).sum();
 
-        // Networks: keep interface info minimal and safe across sysinfo versions.
-        // We populate name and leave mac/ips empty if unavailable.
+        // Networks (name only for stability)
         let networks_raw = Networks::new_with_refreshed_list();
         let network_interfaces: Vec<NetworkInterface> = networks_raw
             .list()
             .iter()
-            .map(|(name, _iface)| {
-                NetworkInterface {
-                    name: name.clone(),
-                    mac: String::new(),
-                    ipv4: String::new(),
-                    ipv6: String::new(),
-                }
+            .map(|(name, _iface)| NetworkInterface {
+                name: name.clone(),
+                mac: String::new(),
+                ipv4: String::new(),
+                ipv6: String::new(),
             })
             .collect();
 
@@ -141,21 +138,25 @@ impl SystemInfo {
         }
     }
 
+    /// Refresh all system stats.
     pub fn refresh(&mut self) {
-        // Refresh system data
-        self.sys.refresh_specifics(RefreshKind::everything());
+        self.sys.refresh_specifics(
+            RefreshKind::everything()
+                .with_cpu(CpuRefreshKind::everything())
+                .with_memory(MemoryRefreshKind::everything())
+        );
 
-        // Update hostname, os, uptime
+        // Host info
         self.hostname = System::host_name().unwrap_or_default();
         self.os_name = System::name().unwrap_or_default();
         self.os_version = System::os_version().unwrap_or_default();
         self.kernel_version = System::kernel_version().unwrap_or_default();
         self.uptime = format!("{}s", System::uptime());
 
-        // IP address might change
+        // IP might change
         self.ip_address = local_ip().ok().map(|ip| ip.to_string()).unwrap_or_default();
 
-        // CPU usage
+        // CPU
         self.cpu_usage = self.sys.global_cpu_usage();
 
         // Memory
@@ -163,12 +164,12 @@ impl SystemInfo {
         self.ram_used = self.sys.used_memory();
         self.ram_free = self.ram_total.saturating_sub(self.ram_used);
 
-        // Disks: refresh via Disks struct
+        // Disks
         let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
         self.disk_total = disks.list().iter().map(|d| d.total_space()).sum();
         self.disk_free = disks.list().iter().map(|d| d.available_space()).sum();
 
-        // Network interfaces: keep minimal (name only) to avoid sysinfo API differences
+        // Networks: stable minimal interface list
         let networks = Networks::new_with_refreshed_list();
         self.network_interfaces = networks
             .list()
@@ -182,29 +183,24 @@ impl SystemInfo {
             .collect();
     }
 
-    /// Return current CPU usage. Caller may pass &mut SystemInfo when they already have
-    /// a mutable instance (refresh() is separate).
+    /// Current CPU usage without using removed API.
     pub fn cpu_usage(&mut self) -> f32 {
-        // refresh CPU counters and return
-        self.sys.refresh_cpu();
-        self.sys.global_cpu_usage()
+        self.refresh();
+        self.cpu_usage
     }
 
-    /// Return (total, free) disk space — uses refreshed disk info.
+    /// Disk usage — compatible with sysinfo 0.37.x.
     pub fn disk_usage(&mut self) -> (u64, u64) {
-        self.sys.refresh_disks_list();
-        let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
-        let total = disks.list().iter().map(|d| d.total_space()).sum();
-        let free = disks.list().iter().map(|d| d.available_space()).sum();
-        (total, free)
+        self.refresh();
+        (self.disk_total, self.disk_free)
     }
 
+    /// Network throughput (bytes since last call)
     pub fn network_throughput(&mut self) -> u64 {
         let networks = Networks::new_with_refreshed_list();
         let mut total = 0;
 
         for (name, iface) in networks.list().iter() {
-            // received() and transmitted() are stable sysinfo APIs
             let current = iface.received() + iface.transmitted();
             let prev = *self.prev_network.get(name).unwrap_or(&current);
             total += current.saturating_sub(prev);
@@ -239,13 +235,13 @@ fn get_hardware_info() -> (Option<String>, Option<String>, Option<String>) {
 
     #[cfg(target_os = "windows")]
     {
-        // unchanged — your WMI logic remains intact
         use windows::Win32::System::Wmi::*;
         use windows::Win32::System::Com::*;
         use windows::core::*;
 
         unsafe {
             CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED).ok();
+
             let locator: IWbemLocator =
                 CoCreateInstance(&CLSID_WbemLocator, None, CLSCTX_INPROC_SERVER).unwrap();
             let services = locator
@@ -261,27 +257,21 @@ fn get_hardware_info() -> (Option<String>, Option<String>, Option<String>) {
                 .unwrap();
 
             let mut enumerator = None;
-            services
-                .ExecQuery(
-                    &BSTR::from("WQL"),
-                    &BSTR::from("SELECT * FROM Win32_ComputerSystem"),
-                    WBEM_FLAG_FORWARD_ONLY,
-                    None,
-                    &mut enumerator,
-                )
-                .ok();
-            let enumerator = enumerator.unwrap();
+            services.ExecQuery(
+                &BSTR::from("WQL"),
+                &BSTR::from("SELECT * FROM Win32_ComputerSystem"),
+                WBEM_FLAG_FORWARD_ONLY,
+                None,
+                &mut enumerator,
+            ).ok();
 
+            let enumerator = enumerator.unwrap();
             let mut device_type = None;
             let mut device_model = None;
 
             loop {
                 let mut obj = None;
-                let ret =
-                    enumerator.Next(WBEM_INFINITE, 1, &mut obj, std::ptr::null_mut());
-                if ret != 0 {
-                    break;
-                }
+                if enumerator.Next(WBEM_INFINITE, 1, &mut obj, std::ptr::null_mut()) != 0 { break; }
                 if let Some(obj) = obj {
                     device_type = get_wmi_string(&obj, "PCSystemTypeEx");
                     device_model = get_wmi_string(&obj, "Model");
@@ -289,25 +279,20 @@ fn get_hardware_info() -> (Option<String>, Option<String>, Option<String>) {
             }
 
             let mut bios_enum = None;
-            services
-                .ExecQuery(
-                    &BSTR::from("WQL"),
-                    &BSTR::from("SELECT SerialNumber FROM Win32_BIOS"),
-                    WBEM_FLAG_FORWARD_ONLY,
-                    None,
-                    &mut bios_enum,
-                )
-                .ok();
+            services.ExecQuery(
+                &BSTR::from("WQL"),
+                &BSTR::from("SELECT SerialNumber FROM Win32_BIOS"),
+                WBEM_FLAG_FORWARD_ONLY,
+                None,
+                &mut bios_enum,
+            ).ok();
+
             let bios_enum = bios_enum.unwrap();
             let mut serial_number = None;
 
             loop {
                 let mut obj = None;
-                let ret =
-                    bios_enum.Next(WBEM_INFINITE, 1, &mut obj, std::ptr::null_mut());
-                if ret != 0 {
-                    break;
-                }
+                if bios_enum.Next(WBEM_INFINITE, 1, &mut obj, std::ptr::null_mut()) != 0 { break; }
                 if let Some(obj) = obj {
                     serial_number = get_wmi_string(&obj, "SerialNumber");
                 }
@@ -345,16 +330,13 @@ unsafe fn get_wmi_string(obj: &IWbemClassObject, field: &str) -> Option<String> 
     use windows::Win32::System::Variant::*;
 
     let mut vt_prop = VARIANT::default();
-    if obj
-        .Get(
-            &BSTR::from(field),
-            0,
-            &mut vt_prop,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        )
-        .is_err()
-    {
+    if obj.Get(
+        &BSTR::from(field),
+        0,
+        &mut vt_prop,
+        std::ptr::null_mut(),
+        std::ptr::null_mut(),
+    ).is_err() {
         return None;
     }
 

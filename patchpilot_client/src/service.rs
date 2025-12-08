@@ -24,10 +24,8 @@ pub fn init_logging() -> anyhow::Result<()> {
     use flexi_logger::{Age, Cleanup, Criterion, Duplicate, FileSpec,
                        Logger, Naming, WriteMode};
 
-    // unified base dir (Linux, macOS, Windows)
     let base_dir = crate::get_base_dir();
     let log_dir = format!("{}/logs", base_dir);
-
     let _ = std::fs::create_dir_all(&log_dir);
 
     Logger::try_with_str("info")?
@@ -69,11 +67,14 @@ fn write_local_device_id(device_id: &str) -> Result<()> {
 fn get_device_info_basic() -> (String, String) {
     match get_system_info() {
         Ok(info) => {
-            let device_type = info.device_type.clone().unwrap_or_else(|| "unknown".into());
-            let device_model = info.device_model.clone().unwrap_or_else(|| "unknown".into());
+            // device_type and device_model are now Strings
+            let device_type =
+                if info.device_type.trim().is_empty() { "".into() } else { info.device_type };
+            let device_model =
+                if info.device_model.trim().is_empty() { "".into() } else { info.device_model };
             (device_type, device_model)
         }
-        Err(_) => ("unknown".into(), "unknown".into()),
+        Err(_) => ("".into(), "".into()),
     }
 }
 
@@ -84,7 +85,6 @@ async fn register_device(
     device_model: &str,
 ) -> Result<String> {
 
-    // gather system info (required by server)
     let mut sys_info = match get_system_info() {
         Ok(info) => info,
         Err(_) => SystemInfo::new(),
@@ -158,17 +158,15 @@ async fn send_heartbeat(
     device_model: &str,
 ) -> bool {
 
-    // system_info fallback: always return a SystemInfo struct
     let mut sys_info = match get_system_info() {
         Ok(info) => info,
         Err(_) => {
             let mut blank = SystemInfo::new();
-            blank.refresh(); // keep structure valid even if empty
+            blank.refresh();
             blank
         }
     };
 
-    // Always refresh before sending
     sys_info.refresh();
 
     let payload = serde_json::json!({
@@ -214,6 +212,7 @@ async fn run_adoption_and_update_loop(
     server_url: &str,
     running_flag: Option<&AtomicBool>
 ) -> Result<()> {
+
     let (device_type, device_model) = get_device_info_basic();
     let mut device_id = get_local_device_id();
 
@@ -253,6 +252,7 @@ async fn run_adoption_and_update_loop(
         if let Err(e) = send_system_update(client, server_url, &device_id).await {
             log::warn!("system_update failed: {}", e);
         }
+
         sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL)).await;
     }
 }
@@ -277,7 +277,6 @@ pub async fn run_service() -> Result<()> {
     let running_flag = Arc::new(AtomicBool::new(true));
     let running_flag_clone = running_flag.clone();
 
-    // service_main runs the blocking executor inside the service thread
     fn service_main(flag: Arc<AtomicBool>) -> Result<()> {
         let client = Client::new();
         let server_url = futures::executor::block_on(read_server_url())?;
@@ -288,7 +287,6 @@ pub async fn run_service() -> Result<()> {
         ))
     }
 
-    // Move a clone of the flag into the handler so we can stop the loop on Stop.
     let flag_for_handler = running_flag.clone();
 
     let _status = service_control_handler::register("PatchPilot", move |control| {
