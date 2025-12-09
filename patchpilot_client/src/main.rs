@@ -5,6 +5,13 @@ use std::{fs, path::Path};
 use crate::service::init_logging;
 use nix::unistd::Uid;
 
+use lazy_static::lazy_static;
+use std::sync::Mutex;
+
+lazy_static! {
+    static ref LOGGER_HANDLE: Mutex<Option<flexi_logger::LoggerHandle>> = Mutex::new(None);
+}
+
 /// Determine platform-specific application base directory.
 fn get_base_dir() -> String {
     #[cfg(target_os = "linux")]
@@ -189,9 +196,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ensure_systemd_service()?;
 
     // Logging must initialize AFTER permissions are fixed
-    if let Err(e) = init_logging() {
-        eprintln!("Logging initialization failed: {}", e);
-        return Err(Box::<dyn std::error::Error>::from(e));
+    let handle = init_logging()?; // now returns LoggerHandle
+    {
+        let mut g = LOGGER_HANDLE.lock().unwrap();
+        *g = Some(handle);
     }
 
     // Warn about missing server_url.txt now that logging works
