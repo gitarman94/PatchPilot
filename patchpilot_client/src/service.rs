@@ -20,13 +20,14 @@ const SERVER_URL_FILE: &str = "/opt/patchpilot_client/server_url.txt";
 #[cfg(windows)]
 const SERVER_URL_FILE: &str = "C:\\ProgramData\\PatchPilot\\server_url.txt";
 
-pub fn init_logging() -> anyhow::Result<()> {
+pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
     use flexi_logger::{
-        Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming, WriteMode,
+        Age, Cleanup, Criterion, FileSpec, Logger, Naming, WriteMode,
     };
 
     let base_dir = crate::get_base_dir();
     let log_dir = format!("{}/logs", base_dir);
+
     let _ = std::fs::create_dir_all(&log_dir);
 
     #[cfg(target_os = "linux")]
@@ -36,6 +37,7 @@ pub fn init_logging() -> anyhow::Result<()> {
         if let Ok(meta) = std::fs::metadata(&log_dir) {
             let mut perms = meta.permissions();
             perms.set_mode(0o770);
+
             if std::fs::set_permissions(&log_dir, perms.clone()).is_err() {
                 let mut fallback = perms;
                 fallback.set_mode(0o777);
@@ -43,18 +45,13 @@ pub fn init_logging() -> anyhow::Result<()> {
             }
 
             if nix::unistd::Uid::effective().is_root() {
-                let _ = std::process::Command::new("chown")
-                    .arg("-R")
-                    .arg("patchpilot:patchpilot")
-                    .arg(&log_dir)
-                    .output();
+                let _ =
+                    std::process::Command::new("chown")
+                        .arg("-R")
+                        .arg("patchpilot:patchpilot")
+                        .arg(&log_dir)
+                        .output();
             }
-        } else {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(
-                &log_dir,
-                std::fs::Permissions::from_mode(0o777),
-            );
         }
     }
 
@@ -68,20 +65,16 @@ pub fn init_logging() -> anyhow::Result<()> {
         )
         .create_symlink(symlink_path)
         .write_mode(WriteMode::Direct)
-        .duplicate_to_stderr(Duplicate::Info)
+        .duplicate_to_stderr(flexi_logger::Duplicate::None) // <-- REQUIRED FIX
         .rotate(
             Criterion::Age(Age::Day),
             Naming::Timestamps,
             Cleanup::KeepLogFiles(7),
         )
-        .print_message()
         .start()?;
 
-    std::mem::forget(logger);
-
-    Ok(())
+    Ok(logger)
 }
-
 
 async fn read_server_url() -> Result<String> {
     let url = fs::read_to_string(SERVER_URL_FILE)
