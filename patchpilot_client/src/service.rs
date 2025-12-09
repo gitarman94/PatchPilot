@@ -101,21 +101,20 @@ async fn register_device(
         .await
         .context("Registration request failed")?;
 
-    // Check status first
-    if !resp.status().is_success() {
-        let text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Server returned {} with body: {}", resp.status(), text);
+    // --- Extract status BEFORE consuming body ---
+    let status = resp.status();
+
+    // --- Now safely consume the body ---
+    let text = resp.text().await.unwrap_or_default();
+
+    // If not 2xx, show full body
+    if !status.is_success() {
+        anyhow::bail!("Server returned {} with body: {}", status, text);
     }
 
-    // Try to parse JSON safely
-    let text = resp.text().await?;
-    let json_resp: serde_json::Value = match serde_json::from_str(&text) {
-        Ok(v) => v,
-        Err(_) => {
-            log::error!("register_device(): server returned NON-JSON: {}", text);
-            anyhow::bail!("Server returned non-JSON response");
-        }
-    };
+    // Parse JSON from text AFTER consuming body
+    let json_resp: serde_json::Value = serde_json::from_str(&text)
+        .context("Server returned invalid JSON")?;
 
     if let Some(id) = json_resp.get("device_id").and_then(|v| v.as_str()) {
         write_local_device_id(id)?;
@@ -129,6 +128,7 @@ async fn register_device(
 
     anyhow::bail!("Server did not return device_id or pending_id")
 }
+
 
 async fn send_system_update(
     client: &Client,
