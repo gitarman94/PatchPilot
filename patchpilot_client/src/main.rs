@@ -85,13 +85,23 @@ fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::fs::PermissionsExt;
+
+        // Ensure ownership is correct
+        let _ = std::process::Command::new("chown")
+            .arg("-R")
+            .arg("patchpilot:patchpilot")
+            .arg(&logs_dir)
+            .output();
+
+        // Secure permissions — only patchpilot user + group can read/write
         let mut perms = fs::metadata(&logs_dir)?.permissions();
-        perms.set_mode(0o777);
+        perms.set_mode(0o770);
         fs::set_permissions(&logs_dir, perms)?;
     }
 
     Ok(())
 }
+
 
 /// Ensure systemd service and service user exist (Linux).
 #[cfg(target_os = "linux")]
