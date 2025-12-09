@@ -90,9 +90,8 @@ async fn register_device(
     };
     sys_info.refresh();
 
-    // ✔ FIXED PAYLOAD (removed ip_address)
     let resp = client
-        .post(format!("{}/api/devices/register", server_url))
+        .post(format!("{}/api/register", server_url))
         .json(&json!({
             "system_info": sys_info,
             "device_type": device_type,
@@ -102,8 +101,21 @@ async fn register_device(
         .await
         .context("Registration request failed")?;
 
-    let json_resp: serde_json::Value =
-        resp.json().await.context("Invalid JSON from server")?;
+    // Check status first
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Server returned {} with body: {}", resp.status(), text);
+    }
+
+    // Try to parse JSON safely
+    let text = resp.text().await?;
+    let json_resp: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => {
+            log::error!("register_device(): server returned NON-JSON: {}", text);
+            anyhow::bail!("Server returned non-JSON response");
+        }
+    };
 
     if let Some(id) = json_resp.get("device_id").and_then(|v| v.as_str()) {
         write_local_device_id(id)?;
