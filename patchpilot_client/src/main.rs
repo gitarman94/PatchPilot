@@ -3,7 +3,7 @@ mod service;
 
 use std::{fs, path::Path};
 use crate::service::init_logging;
-use nix::unistd::Uid; // root detection (Linux)
+use nix::unistd::Uid;
 
 /// Determine platform-specific application base directory.
 fn get_base_dir() -> String {
@@ -31,7 +31,42 @@ fn get_base_dir() -> String {
     }
 }
 
-/// Ensure the logs directory exists before logging is initialized.
+/// Ensure runtime directory exists and chown everything once.
+fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
+    let base_dir = get_base_dir();
+
+    if !Path::new(&base_dir).exists() {
+        fs::create_dir_all(&base_dir)?;
+    }
+
+    // One place for ownership: entire base dir.
+    #[cfg(target_os = "linux")]
+    {
+        if Uid::effective().is_root() {
+            let _ = std::process::Command::new("chown")
+                .arg("-R")
+                .arg("patchpilot:patchpilot")
+                .arg(&base_dir)
+                .output();
+
+            // Base directory should be readable and enterable by patchpilot user
+            let _ = std::process::Command::new("chmod")
+                .arg("755")
+                .arg(&base_dir)
+                .output();
+        }
+    }
+
+    // Mark missing server_url.txt for later logged warning
+    let server_url_file = format!("{}/server_url.txt", base_dir);
+    if !Path::new(&server_url_file).exists() {
+        std::fs::write(format!("{}/.missing_server_url_flag", base_dir), b"1").ok();
+    }
+
+    Ok(())
+}
+
+/// Guarantee logs directory exists with correct ownership/permissions.
 fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
     let base_dir = get_base_dir();
     let logs_dir = format!("{}/logs", base_dir);
@@ -42,25 +77,17 @@ fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(target_os = "linux")]
     {
-        // Only root should modify ownership and perms.
         if Uid::effective().is_root() {
-            // Ensure parent directory is also owned properly
-            let _ = std::process::Command::new("chown")
-                .arg("-R")
-                .arg("patchpilot:patchpilot")
-                .arg(&base_dir)
-                .output();
-
-            // Owned by patchpilot user
+            // Set correct ownership once.
             let _ = std::process::Command::new("chown")
                 .arg("-R")
                 .arg("patchpilot:patchpilot")
                 .arg(&logs_dir)
                 .output();
 
-            // Permissions: 775 ensures patchpilot can write, admins can read
+            // For flexi_logger, directory must be writable by service user
             let _ = std::process::Command::new("chmod")
-                .arg("775")
+                .arg("770")
                 .arg(&logs_dir)
                 .output();
         }
@@ -69,34 +96,7 @@ fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Ensure runtime directory and ownership for installation.
-fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
-    let base_dir = get_base_dir();
-    let server_url_file = format!("{}/server_url.txt", base_dir);
-
-    if !Path::new(&base_dir).exists() {
-        fs::create_dir_all(&base_dir)?;
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        if Uid::effective().is_root() {
-            let _ = std::process::Command::new("chown")
-                .arg("-R")
-                .arg("patchpilot:patchpilot")
-                .arg(&base_dir)
-                .output();
-        }
-    }
-
-    if !Path::new(&server_url_file).exists() {
-        std::fs::write(format!("{}/.missing_server_url_flag", base_dir), b"1").ok();
-    }
-
-    Ok(())
-}
-
-/// Ensure systemd service and service user exist (Linux only).
+/// Ensure systemd service and service user exist (Linux).
 #[cfg(target_os = "linux")]
 fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
     let service_path = "/etc/systemd/system/patchpilot_client.service";
@@ -116,7 +116,6 @@ fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
-    // Create systemd service file if missing
     if !Path::new(service_path).exists() {
         let service_contents = r#"[Unit]
 Description=PatchPilot Client
@@ -131,7 +130,6 @@ Restart=always
 Environment=RUST_LOG=info
 ReadWritePaths=/opt/patchpilot_client/logs
 
-# Prevent journald logging if desired
 StandardOutput=null
 StandardError=null
 
@@ -192,7 +190,6 @@ fn log_initial_system_info() {
     log::info!("Serial Number: {:?}", info.serial_number);
 }
 
-/// Entry point.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_runtime_environment()?;
@@ -201,14 +198,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     ensure_systemd_service()?;
 
+    // Logging must initialize AFTER permissions are fixed
     if let Err(e) = init_logging() {
         eprintln!("Logging initialization failed: {}", e);
         return Err(Box::<dyn std::error::Error>::from(e));
     }
 
+    // Warn about missing server_url.txt now that logging works
     let base_dir = get_base_dir();
     if Path::new(&format!("{}/.missing_server_url_flag", base_dir)).exists() {
-        log::warn!(
+        log::error!(
             "Missing server URL configuration at {}/server_url.txt. \
              Create file containing the server URL (e.g. http://192.168.1.10:8080).",
             base_dir
@@ -227,7 +226,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     {
         if let Err(e) = service::run_service().await {
             log::error!("Service error: {}", e);
