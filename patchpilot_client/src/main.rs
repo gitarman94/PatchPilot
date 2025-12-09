@@ -12,7 +12,6 @@ lazy_static! {
     static ref LOGGER_HANDLE: Mutex<Option<flexi_logger::LoggerHandle>> = Mutex::new(None);
 }
 
-/// Determine platform-specific application base directory.
 fn get_base_dir() -> String {
     #[cfg(target_os = "linux")]
     {
@@ -38,7 +37,6 @@ fn get_base_dir() -> String {
     }
 }
 
-/// Ensure runtime directory exists and chown everything once.
 fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
     let base_dir = get_base_dir();
 
@@ -46,7 +44,6 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(&base_dir)?;
     }
 
-    // One place for ownership: entire base dir.
     #[cfg(target_os = "linux")]
     {
         if Uid::effective().is_root() {
@@ -56,7 +53,6 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
                 .arg(&base_dir)
                 .output();
 
-            // Base directory should be readable and enterable by patchpilot user
             let _ = std::process::Command::new("chmod")
                 .arg("750")
                 .arg(&base_dir)
@@ -64,7 +60,6 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Mark missing server_url.txt for later logged warning
     let server_url_file = format!("{}/server_url.txt", base_dir);
     if !Path::new(&server_url_file).exists() {
         std::fs::write(format!("{}/.missing_server_url_flag", base_dir), b"1").ok();
@@ -73,7 +68,6 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Guarantee logs directory exists with correct ownership/permissions.
 fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
     let base_dir = get_base_dir();
     let logs_dir = format!("{}/logs", base_dir);
@@ -85,30 +79,23 @@ fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::fs::PermissionsExt;
-
-        // Ensure ownership is correct
+        let mut perms = fs::metadata(&logs_dir)?.permissions();
+        perms.set_mode(0o770);
+        fs::set_permissions(&logs_dir, perms)?;
         let _ = std::process::Command::new("chown")
             .arg("-R")
             .arg("patchpilot:patchpilot")
             .arg(&logs_dir)
             .output();
-
-        // Secure permissions — only patchpilot user + group can read/write
-        let mut perms = fs::metadata(&logs_dir)?.permissions();
-        perms.set_mode(0o770);
-        fs::set_permissions(&logs_dir, perms)?;
     }
 
     Ok(())
 }
 
-
-/// Ensure systemd service and service user exist (Linux).
 #[cfg(target_os = "linux")]
 fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
     let service_path = "/etc/systemd/system/patchpilot_client.service";
 
-    // Ensure service user exists
     let _ = std::process::Command::new("id")
         .arg("patchpilot")
         .output()
@@ -137,9 +124,6 @@ Restart=always
 Environment=RUST_LOG=info
 ReadWritePaths=/opt/patchpilot_client/logs
 
-StandardOutput=null
-StandardError=null
-
 [Install]
 WantedBy=multi-user.target
 "#;
@@ -150,7 +134,6 @@ WantedBy=multi-user.target
             .output();
     }
 
-    // Enable service if not already enabled
     let status = std::process::Command::new("systemctl")
         .arg("is-enabled")
         .arg("patchpilot_client.service")
@@ -168,7 +151,6 @@ WantedBy=multi-user.target
     Ok(())
 }
 
-/// Log system information at startup.
 fn log_initial_system_info() {
     use system_info::SystemInfo;
 
@@ -199,17 +181,18 @@ fn log_initial_system_info() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    setup_runtime_environment()?;
     ensure_logs_dir()?;
 
-    #[cfg(target_os = "linux")]
-    ensure_systemd_service()?;
-
-    let handle = init_logging()?; // now returns LoggerHandle
+    let handle = init_logging()?; 
     {
         let mut g = LOGGER_HANDLE.lock().unwrap();
         *g = Some(handle);
     }
+
+    setup_runtime_environment()?;
+
+    #[cfg(target_os = "linux")]
+    ensure_systemd_service()?;
 
     let base_dir = get_base_dir();
     if Path::new(&format!("{}/.missing_server_url_flag", base_dir)).exists() {
