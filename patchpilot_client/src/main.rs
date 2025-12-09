@@ -194,18 +194,18 @@ fn log_initial_system_info() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ensure_logs_dir()?; 
+    ensure_logs_dir()?;
 
-    let handle = init_logging()?; 
+    let handle = init_logging()?;
     {
         let mut g = LOGGER_HANDLE.lock().unwrap();
         *g = Some(handle);
     }
 
-    setup_runtime_environment()?; 
+    setup_runtime_environment()?;
 
     #[cfg(target_os = "linux")]
-    ensure_systemd_service()?; 
+    ensure_systemd_service()?;
 
     let base_dir = get_base_dir();
     if Path::new(&format!("{}/.missing_server_url_flag", base_dir)).exists() {
