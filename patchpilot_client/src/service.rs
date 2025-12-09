@@ -51,6 +51,7 @@ pub fn init_logging() -> anyhow::Result<()> {
                     .output();
             }
         } else {
+            use std::os::unix::fs::PermissionsExt;
             let _ = std::fs::set_permissions(
                 &log_dir,
                 std::fs::Permissions::from_mode(0o777),
@@ -58,7 +59,7 @@ pub fn init_logging() -> anyhow::Result<()> {
         }
     }
 
-    let logger = Logger::try_with_str("info")?
+    Logger::try_with_str("info")?
         .log_to_file(
             FileSpec::default()
                 .directory(&log_dir)
@@ -75,17 +76,19 @@ pub fn init_logging() -> anyhow::Result<()> {
 
     #[cfg(target_os = "linux")]
     {
-        if let Some(path) = logger.current_log_file() {
-            use std::os::unix::fs::symlink;
-            let symlink_path = format!("{}/patchpilot_current.log", log_dir);
-            let _ = std::fs::remove_file(&symlink_path);
-            let _ = symlink(path, symlink_path);
-        }
+        use chrono::Local;
+        use std::os::unix::fs::symlink;
+
+        let today = Local::now().format("%Y-%m-%d").to_string();
+        let active_file = format!("{}/patchpilot_r{}.log", log_dir, today);
+
+        let symlink_path = format!("{}/patchpilot_current.log", log_dir);
+        let _ = std::fs::remove_file(&symlink_path);
+        let _ = symlink(&active_file, &symlink_path);
     }
 
     Ok(())
 }
-
 
 async fn read_server_url() -> Result<String> {
     let url = fs::read_to_string(SERVER_URL_FILE)
