@@ -21,18 +21,57 @@ const SERVER_URL_FILE: &str = "/opt/patchpilot_client/server_url.txt";
 const SERVER_URL_FILE: &str = "C:\\ProgramData\\PatchPilot\\server_url.txt";
 
 pub fn init_logging() -> anyhow::Result<()> {
-    use flexi_logger::{Age, Cleanup, Criterion, Duplicate, FileSpec,
-                       Logger, Naming, WriteMode};
+    use flexi_logger::{
+        Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming, WriteMode
+    };
 
     let base_dir = crate::get_base_dir();
     let log_dir = format!("{}/logs", base_dir);
+
+    // Ensure log directory exists on both Linux and Windows
     let _ = std::fs::create_dir_all(&log_dir);
 
+    // Linux-only permissions / chown handling
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Attempt reading metadata
+        if let Ok(meta) = std::fs::metadata(&log_dir) {
+            let mut perms = meta.permissions();
+
+            // This avoids locking out the service user if dir belongs to root:root.
+            perms.set_mode(0o770);
+            if std::fs::set_permissions(&log_dir, perms.clone()).is_err() {
+                let mut fallback = perms;
+                fallback.set_mode(0o777);
+                let _ = std::fs::set_permissions(&log_dir, fallback);
+            }
+
+            // Best-effort chown to patchpilot:patchpilot if running as root
+            if nix::unistd::Uid::effective().is_root() {
+                // Ignore errors — directory may not exist, user/group may not exist, etc.
+                let _ = std::process::Command::new("chown")
+                    .arg("-R")
+                    .arg("patchpilot:patchpilot")
+                    .arg(&log_dir)
+                    .output();
+            }
+        } else {
+            // If metadata could not be read at all, apply permissive perms so logging still works
+            let _ = std::fs::set_permissions(
+                &log_dir,
+                std::fs::Permissions::from_mode(0o777),
+            );
+        }
+    }
+
+    // Configure logging (Windows + Linux)
     Logger::try_with_str("info")?
         .log_to_file(
             FileSpec::default()
                 .directory(&log_dir)
-                .basename("client")
+                .basename("patchpilot")     // ensures patchpilot_*.log naming
         )
         .write_mode(WriteMode::Direct)
         .duplicate_to_stderr(Duplicate::Info)
@@ -45,6 +84,7 @@ pub fn init_logging() -> anyhow::Result<()> {
         .map(|_| ())
         .map_err(|e| anyhow::anyhow!("Failed to start logger: {}", e))
 }
+
 
 async fn read_server_url() -> Result<String> {
     let url = fs::read_to_string(SERVER_URL_FILE)
