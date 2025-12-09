@@ -189,20 +189,20 @@ fn log_initial_system_info() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    log::set_max_level(log::LevelFilter::Off);
+
     setup_runtime_environment()?;
     ensure_logs_dir()?;
 
     #[cfg(target_os = "linux")]
     ensure_systemd_service()?;
 
-    // Logging must initialize AFTER permissions are fixed
     let handle = init_logging()?; // now returns LoggerHandle
     {
         let mut g = LOGGER_HANDLE.lock().unwrap();
         *g = Some(handle);
     }
 
-    // Warn about missing server_url.txt now that logging works
     let base_dir = get_base_dir();
     if Path::new(&format!("{}/.missing_server_url_flag", base_dir)).exists() {
         log::error!(
