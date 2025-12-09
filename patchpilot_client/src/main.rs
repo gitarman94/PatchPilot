@@ -189,8 +189,6 @@ fn log_initial_system_info() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    log::set_max_level(log::LevelFilter::Off);
-
     setup_runtime_environment()?;
     ensure_logs_dir()?;
 
