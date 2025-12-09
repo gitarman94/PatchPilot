@@ -92,7 +92,7 @@ async fn register_device(
 
     // ✔ FIXED PAYLOAD (removed ip_address)
     let resp = client
-        .post(format!("{}/api/register", server_url))
+        .post(format!("{}/api/devices/register", server_url))
         .json(&json!({
             "system_info": sys_info,
             "device_type": device_type,

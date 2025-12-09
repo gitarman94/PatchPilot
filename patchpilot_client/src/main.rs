@@ -77,20 +77,10 @@ fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(target_os = "linux")]
     {
-        if Uid::effective().is_root() {
-            // Set correct ownership once.
-            let _ = std::process::Command::new("chown")
-                .arg("-R")
-                .arg("patchpilot:patchpilot")
-                .arg(&logs_dir)
-                .output();
-
-            // For flexi_logger, directory must be writable by service user
-            let _ = std::process::Command::new("chmod")
-                .arg("770")
-                .arg(&logs_dir)
-                .output();
-        }
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&logs_dir)?.permissions();
+        perms.set_mode(0o777);
+        fs::set_permissions(&logs_dir, perms)?;
     }
 
     Ok(())
