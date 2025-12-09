@@ -40,22 +40,30 @@ fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(&logs_dir)?;
     }
 
-    // When running as root, ensure patchpilot user will have write access.
     #[cfg(target_os = "linux")]
     {
+        // Only root should modify ownership and perms.
         if Uid::effective().is_root() {
+            // Ensure parent directory is also owned properly
+            let _ = std::process::Command::new("chown")
+                .arg("-R")
+                .arg("patchpilot:patchpilot")
+                .arg(&base_dir)
+                .output();
+
+            // Owned by patchpilot user
             let _ = std::process::Command::new("chown")
                 .arg("-R")
                 .arg("patchpilot:patchpilot")
                 .arg(&logs_dir)
                 .output();
-        }
 
-        // Ensure directory is accessible
-        let _ = std::process::Command::new("chmod")
-            .arg("755")
-            .arg(&logs_dir)
-            .output();
+            // Permissions: 775 ensures patchpilot can write, admins can read
+            let _ = std::process::Command::new("chmod")
+                .arg("775")
+                .arg(&logs_dir)
+                .output();
+        }
     }
 
     Ok(())
@@ -81,9 +89,7 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // NOTE: We no longer print here. Warning is logged later after init_logging().
     if !Path::new(&server_url_file).exists() {
-        // Store a marker so we can warn after logging initializes
         std::fs::write(format!("{}/.missing_server_url_flag", base_dir), b"1").ok();
     }
 
@@ -139,7 +145,7 @@ WantedBy=multi-user.target
             .output();
     }
 
-    // Enable the service if not already enabled
+    // Enable service if not already enabled
     let status = std::process::Command::new("systemctl")
         .arg("is-enabled")
         .arg("patchpilot_client.service")
@@ -195,13 +201,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     ensure_systemd_service()?;
 
-    // --- Initialize logging BEFORE anything else ---
     if let Err(e) = init_logging() {
         eprintln!("Logging initialization failed: {}", e);
         return Err(Box::<dyn std::error::Error>::from(e));
     }
 
-    // Now we can warn safely using logger
     let base_dir = get_base_dir();
     if Path::new(&format!("{}/.missing_server_url_flag", base_dir)).exists() {
         log::warn!(
@@ -223,7 +227,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     {
         if let Err(e) = service::run_service().await {
             log::error!("Service error: {}", e);
