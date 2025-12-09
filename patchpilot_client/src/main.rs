@@ -51,7 +51,7 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
 
             // Base directory should be readable and enterable by patchpilot user
             let _ = std::process::Command::new("chmod")
-                .arg("755")
+                .arg("750")
                 .arg(&base_dir)
                 .output();
         }
