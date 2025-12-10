@@ -1,0 +1,40 @@
+<nav id="sidebar" class="sidebar" aria-label="Main navigation">
+  <div class="brand ps-2 pe-2">
+    <img src="/static/favicon.ico" alt="logo">
+    <div class="brand-text">
+      <div class="brand h6 mb-0">PatchPilot</div>
+      <div class="small-muted">Device management</div>
+    </div>
+  </div>
+
+  <div id="navList" class="px-1" role="navigation">
+    <div class="nav-item" data-view="devices" tabindex="0">
+      <div class="nav-icon"><i class="bi bi-hdd-network"></i></div>
+      <div class="nav-label">Devices</div>
+    </div>
+
+    <div class="nav-item" data-view="pending" tabindex="0">
+      <div class="nav-icon"><i class="bi bi-hourglass-split"></i></div>
+      <div class="nav-label">Pending Adoption</div>
+    </div>
+
+    <div class="nav-item" data-view="health" tabindex="0">
+      <div class="nav-icon"><i class="bi bi-activity"></i></div>
+      <div class="nav-label">Health</div>
+    </div>
+
+    <hr/>
+
+    <div class="nav-item" id="refreshNav" title="Refresh data" tabindex="0">
+      <div class="nav-icon"><i class="bi bi-arrow-clockwise"></i></div>
+      <div class="nav-label">Refresh</div>
+    </div>
+  </div>
+
+  <div class="sidebar-footer">
+    <button id="toggleSidebar" class="btn btn-outline-secondary btn-sm collapse-toggle" title="Collapse navigation">
+      <span id="toggleIcon"><i class="bi bi-chevron-left"></i></span>
+      <span id="toggleLabel" style="margin-left:.5rem;">Collapse</span>
+    </button>
+  </div>
+</nav>
