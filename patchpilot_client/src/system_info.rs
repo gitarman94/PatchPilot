@@ -70,22 +70,18 @@ pub struct NetworkInterface {
     pub ipv6: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 pub struct SystemInfo {
-    // internal System from `sysinfo` — skip when serializing/deserializing
-    #[serde(skip)]
+    #[serde(skip, default)]
     sys: System,
 
-    // previous network counters used to compute throughput — skip
-    #[serde(skip)]
+    #[serde(skip, default)]
     prev_network: HashMap<String, u64>,
 
-    // last time this snapshot was taken (monotonic) — skip serde
-    #[serde(skip)]
+    #[serde(skip, default = "default_instant")]
     last_snapshot: Instant,
 
-    // how frequently a snapshot is considered stale by default — skip serde
-    #[serde(skip)]
+    #[serde(skip, default = "default_duration")]
     pub snapshot_ttl: Duration,
 
     // exposed fields
