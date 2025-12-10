@@ -118,11 +118,11 @@ pub struct SystemInfo {
     pub ping_latency: f32,
 }
 
-fn default_instant() -> Instant {
+pub fn default_instant() -> Instant {
     Instant::now()
 }
 
-fn default_duration() -> Duration {
+pub fn default_duration() -> Duration {
     Duration::from_secs(5)
 }
 
