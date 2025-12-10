@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::json;
 use std::{fs, time::Duration};
-use crate::system_info::{SystemInfo, get_system_info};
+use crate::system_info::{SystemInfo, get_system_info, TELEMETRY};
 use local_ip_address::local_ip;
 use tokio::time::sleep;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -144,6 +144,11 @@ async fn register_device(
         "device_model": device_model
     });
 
+    // Record outgoing bytes in telemetry (best-effort)
+    if let Ok(bytes) = serde_json::to_vec(&payload) {
+        TELEMETRY.incr_bytes_sent(bytes.len() as u64);
+    }
+
     let url = format!("{}/api/register", server_url);
 
     let response = client
@@ -193,6 +198,11 @@ async fn send_system_update(
         "device_model": device_model
     });
 
+    // Record outgoing bytes in telemetry (best-effort)
+    if let Ok(bytes) = serde_json::to_vec(&payload) {
+        TELEMETRY.incr_bytes_sent(bytes.len() as u64);
+    }
+
     let resp = client
         .post(format!("{}/api/devices/{}", server_url, device_id))
         .json(&payload)
@@ -227,13 +237,18 @@ async fn send_heartbeat(
 
     sys_info.refresh();
 
-    // ✔ FIXED PAYLOAD (removed ip_address)
+    // Build heartbeat payload
     let payload = serde_json::json!({
         "device_id": device_id,
         "system_info": sys_info,
         "device_type": device_type,
         "device_model": device_model
     });
+
+    // Record heartbeat payload size
+    if let Ok(bytes) = serde_json::to_vec(&payload) {
+        TELEMETRY.incr_bytes_sent(bytes.len() as u64);
+    }
 
     let resp = client
         .post(format!("{}/api/devices/heartbeat", server_url))
@@ -247,6 +262,9 @@ async fn send_heartbeat(
                 log::warn!("Heartbeat request returned non-OK: {}", r.status());
                 return false;
             }
+            // successfully got a response; count heartbeat
+            TELEMETRY.incr_heartbeats();
+
             match r.json::<serde_json::Value>().await {
                 Ok(v) => {
                     v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
