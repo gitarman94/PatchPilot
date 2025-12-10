@@ -1,67 +1,18 @@
 use std::collections::HashMap;
 use std::fs;
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
 use std::process::Command;
 
-use lazy_static::lazy_static;
 use local_ip_address::local_ip;
 use serde::{Deserialize, Serialize};
 use sysinfo::{
     CpuRefreshKind, DiskRefreshKind, Disks, MemoryRefreshKind, Networks, RefreshKind, System,
 };
 
-/// Small telemetry/metrics collector (atomic counters). Exposed as JSON for easy scraping.
-pub struct Telemetry {
-    pub refresh_count: AtomicU64,
-    pub rebuild_count: AtomicU64,
-    pub bytes_sent: AtomicU64,
-    pub heartbeats_sent: AtomicU64,
-}
-
-impl Telemetry {
-    fn new() -> Self {
-        Self {
-            refresh_count: AtomicU64::new(0),
-            rebuild_count: AtomicU64::new(0),
-            bytes_sent: AtomicU64::new(0),
-            heartbeats_sent: AtomicU64::new(0),
-        }
-    }
-
-    pub fn incr_refresh(&self) {
-        self.refresh_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn incr_rebuild(&self) {
-        self.rebuild_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn incr_bytes_sent(&self, n: u64) {
-        self.bytes_sent.fetch_add(n, Ordering::Relaxed);
-    }
-
-    pub fn incr_heartbeats(&self) {
-        self.heartbeats_sent.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn dump_json(&self) -> serde_json::Value {
-        serde_json::json!({
-            "refresh_count": self.refresh_count.load(Ordering::Relaxed),
-            "rebuild_count": self.rebuild_count.load(Ordering::Relaxed),
-            "bytes_sent": self.bytes_sent.load(Ordering::Relaxed),
-            "heartbeats_sent": self.heartbeats_sent.load(Ordering::Relaxed),
-        })
-    }
-}
-
-lazy_static! {
-    pub static ref TELEMETRY: Telemetry = Telemetry::new();
-}
-
+// Network interface representation
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NetworkInterface {
     pub name: String,
@@ -70,19 +21,16 @@ pub struct NetworkInterface {
     pub ipv6: String,
 }
 
+// Public system snapshot structure (serializable).
 #[derive(Serialize, Debug)]
 pub struct SystemInfo {
-    #[serde(skip, default)]
+    // sysinfo System kept private (not serialized)
+    #[serde(skip)]
     sys: System,
 
-    #[serde(skip, default)]
+    // previous network counters used for lightweight throughput calculations (not serialized)
+    #[serde(skip)]
     prev_network: HashMap<String, u64>,
-
-    #[serde(skip, default = "default_instant")]
-    last_snapshot: Instant,
-
-    #[serde(skip, default = "default_duration")]
-    pub snapshot_ttl: Duration,
 
     // exposed fields
     pub hostname: String,
@@ -94,7 +42,7 @@ pub struct SystemInfo {
 
     pub cpu_brand: String,
     pub cpu_count: u32,
-    /// current CPU usage percent (kept in sync by refresh methods)
+    // current CPU usage percent
     pub cpu_usage: f32,
 
     pub ram_total: u64,
@@ -114,26 +62,21 @@ pub struct SystemInfo {
     pub device_model: String,
     pub serial_number: String,
 
-    /// Optional placeholder for ping latency in ms. Default 0.0. Populate externally if needed.
+    // Optional ping latency (ms) placeholder; populate externally if desired.
     pub ping_latency: f32,
 }
 
-pub fn default_instant() -> Instant {
-    Instant::now()
-}
-
-pub fn default_duration() -> Duration {
-    Duration::from_secs(5)
-}
-
 impl SystemInfo {
-    /// Synchronous full snapshot constructor (blocking).
-    pub fn new() -> Self {
+    // Blocking gather that performs an expensive, full snapshot.
+    // Intended to be called inside spawn_blocking for async contexts.
+    pub fn gather_blocking() -> SystemInfo {
+        // Build sysinfo::System with detailed refresh kinds
         let mut sys = System::new_with_specifics(
             RefreshKind::everything()
                 .with_cpu(CpuRefreshKind::everything())
                 .with_memory(MemoryRefreshKind::everything()),
         );
+        // full sync update
         sys.refresh_all();
 
         let (device_type, device_model, serial_number) = get_hardware_info();
@@ -155,7 +98,7 @@ impl SystemInfo {
         let ram_used = sys.used_memory();
         let ram_free = ram_total.saturating_sub(ram_used);
 
-        // Disks
+        // Disks (fresh list)
         let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
         let disk_total: u64 = disks.list().iter().map(|d| d.total_space()).sum();
         let disk_free: u64 = disks.list().iter().map(|d| d.available_space()).sum();
@@ -163,8 +106,6 @@ impl SystemInfo {
         let mut s = SystemInfo {
             sys,
             prev_network: HashMap::new(),
-            last_snapshot: Instant::now(),
-            snapshot_ttl: Duration::from_secs(5), // default TTL: 5s
             hostname,
             ip_address,
             os_name,
@@ -189,147 +130,55 @@ impl SystemInfo {
             ping_latency: 0.0,
         };
 
-        // populate network interfaces and throughput
+        // gather network details and throughput
         s.refresh_network_interfaces_blocking();
-        TELEMETRY.incr_rebuild();
+
         s
     }
 
-    /// Async non-blocking constructor (spawns a blocking task)
-    pub async fn new_async() -> anyhow::Result<SystemInfo> {
-        let si = tokio::task::spawn_blocking(|| SystemInfo::new())
-            .await
-            .map_err(|e| anyhow::anyhow!("spawn_blocking failed: {}", e))?;
-        Ok(si)
+    // Light-weight CPU usage refresh that only refreshes CPU data.
+    // This is a blocking call on the calling thread; callers in async contexts should call this inside spawn_blocking or use the service.
+    pub fn cpu_usage_light(&mut self) -> f32 {
+        // sysinfo uses refresh_cpu_all in newer versions
+        self.sys.refresh_cpu_all();
+        let usage = self.sys.global_cpu_usage();
+        self.cpu_usage = usage;
+        usage
     }
 
-    /// Rebuild a fresh snapshot (blocking) — useful if you want a full new snapshot
-    pub fn rebuild_blocking(&self) -> SystemInfo {
-        SystemInfo::new()
-    }
-
-    /// Rebuild a fresh snapshot (async)
-    pub async fn rebuild_async() -> anyhow::Result<SystemInfo> {
-        let si = tokio::task::spawn_blocking(|| SystemInfo::new())
-            .await
-            .map_err(|e| anyhow::anyhow!("spawn_blocking failed: {}", e))?;
-        TELEMETRY.incr_rebuild();
-        Ok(si)
-    }
-
-    /// Rebuild a snapshot only if `snapshot_ttl` has expired. Returns:
-    /// - Ok(Some(new_snapshot)) if stale and rebuilt
-    /// - Ok(None) if still fresh
-    pub async fn rebuild_if_stale_async(&self) -> anyhow::Result<Option<SystemInfo>> {
-        let elapsed = self.last_snapshot.elapsed();
-        if elapsed < self.snapshot_ttl {
-            return Ok(None);
-        }
-
-        let si = tokio::task::spawn_blocking(|| SystemInfo::new())
-            .await
-            .map_err(|e| anyhow::anyhow!("spawn_blocking failed: {}", e))?;
-        TELEMETRY.incr_rebuild();
-        Ok(Some(si))
-    }
-
-    /// Blocking refresh of the held SystemInfo instance (updates fields in-place).
-    /// This restores the original sync API.
-    pub fn refresh_blocking(&mut self) {
-        self.sys.refresh_specifics(
-            RefreshKind::everything()
-                .with_cpu(CpuRefreshKind::everything())
-                .with_memory(MemoryRefreshKind::everything()),
-        );
-
-        self.hostname = System::host_name().unwrap_or_default();
-        self.os_name = System::name().unwrap_or_default();
-        self.os_version = System::os_version().unwrap_or_default();
-        self.kernel_version = System::kernel_version().unwrap_or_default();
-        self.uptime = format!("{}s", System::uptime());
-
-        self.ip_address = local_ip().ok().map(|ip| ip.to_string()).unwrap_or_default();
-
-        // CPU
-        self.cpu_usage = self.sys.global_cpu_usage();
-
-        // Memory
-        self.ram_total = self.sys.total_memory();
-        self.ram_used = self.sys.used_memory();
-        self.ram_free = self.ram_total.saturating_sub(self.ram_used);
-
-        // Disks
+    // Light-weight disk usage computed without full System reinitialization.
+    pub fn disk_usage_light(&self) -> (u64, u64) {
         let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
-        self.disk_total = disks.list().iter().map(|d| d.total_space()).sum();
-        self.disk_free = disks.list().iter().map(|d| d.available_space()).sum();
-
-        // Networks & interfaces (blocking)
-        self.refresh_network_interfaces_blocking();
-
-        self.last_snapshot = Instant::now();
-        TELEMETRY.incr_refresh();
+        let total = disks.list().iter().map(|d| d.total_space()).sum();
+        let free = disks.list().iter().map(|d| d.available_space()).sum();
+        (total, free)
     }
 
-    /// Throttled refresh: spawn blocking work only when stale. Returns Ok(true) if refreshed.
-    pub async fn refresh_throttled_async(&mut self) -> anyhow::Result<bool> {
-        let elapsed = self.last_snapshot.elapsed();
-        if elapsed < self.snapshot_ttl {
-            return Ok(false);
+    // Light-weight network throughput recompute (non-persistent).
+    // This will update the internal prev_network counters so repeated calls can compute deltas.
+    pub fn network_throughput_light(&mut self) -> u64 {
+        let networks = Networks::new_with_refreshed_list();
+        let mut total: u64 = 0;
+        for (name, iface) in networks.list().iter() {
+            let current = iface.received() + iface.transmitted();
+            let prev = *self.prev_network.get(name).unwrap_or(&current);
+            total += current.saturating_sub(prev);
+            self.prev_network.insert(name.clone(), current);
         }
-
-        let snapshot_ttl = self.snapshot_ttl;
-        let current = std::mem::take(self);
-        let refreshed = tokio::task::spawn_blocking(move || {
-            let mut s = current;
-            s.refresh_blocking();
-            s
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("spawn_blocking failed: {}", e))?;
-
-        *self = refreshed;
-        self.snapshot_ttl = snapshot_ttl; // preserve TTL
-        Ok(true)
+        self.network_throughput = total;
+        total
     }
 
-    /// Fully async refresh that pulls all data; call this from async contexts.
-    pub async fn refresh_async(&mut self) -> anyhow::Result<()> {
-        // If not stale, avoid blocking
-        if self.last_snapshot.elapsed() < self.snapshot_ttl {
-            return Ok(());
-        }
-
-        let snapshot_ttl = self.snapshot_ttl;
-        let current = std::mem::take(self);
-        let refreshed = tokio::task::spawn_blocking(move || {
-            let mut s = current;
-            s.refresh_blocking();
-            s
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("spawn_blocking failed: {}", e))?;
-
-        *self = refreshed;
-        self.snapshot_ttl = snapshot_ttl;
-        Ok(())
-    }
-
-    /// Back-compat convenience: synchronous `refresh()` method expected by callers.
-    pub fn refresh(&mut self) {
-        self.refresh_blocking();
-    }
-
-    /// Internal helper: blocking network interface refresh + throughput compute
+    // Blocking network interfaces refresh + throughput compute (used by full gather).
     fn refresh_network_interfaces_blocking(&mut self) {
         let networks = Networks::new_with_refreshed_list();
 
         let mut all_ifaces: Vec<(String, NetworkInterface)> = Vec::new();
 
         for (name, iface) in networks.list().iter() {
-            // try to read MAC using sysinfo API
+            // read MAC / ip networks
             let mac = iface.mac_address().to_string();
 
-            // sysinfo provides ip_networks with addr (if supported)
             let ipv4 = iface
                 .ip_networks()
                 .iter()
@@ -355,26 +204,26 @@ impl SystemInfo {
             ));
         }
 
-        // Filter logic: Option 2 (prefer real physical NICs), but keep VM NICs when they have MAC/IP.
+        // Filter: prefer physical but keep VM NICs with MAC/IP
         let filtered: Vec<NetworkInterface> = all_ifaces
             .iter()
             .filter(|(name, ni)| {
                 let name = name.as_str();
 
-                // Drop loopback explicitly
+                // Drop loopback
                 if name == "lo" || name == "lo0" {
                     return false;
                 }
 
-                // Drop obviously ephemeral container virtuals / bridges / veth / cni / kube etc.
+                // drop obvious container/bridge/veth prefixes
                 let virtual_prefixes = [
-                    "docker", "br-", "veth", "cni", "kube", "vbox", "virbr", "vmnet", "vnet", "veth",
+                    "docker", "br-", "veth", "cni", "kube", "vbox", "virbr", "vmnet", "vnet",
                 ];
                 if virtual_prefixes.iter().any(|p| name.starts_with(p)) {
                     return false;
                 }
 
-                // Drop VPN device prefixes that are usually not the primary interface (unless they have IP)
+                // vpn prefixes: keep only if they have IPs
                 let vpn_prefixes = ["tun", "tap", "wg", "zt", "wg-"];
                 if vpn_prefixes.iter().any(|p| name.starts_with(p)) {
                     if ni.ipv4.is_empty() && ni.ipv6.is_empty() {
@@ -382,7 +231,7 @@ impl SystemInfo {
                     }
                 }
 
-                // Keep if has MAC or IP — ensures VM NICs (which are virtual) are preserved when useful
+                // Must have either MAC or an IP to be useful
                 if ni.mac.is_empty() && ni.ipv4.is_empty() && ni.ipv6.is_empty() {
                     return false;
                 }
@@ -392,14 +241,13 @@ impl SystemInfo {
             .map(|(_, iface)| iface.clone())
             .collect();
 
-        // If we filtered everything out (e.g., single virtual machine with uncommon names), fall back to best-effort list:
         self.network_interfaces = if filtered.is_empty() {
             all_ifaces.into_iter().map(|(_, iface)| iface).collect()
         } else {
             filtered
         };
 
-        // Update throughput counters based on current network stats
+        // throughput counters (delta since previous)
         let mut total_delta: u64 = 0;
         for (name, iface) in networks.list().iter() {
             let current = iface.received() + iface.transmitted();
@@ -409,137 +257,74 @@ impl SystemInfo {
         }
         self.network_throughput = total_delta;
     }
-
-    /// Return a light-weight CPU usage value without doing full refresh.
-    /// This uses sysinfo's CPU refresh API.
-    pub fn cpu_usage_light(&mut self) -> f32 {
-        // sysinfo provides refresh_cpu_all in newer versions
-        self.sys.refresh_cpu_all();
-        let usage = self.sys.global_cpu_usage();
-        self.cpu_usage = usage;
-        usage
-    }
-
-    /// Back-compat method: cpu_usage() — same signature as original code.
-    pub fn cpu_usage(&mut self) -> f32 {
-        self.cpu_usage_light()
-    }
-
-    /// Returns disk usage computed from sysinfo without performing a full snapshot.
-    pub fn disk_usage_light(&self) -> (u64, u64) {
-        let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
-        let total = disks.list().iter().map(|d| d.total_space()).sum();
-        let free = disks.list().iter().map(|d| d.available_space()).sum();
-        (total, free)
-    }
-
-    /// Back-compat method: disk_usage()
-    pub fn disk_usage(&mut self) -> (u64, u64) {
-        let (t, f) = self.disk_usage_light();
-        // keep fields updated
-        self.disk_total = t;
-        self.disk_free = f;
-        (t, f)
-    }
-
-    /// Back-compat: network_throughput() method.
-    pub fn network_throughput(&mut self) -> u64 {
-        // Recompute light throughput and return
-        let networks = Networks::new_with_refreshed_list();
-        let mut total: u64 = 0;
-        for (name, iface) in networks.list().iter() {
-            let current = iface.received() + iface.transmitted();
-            let prev = *self.prev_network.get(name).unwrap_or(&current);
-            total += current.saturating_sub(prev);
-            self.prev_network.insert(name.clone(), current);
-        }
-        self.network_throughput = total;
-        total
-    }
-
-    /// Return telemetry metrics JSON for this snapshot (merges global telemetry)
-    pub fn metrics_snapshot(&self) -> serde_json::Value {
-        let map = serde_json::json!({
-            "hostname": self.hostname,
-            "uptime": self.uptime,
-            "cpu_usage": self.cpu_usage,
-            "ram_total": self.ram_total,
-            "ram_used": self.ram_used,
-            "disk_total": self.disk_total,
-            "disk_free": self.disk_free,
-            "network_throughput": self.network_throughput,
-            "interfaces_count": self.network_interfaces.len(),
-            "ping_latency": self.ping_latency,
-        });
-
-        let telemetry = TELEMETRY.dump_json();
-        if let serde_json::Value::Object(mut m) = map {
-            if let serde_json::Value::Object(t) = telemetry {
-                m.insert("telemetry".to_string(), serde_json::Value::Object(t));
-            }
-            serde_json::Value::Object(m)
-        } else {
-            map
-        }
-    }
 }
 
-impl Default for SystemInfo {
-    fn default() -> Self {
-        SystemInfo::new()
-    }
-}
-
-/// Async helper to fetch a fresh snapshot (convenience wrapper)
-/// This implementation now actively exercises the async and "light" methods so
-/// they aren't flagged as dead code.
-pub async fn get_system_info_async() -> anyhow::Result<SystemInfo> {
-    // Build a fresh snapshot in a blocking task
-    let mut si = SystemInfo::new_async().await?;
-
-    // Exercise a handful of methods so the async API surface is actually used.
-    // These are cheap and help keep compiler from marking methods dead.
-    let _cpu = si.cpu_usage_light();
-    let (_d_total, _d_free) = si.disk_usage_light();
-    let _net = si.network_throughput();
-    let _metrics = si.metrics_snapshot();
-
-    // Try a stale rebuild (no-op if fresh) to exercise rebuild_if_stale_async
-    let _ = si.rebuild_if_stale_async().await;
-
-    Ok(si)
-}
-
-/// get_system_info kept for API compatibility
+// Synchronous compatibility helper — blocking gather.
 pub fn get_system_info() -> anyhow::Result<SystemInfo> {
-    // If we're running inside a tokio runtime, prefer the async path so that
-    // users consistently exercise the async implementation; otherwise fall back.
-    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        // Use handle.block_on to run the async helper synchronously
-        handle.block_on(get_system_info_async())
-    } else {
-        Ok(SystemInfo::new())
+    Ok(SystemInfo::gather_blocking())
+}
+
+// Service that enforces a lightweight async rate-limit while always returning fresh data.
+// Create one and re-use it across the program to avoid per-call throttling races.
+pub struct SystemInfoService {
+    last_call: tokio::sync::Mutex<Instant>,
+    min_interval: Duration,
+}
+
+impl SystemInfoService {
+    // Create a new service with a user-specified minimum interval between actual gathers.
+    // The interval is a *rate-limit* — if calls happen more quickly, they'll asynchronously wait until the interval expires.
+    pub fn new(min_interval: Duration) -> Self {
+        // initialize last_call to a time far in the past so first call is immediate
+        let last = Instant::now() - min_interval - Duration::from_millis(1);
+        Self {
+            last_call: tokio::sync::Mutex::new(last),
+            min_interval,
+        }
+    }
+
+    // Default service: 200ms minimum interval (lightweight).
+    pub fn default() -> Self {
+        Self::new(Duration::from_millis(200))
+    }
+
+    // Async method to fetch a fresh SystemInfo snapshot while enforcing the lightweight rate-limit.
+    // This method:
+    // - asynchronously waits if the previous gather was within `min_interval` (no blocking threads),
+    // - spawns a blocking task to run the expensive `gather_blocking` and returns the fresh snapshot.
+    pub async fn get_system_info_async(&self) -> anyhow::Result<SystemInfo> {
+        // determine how long to wait (if anything) in an async-safe way
+        let mut guard = self.last_call.lock().await;
+        let now = Instant::now();
+        if let Some(remaining) = self
+            .min_interval
+            .checked_sub(now.duration_since(*guard))
+        {
+            if remaining > Duration::from_millis(0) {
+                // asynchronous sleep; does not block the runtime thread
+                tokio::time::sleep(remaining).await;
+            }
+        }
+        // update last_call to now (we're about to perform the gather)
+        *guard = Instant::now();
+        drop(guard);
+
+        // perform blocking gather in threadpool
+        let si = tokio::task::spawn_blocking(|| SystemInfo::gather_blocking())
+            .await
+            .map_err(|e| anyhow::anyhow!("spawn_blocking failed: {}", e))?;
+
+        Ok(si)
     }
 }
 
-/// Windows PCSystemTypeEx decoder (heuristic): takes a numeric string (WMI-field) and maps common values.
-/// If parsing fails or code unknown, returns the original string or "unknown(<code>)".
-#[cfg(target_os = "windows")]
-fn decode_pc_system_type(raw: &str) -> String {
-    match raw.parse::<i32>() {
-        Ok(1) => "Desktop".into(),
-        Ok(2) => "Mobile".into(),
-        Ok(3) => "Workstation".into(),
-        Ok(4) => "Enterprise Server".into(),
-        Ok(5) => "SOHO Server".into(),
-        Ok(6) => "Appliance PC".into(),
-        Ok(7) => "Performance Server".into(),
-        Ok(8) => "Maximum".into(),
-        Ok(n) => format!("unknown({})", n),
-        Err(_) => raw.to_string(),
-    }
+// Convenience async helper that uses the default service instance (200ms min interval).
+pub async fn get_system_info_async_default() -> anyhow::Result<SystemInfo> {
+    let svc = SystemInfoService::default();
+    svc.get_system_info_async().await
 }
 
+// Platform helpers
 fn get_hardware_info() -> (Option<String>, Option<String>, Option<String>) {
     #[cfg(target_os = "linux")]
     {
@@ -602,7 +387,6 @@ fn get_hardware_info() -> (Option<String>, Option<String>, Option<String>) {
                     break;
                 }
                 if let Some(obj) = obj {
-                    // PCSystemTypeEx is typically numeric; decode to a friendly string
                     if let Some(raw) = get_wmi_string(&obj, "PCSystemTypeEx") {
                         device_type_raw = Some(decode_pc_system_type(&raw));
                     }
@@ -646,7 +430,7 @@ fn get_hardware_info() -> (Option<String>, Option<String>, Option<String>) {
             .arg("-json")
             .arg("SPHardwareDataType")
             .output()
-            .ok()?;
+            .ok()?; // return None on failure
         let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
         let hw = json.get("SPHardwareDataType")?.get(0)?;
 
@@ -686,4 +470,21 @@ unsafe fn get_wmi_string(obj: &IWbemClassObject, field: &str) -> Option<String> 
     }
 
     Some(vt_prop.Anonymous.Anonymous.Anonymous.bstrVal.to_string())
+}
+
+// Heuristic Windows PCSystemTypeEx decoder (only compiled on Windows).
+#[cfg(target_os = "windows")]
+fn decode_pc_system_type(raw: &str) -> String {
+    match raw.parse::<i32>() {
+        Ok(1) => "Desktop".into(),
+        Ok(2) => "Mobile".into(),
+        Ok(3) => "Workstation".into(),
+        Ok(4) => "Enterprise Server".into(),
+        Ok(5) => "SOHO Server".into(),
+        Ok(6) => "Appliance PC".into(),
+        Ok(7) => "Performance Server".into(),
+        Ok(8) => "Maximum".into(),
+        Ok(n) => format!("unknown({})", n),
+        Err(_) => raw.to_string(),
+    }
 }
