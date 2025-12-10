@@ -114,49 +114,62 @@ async fn register_device(
     device_model: &str,
 ) -> Result<String> {
 
+    // Collect system info properly
     let mut sys_info = match get_system_info() {
         Ok(info) => info,
-        Err(_) => SystemInfo::new(),
+        Err(_) => SystemInfo::default(),
     };
     sys_info.refresh();
 
-    let resp = client
-        .post(format!("{}/api/register", server_url))
-        .json(&json!({
-            "system_info": sys_info,
-            "device_type": device_type,
-            "device_model": device_model
-        }))
+    // Build EXACT JSON format the server expects
+    let payload = serde_json::json!({
+        "system_info": {
+            "hostname": sys_info.hostname,
+            "os_name": sys_info.os_name,
+            "architecture": sys_info.architecture,
+            "cpu_usage": sys_info.cpu_usage,
+            "cpu_count": sys_info.cpu_count,
+            "cpu_brand": sys_info.cpu_brand,
+            "ram_total": sys_info.ram_total,
+            "ram_used": sys_info.ram_used,
+            "disk_total": sys_info.disk_total,
+            "disk_free": sys_info.disk_free,
+            "disk_health": sys_info.disk_health,
+            "network_throughput": sys_info.network_throughput,
+            "ping_latency": sys_info.ping_latency,
+            "ip_address": sys_info.ip_address,
+            "network_interfaces": sys_info.network_interfaces,
+        },
+        "device_type": device_type,
+        "device_model": device_model
+    });
+
+    let url = format!("{}/api/register", server_url);
+
+    let response = client
+        .post(&url)
+        .json(&payload)
         .send()
         .await
-        .context("Registration request failed")?;
+        .context("Error sending registration request")?;
 
-    // --- Extract status BEFORE consuming body ---
-    let status = resp.status();
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
 
-    // --- Now safely consume the body ---
-    let text = resp.text().await.unwrap_or_default();
-
-    // If not 2xx, show full body
     if !status.is_success() {
-        anyhow::bail!("Server returned {} with body: {}", status, text);
+        anyhow::bail!("Registration failed {}: {}", status, body);
     }
 
-    // Parse JSON from text AFTER consuming body
-    let json_resp: serde_json::Value = serde_json::from_str(&text)
-        .context("Server returned invalid JSON")?;
+    // Server returns { pending_id: "..." }
+    let parsed: serde_json::Value =
+        serde_json::from_str(&body).context("Server returned invalid JSON")?;
 
-    if let Some(id) = json_resp.get("device_id").and_then(|v| v.as_str()) {
-        write_local_device_id(id)?;
-        return Ok(id.to_string());
+    if let Some(pid) = parsed["pending_id"].as_str() {
+        write_local_device_id(pid)?;
+        return Ok(pid.to_string());
     }
 
-    if let Some(pending) = json_resp.get("pending_id").and_then(|v| v.as_str()) {
-        write_local_device_id(pending)?;
-        return Ok(pending.to_string());
-    }
-
-    anyhow::bail!("Server did not return device_id or pending_id")
+    anyhow::bail!("Server did not return pending_id");
 }
 
 
