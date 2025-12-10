@@ -15,6 +15,7 @@ use sysinfo::{
 };
 
 /// Small telemetry/metrics collector (atomic counters). Exposed as JSON for easy scraping.
+#[allow(dead_code)] // telemetry fields/methods are intentionally present for future use
 pub struct Telemetry {
     pub refresh_count: AtomicU64,
     pub rebuild_count: AtomicU64,
@@ -22,6 +23,7 @@ pub struct Telemetry {
     pub heartbeats_sent: AtomicU64,
 }
 
+#[allow(dead_code)]
 impl Telemetry {
     fn new() -> Self {
         Self {
@@ -116,6 +118,14 @@ pub struct SystemInfo {
 
     /// Optional placeholder for ping latency in ms. Default 0.0. Populate externally if needed.
     pub ping_latency: f32,
+}
+
+fn default_instant() -> Instant {
+    Instant::now()
+}
+
+fn default_duration() -> Duration {
+    Duration::from_secs(5)
 }
 
 impl SystemInfo {
@@ -451,7 +461,7 @@ impl SystemInfo {
 
     /// Return telemetry metrics JSON for this snapshot (merges global telemetry)
     pub fn metrics_snapshot(&self) -> serde_json::Value {
-        let mut map = serde_json::json!({
+        let map = serde_json::json!({
             "hostname": self.hostname,
             "uptime": self.uptime,
             "cpu_usage": self.cpu_usage,
@@ -483,6 +493,7 @@ impl Default for SystemInfo {
 }
 
 /// Async helper to fetch a fresh snapshot (convenience wrapper)
+#[allow(dead_code)]
 pub async fn get_system_info_async() -> anyhow::Result<SystemInfo> {
     SystemInfo::new_async().await
 }
@@ -494,6 +505,7 @@ pub fn get_system_info() -> anyhow::Result<SystemInfo> {
 
 /// Windows PCSystemTypeEx decoder (heuristic): takes a numeric string (WMI-field) and maps common values.
 /// If parsing fails or code unknown, returns the original string or "unknown(<code>)".
+#[allow(dead_code)]
 fn decode_pc_system_type(raw: &str) -> String {
     match raw.parse::<i32>() {
         Ok(1) => "Desktop".into(),
