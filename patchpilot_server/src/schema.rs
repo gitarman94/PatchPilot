@@ -1,6 +1,7 @@
 diesel::table! {
     devices (id) {
         id -> Integer,
+        uuid -> Text,
         device_name -> Text,
         hostname -> Text,
         os_name -> Text,
@@ -34,8 +35,8 @@ diesel::table! {
 
 diesel::table! {
     actions (id) {
-        id -> Text,
-        action_type -> Text,
+        id -> Text,                 // UUID
+        action_type -> Text,        // command | reboot | shutdown | force_update
         parameters -> Nullable<Text>,
         author -> Nullable<Text>,
         created_at -> Timestamp,
@@ -47,11 +48,11 @@ diesel::table! {
 diesel::table! {
     action_targets (id) {
         id -> Integer,
-        action_id -> Text,
-        device_id -> Integer,
-        status -> Text,
+        action_id -> Text,          // FK to actions.id
+        device_uuid -> Text,        // device UUID (preferred) - store as text for simplicity
+        status -> Text,             // pending | running | completed | failed | expired | canceled
         last_update -> Timestamp,
-        response -> Nullable<Text>,
+        response -> Nullable<Text>, // stdout/stderr or structured JSON
     }
 }
 

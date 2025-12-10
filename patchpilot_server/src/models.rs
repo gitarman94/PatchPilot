@@ -8,6 +8,7 @@ use crate::schema::{devices, actions, action_targets, audit_log};
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Device {
     pub id: i32,
+    pub uuid: String,
     pub device_name: String,
     pub hostname: String,
     pub os_name: String,
@@ -41,6 +42,7 @@ pub struct Device {
 #[derive(Insertable, AsChangeset)]
 #[diesel(table_name = devices)]
 pub struct NewDevice {
+    pub uuid: String,
     pub device_name: String,
     pub hostname: String,
     pub os_name: String,
@@ -96,6 +98,9 @@ pub struct SystemInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
+    // optional stable uuid devices may send
+    pub device_uuid: Option<String>,
+
     pub system_info: SystemInfo,
     pub device_type: Option<String>,
     pub device_model: Option<String>,
@@ -106,10 +111,10 @@ impl DeviceInfo {
         let s = &mut self.system_info;
         let o = &other.system_info;
 
-        if !o.os_name.is_empty() { s.os_name = o.os_name.clone(); }
-        if !o.architecture.is_empty() { s.architecture = o.architecture.clone(); }
-        if !o.cpu_brand.is_empty() { s.cpu_brand = o.cpu_brand.clone(); }
-        if !o.disk_health.is_empty() { s.disk_health = o.disk_health.clone(); }
+        if !o.os_name.is_empty()            { s.os_name = o.os_name.clone(); }
+        if !o.architecture.is_empty()       { s.architecture = o.architecture.clone(); }
+        if !o.cpu_brand.is_empty()          { s.cpu_brand = o.cpu_brand.clone(); }
+        if !o.disk_health.is_empty()        { s.disk_health = o.disk_health.clone(); }
 
         if let Some(ip) = &o.ip_address {
             if !ip.is_empty() {
@@ -127,10 +132,10 @@ impl DeviceInfo {
         s.cpu_count = o.cpu_count;
 
         s.ram_total = o.ram_total;
-        s.ram_used = o.ram_used;
+        s.ram_used  = o.ram_used;
 
         s.disk_total = o.disk_total;
-        s.disk_free = o.disk_free;
+        s.disk_free  = o.disk_free;
 
         s.network_throughput = o.network_throughput;
         s.ping_latency = o.ping_latency;
@@ -146,15 +151,22 @@ impl DeviceInfo {
                 self.device_model = Some(m.clone());
             }
         }
+
+        if let Some(u) = &other.device_uuid {
+            if !u.is_empty() {
+                self.device_uuid = Some(u.clone());
+            }
+        }
     }
 
-    pub fn to_device(&self, device_id: &str) -> Device {
+    pub fn to_device(&self, device_uuid: &str, device_id: &str) -> Device {
         let s = &self.system_info;
 
         Device {
             id: 0,
-            device_name: device_id.into(),
-            hostname: device_id.into(),
+            uuid: device_uuid.to_string(),
+            device_name: device_id.to_string(),
+            hostname: device_id.to_string(),
 
             os_name: s.os_name.clone(),
             architecture: s.architecture.clone(),
@@ -200,13 +212,13 @@ impl Device {
         self
     }
 
-    pub fn from_info(device_id: &str, info: &DeviceInfo) -> Self {
-        info.to_device(device_id)
+    pub fn from_info(device_uuid: &str, device_id: &str, info: &DeviceInfo) -> Self {
+        info.to_device(device_uuid, device_id)
     }
 }
 
 impl NewDevice {
-    pub fn from_device_info(device_id: &str, info: &DeviceInfo, existing: Option<&Device>) -> Self {
+    pub fn from_device_info(device_uuid: &str, device_id: &str, info: &DeviceInfo, existing: Option<&Device>) -> Self {
         fn pick_string(new: String, old: &str) -> String {
             if new.trim().is_empty() { old.to_string() } else { new }
         }
@@ -227,8 +239,9 @@ impl NewDevice {
             None => (
                 &Device {
                     id: 0,
-                    device_name: device_id.into(),
-                    hostname: device_id.into(),
+                    uuid: device_uuid.to_string(),
+                    device_name: device_id.to_string(),
+                    hostname: device_id.to_string(),
                     os_name: "".into(),
                     architecture: "".into(),
                     last_checkin: Utc::now().naive_utc(),
@@ -255,8 +268,9 @@ impl NewDevice {
         };
 
         Self {
-            device_name: device_id.into(),
-            hostname: device_id.into(),
+            uuid: device_uuid.to_string(),
+            device_name: device_id.to_string(),
+            hostname: device_id.to_string(),
 
             os_name: pick_string(si.os_name.clone(), &old.os_name),
             architecture: pick_string(si.architecture.clone(), &old.architecture),
@@ -290,6 +304,7 @@ impl NewDevice {
     }
 }
 
+// ACTIONS / TARGETS / AUDIT (Action = what you called "instruction")
 #[derive(Queryable, Serialize, Deserialize, Debug)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Action {
@@ -335,7 +350,7 @@ impl NewAction {
 pub struct ActionTarget {
     pub id: i32,
     pub action_id: String,
-    pub device_id: i32,
+    pub device_uuid: String,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
@@ -345,17 +360,17 @@ pub struct ActionTarget {
 #[diesel(table_name = action_targets)]
 pub struct NewActionTarget {
     pub action_id: String,
-    pub device_id: i32,
+    pub device_uuid: String,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
 }
 
 impl NewActionTarget {
-    pub fn new(action_id: String, device_id: i32) -> Self {
+    pub fn new(action_id: String, device_uuid: String) -> Self {
         Self {
             action_id,
-            device_id,
+            device_uuid,
             status: "pending".into(),
             last_update: Utc::now().naive_utc(),
             response: None,

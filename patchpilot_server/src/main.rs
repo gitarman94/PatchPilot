@@ -179,35 +179,61 @@ fn validate_device_info(info: &DeviceInfo) -> Result<(), ApiError> {
     Ok(())
 }
 
+use uuid::Uuid;
+
 fn insert_or_update_device(
     conn: &mut SqliteConnection,
-    device_id: &str,
+    maybe_device_uuid: Option<&str>, // prefer this (device-sent UUID or server-generated)
+    device_id: &str,                 // hostname or device_name (mutable friendly name)
     info: &DeviceInfo
 ) -> Result<Device, ApiError> {
     use crate::schema::devices::dsl::*;
 
+    // determine uuid to use
+    let device_uuid = if let Some(u) = maybe_device_uuid {
+        if !u.trim().is_empty() { u.to_string() } else { Uuid::new_v4().to_string() }
+    } else {
+        // try to find existing device by device_name (legacy)
+        // if found, reuse its uuid; otherwise generate a new one
+        if let Ok(existing_dev) = devices.filter(device_name.eq(device_id)).first::<Device>(conn) {
+            existing_dev.uuid
+        } else {
+            Uuid::new_v4().to_string()
+        }
+    };
+
+    // Pull existing dev if present (prefer lookup by uuid)
     let existing = devices
-        .filter(device_name.eq(device_id))
+        .filter(uuid.eq(&device_uuid))
         .first::<Device>(conn)
+        .or_else(|_| {
+            // fallback: maybe there is a row with same device_name but no uuid match
+            devices.filter(device_name.eq(device_id)).first::<Device>(conn)
+        })
         .ok();
 
-    let new_device = NewDevice::from_device_info(device_id, info, existing.as_ref());
+    // Build NewDevice (helper in models expects uuid and device_name)
+    let new_device = NewDevice::from_device_info(&device_uuid, device_id, info, existing.as_ref());
 
+    // Insert or update based on uuid (upsert on uuid if present)
+    // Note: SQLite ON CONFLICT needs an indexed/unique column. Ensure `uuid` has UNIQUE index in DB.
     diesel::insert_into(devices)
         .values(&new_device)
-        .on_conflict(device_name)
+        .on_conflict(uuid)
         .do_update()
         .set(&new_device)
         .execute(conn)
         .map_err(ApiError::from)?;
 
+    // Return the updated device (lookup by uuid)
     let updated = devices
-        .filter(device_name.eq(device_id))
+        .filter(uuid.eq(&device_uuid))
         .first::<Device>(conn)
         .map_err(ApiError::from)?;
 
     Ok(updated.enrich_for_dashboard())
 }
+
 
 #[post("/register", format = "json", data = "<payload>")]
 async fn register_device(
@@ -637,10 +663,13 @@ async fn get_audit(pool: &State<DbPool>) -> Result<Json<serde_json::Value>, Stri
 }
 
 fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
+
+    // Devices table (base structure)
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_name TEXT NOT NULL UNIQUE,
+            uuid TEXT,
+            device_name TEXT NOT NULL,
             hostname TEXT NOT NULL,
             os_name TEXT NOT NULL,
             architecture TEXT NOT NULL,
@@ -672,7 +701,22 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
         );
     "#).execute(conn)?;
 
-    // legacy per-device actions (kept for now)
+    // Ensure uuid column exists (SQLite will error if column exists — we ignore)
+    diesel::sql_query(r#"
+        ALTER TABLE devices ADD COLUMN uuid TEXT;
+    "#).execute(conn).ok();
+
+    // Ensure uuid is UNIQUE so ON CONFLICT(uuid) works
+    diesel::sql_query(r#"
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_uuid ON devices(uuid);
+    "#).execute(conn)?;
+
+    // (Optional) Remove old uniqueness on device_name if required
+    diesel::sql_query(r#"
+        CREATE INDEX IF NOT EXISTS idx_devices_name ON devices(device_name);
+    "#).execute(conn).ok();
+
+    // Legacy device_actions table
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS device_actions (
             id TEXT PRIMARY KEY,
@@ -688,7 +732,7 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
         );
     "#).execute(conn)?;
 
-    // high-level actions table (one row per logical action)
+    // High-level actions table
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS actions (
             id TEXT PRIMARY KEY,
@@ -701,7 +745,7 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
         );
     "#).execute(conn)?;
 
-    // mapping table: which devices are targeted by an action
+    // Action target mappings (one per affected device)
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS action_targets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -713,7 +757,7 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
         );
     "#).execute(conn)?;
 
-    // audit_log table
+    // Audit log table
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS audit_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -728,6 +772,7 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
 
     Ok(())
 }
+
 
 fn get_server_ip() -> String {
     local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "127.0.0.1".into())
@@ -799,8 +844,7 @@ fn rocket() -> _ {
             routes![
                 register_device,
                 register_or_update_device,
-                // NOTE: these route handlers (get_devices, get_device_details, status, approve_device, etc.)
-                // must exist elsewhere in your codebase; keep them mounted.
+
                 get_devices,
                 get_device_details,
                 status,
