@@ -4,20 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-reqwest = { version = "0.12.24", features = ["blocking", "json"] }  # A simple HTTP client for making requests.
-serde = { version = "1.0.228", features = ["derive"] }            # A framework for serializing and deserializing Rust data types.
-serde_json = "1.0.145"                                           # A JSON serialization library for handling JSON data with Serde.
-log = "0.4.28"                                                  # A logging framework for Rust applications, providing a facade for various logging implementations.
-flexi_logger = "0.31.7"                                         # A flexible logging library for configurable logging behavior.
-anyhow = "1.0.100"                                               # A simple way to handle errors in Rust, providing context and backtraces.
-sysinfo = { version = "0.37.2", features = ["network", "disk"] } # A library for retrieving system information like processes and hardware details.
-lazy_static = "1.5.0"                                          # A macro for defining lazy-initialized static variables.
-termcolor = "1.4.1"                                           # A library for coloring terminal output, enhancing the aesthetics of command-line applications.
-local-ip-address = "0.6.5"                                    # A utility for getting the local IP address of the machine.
-windows-service = { version = "0.8.0", optional = true }      # A library for creating Windows services in Rust.
-chrono = "0.4.42"                                                # A date and time library for handling dates, times, and durations in Rust.
-tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "time"] }             # async runtime for tokio
-nix = { version = "0.30.1", default-features = false, features = ["user"] } # POSIX-oriented utilities for interacting with low-level OS functionality (e.g., users, processes, file descriptors).
+reqwest = { version = "0.12.24", features = ["json", "rustls-tls", "stream"] }  # async HTTP client with rustls TLS
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+log = "0.4.28"
+flexi_logger = "0.31.7"
+anyhow = "1.0.100"
+sysinfo = { version = "0.37.2", features = ["network", "disk"] }
+lazy_static = "1.5.0"
+termcolor = "1.4.1"
+local-ip-address = "0.6.5"
+windows-service = { version = "0.8.0", optional = true }
+chrono = "0.4.42"
+tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "time"] }
+nix = { version = "0.30.1", default-features = false, features = ["user"] }
 
 [features]
 default = []

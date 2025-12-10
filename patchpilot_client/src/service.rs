@@ -1,14 +1,21 @@
+// src/service.rs
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::json;
+use serde_json::Value;
 use std::{fs, time::Duration};
-use crate::system_info::{SystemInfo, get_system_info, TELEMETRY};
+use crate::system_info::{SystemInfo, get_system_info}; // system_info provides synchronous helpers; you've added async helpers elsewhere
 use local_ip_address::local_ip;
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
+use tokio::task;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 const ADOPTION_CHECK_INTERVAL: u64 = 10;
 const SYSTEM_UPDATE_INTERVAL: u64 = 600;
+
+// Long-poll specifics
+const COMMAND_LONGPOLL_TIMEOUT_SECS: u64 = 60; // server should hold request up to this many seconds
+const COMMAND_RETRY_BACKOFF_SECS: u64 = 5;     // when poll fails, wait before retrying
 
 #[cfg(any(unix, target_os = "macos"))]
 const DEVICE_ID_FILE: &str = "/opt/patchpilot_client/device_id.txt";
@@ -65,7 +72,7 @@ pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
         )
         .create_symlink(symlink_path)
         .write_mode(WriteMode::Direct)
-        .duplicate_to_stderr(flexi_logger::Duplicate::None) // <-- REQUIRED FIX
+        .duplicate_to_stderr(flexi_logger::Duplicate::None)
         .rotate(
             Criterion::Age(Age::Day),
             Naming::Timestamps,
@@ -114,15 +121,17 @@ async fn register_device(
     device_model: &str,
 ) -> Result<String> {
 
-    // Collect system info properly
+    // Collect system info properly (synchronous short path + refresh)
     let mut sys_info = match get_system_info() {
         Ok(info) => info,
-        Err(_) => SystemInfo::default(),
+        Err(_) => SystemInfo::gather_blocking(),
     };
-    sys_info.refresh();
 
-    // Build EXACT JSON format the server expects
-    let payload = serde_json::json!({
+    // Note: get_system_info() returns a fresh blocking snapshot in your current implementation.
+    // If you have async helpers, you can call those instead.
+
+    // Build JSON payload
+    let payload = json!({
         "system_info": {
             "hostname": sys_info.hostname,
             "os_name": sys_info.os_name,
@@ -144,11 +153,6 @@ async fn register_device(
         "device_model": device_model
     });
 
-    // Record outgoing bytes in telemetry (best-effort)
-    if let Ok(bytes) = serde_json::to_vec(&payload) {
-        TELEMETRY.incr_bytes_sent(bytes.len() as u64);
-    }
-
     let url = format!("{}/api/register", server_url);
 
     let response = client
@@ -165,18 +169,21 @@ async fn register_device(
         anyhow::bail!("Registration failed {}: {}", status, body);
     }
 
-    // Server returns { pending_id: "..." }
-    let parsed: serde_json::Value =
+    // Server returns { pending_id: "..." } or { device_id: "..." }
+    let parsed: Value =
         serde_json::from_str(&body).context("Server returned invalid JSON")?;
 
-    if let Some(pid) = parsed["pending_id"].as_str() {
+    if let Some(pid) = parsed.get("pending_id").and_then(|v| v.as_str()) {
         write_local_device_id(pid)?;
         return Ok(pid.to_string());
     }
+    if let Some(did) = parsed.get("device_id").and_then(|v| v.as_str()) {
+        write_local_device_id(did)?;
+        return Ok(did.to_string());
+    }
 
-    anyhow::bail!("Server did not return pending_id");
+    anyhow::bail!("Server did not return pending_id or device_id");
 }
-
 
 async fn send_system_update(
     client: &Client,
@@ -188,20 +195,14 @@ async fn send_system_update(
 
     let mut sys_info = match get_system_info() {
         Ok(info) => info,
-        Err(_) => SystemInfo::new(),
+        Err(_) => SystemInfo::gather_blocking(),
     };
-    sys_info.refresh();
 
     let payload = json!({
         "system_info": sys_info,
         "device_type": device_type,
         "device_model": device_model
     });
-
-    // Record outgoing bytes in telemetry (best-effort)
-    if let Ok(bytes) = serde_json::to_vec(&payload) {
-        TELEMETRY.incr_bytes_sent(bytes.len() as u64);
-    }
 
     let resp = client
         .post(format!("{}/api/devices/{}", server_url, device_id))
@@ -217,68 +218,235 @@ async fn send_system_update(
     Ok(())
 }
 
-
 async fn send_heartbeat(
     client: &Client,
     server_url: &str,
     device_id: &str,
     device_type: &str,
     device_model: &str,
-) -> bool {
-
+) -> Result<Value> {
+    // heartbeat returns server JSON (we will inspect it for adopted/status and commands optionally)
     let mut sys_info = match get_system_info() {
         Ok(info) => info,
         Err(_) => {
-            let mut blank = SystemInfo::new();
-            blank.refresh();
+            let mut blank = SystemInfo::gather_blocking();
             blank
         }
     };
 
-    sys_info.refresh();
-
-    // Build heartbeat payload
-    let payload = serde_json::json!({
+    let payload = json!({
         "device_id": device_id,
         "system_info": sys_info,
         "device_type": device_type,
         "device_model": device_model
     });
 
-    // Record heartbeat payload size
-    if let Ok(bytes) = serde_json::to_vec(&payload) {
-        TELEMETRY.incr_bytes_sent(bytes.len() as u64);
-    }
-
     let resp = client
         .post(format!("{}/api/devices/heartbeat", server_url))
         .json(&payload)
         .send()
-        .await;
+        .await
+        .context("Heartbeat request failed")?;
 
-    match resp {
-        Ok(r) => {
-            if !r.status().is_success() {
-                log::warn!("Heartbeat request returned non-OK: {}", r.status());
-                return false;
+    if !resp.status().is_success() {
+        anyhow::bail!("Heartbeat request rejected: {}", resp.status());
+    }
+
+    let v = resp.json::<Value>().await.context("Parsing heartbeat response JSON")?;
+    Ok(v)
+}
+
+/// Execute a single command (shell or script) in a blocking OS process and return result JSON.
+async fn execute_command_and_post_result(
+    client: Client,
+    server_url: String,
+    device_id: String,
+    cmd_item: Value,
+) {
+    // Expect cmd_item to contain at least an "id" field and either "exec" (string) or "script" (string).
+    let cmd_id = cmd_item.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    if cmd_id.is_none() {
+        log::warn!("Received command without id: {:?}", cmd_item);
+        return;
+    }
+    let cmd_id = cmd_id.unwrap();
+
+    let kind = cmd_item.get("kind").and_then(|v| v.as_str()).unwrap_or("exec");
+
+    // Build the command to run
+    let maybe_cmd_string = cmd_item
+        .get("exec")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| cmd_item.get("script").and_then(|v| v.as_str()).map(|s| s.to_string()));
+
+    let args_array = cmd_item.get("args").and_then(|v| v.as_array()).cloned();
+
+    if maybe_cmd_string.is_none() {
+        log::warn!("Command has no 'exec' or 'script' field: {:?}", cmd_item);
+        // post error status back
+        let _ = post_command_result(&client, &server_url, &device_id, &cmd_id, json!({
+            "status": "error",
+            "reason": "missing exec/script field"
+        })).await;
+        return;
+    }
+
+    let cmd_string = maybe_cmd_string.unwrap();
+
+    // Run in blocking threadpool to avoid blocking runtime
+    let run = task::spawn_blocking(move || {
+        // Platform-specific shell invocation
+        #[cfg(windows)]
+        let out = {
+            use std::process::Command;
+            Command::new("cmd")
+                .args(&["/C", &cmd_string])
+                .output()
+        };
+
+        #[cfg(not(windows))]
+        let out = {
+            use std::process::Command;
+            Command::new("sh")
+                .arg("-c")
+                .arg(&cmd_string)
+                .output()
+        };
+
+        match out {
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&o.stderr).to_string();
+                let exit_code = o.status.code().unwrap_or(-1);
+                (true, stdout, stderr, exit_code)
             }
-            // successfully got a response; count heartbeat
-            TELEMETRY.incr_heartbeats();
-
-            match r.json::<serde_json::Value>().await {
-                Ok(v) => {
-                    v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
-                        || v.get("status").and_then(|x| x.as_str()) == Some("adopted")
-                }
-                Err(e) => {
-                    log::warn!("Failed to parse heartbeat JSON response: {}", e);
-                    false
-                }
+            Err(e) => {
+                (false, "".to_string(), format!("Failed to start process: {}", e), -1)
             }
         }
+    }).await;
+
+    match run {
+        Ok((ok, stdout, stderr, exit_code)) => {
+            let status = if ok { "ok" } else { "error" };
+            let payload = json!({
+                "status": status,
+                "kind": kind,
+                "stdout": stdout,
+                "stderr": stderr,
+                "exit_code": exit_code,
+            });
+
+            let _ = post_command_result(&client, &server_url, &device_id, &cmd_id, payload).await;
+        }
         Err(e) => {
-            log::warn!("Failed to send heartbeat: {}", e);
-            false
+            log::error!("Command thread panicked: {}", e);
+            let _ = post_command_result(&client, &server_url, &device_id, &cmd_id, json!({
+                "status": "error",
+                "reason": format!("panic: {}", e)
+            })).await;
+        }
+    }
+}
+
+/// Post command result back to server
+async fn post_command_result(
+    client: &Client,
+    server_url: &str,
+    device_id: &str,
+    cmd_id: &str,
+    payload: Value,
+) -> Result<()> {
+    let url = format!("{}/api/devices/{}/commands/{}/result", server_url, device_id, cmd_id);
+
+    let resp = client
+        .post(&url)
+        .json(&payload)
+        .send()
+        .await
+        .context("Failed to POST command result")?;
+
+    if !resp.status().is_success() {
+        log::warn!("Server rejected command result {}: {}", cmd_id, resp.status());
+    } else {
+        log::info!("Posted result for command {}", cmd_id);
+    }
+
+    Ok(())
+}
+
+/// Long-poll loop: repeatedly ask server for commands and execute them.
+/// This returns only when the running_flag becomes false (if provided) or an unrecoverable error occurs.
+async fn command_longpoll_loop(
+    client: Client,
+    server_url: String,
+    device_id: String,
+    running_flag: Option<&AtomicBool>,
+) {
+    log::info!("Starting command long-poll loop for device {}", device_id);
+
+    loop {
+        if let Some(flag) = running_flag {
+            if !flag.load(Ordering::SeqCst) {
+                log::info!("Command long-poll stopping due to service shutdown flag");
+                return;
+            }
+        }
+
+        let poll_url = format!("{}/api/devices/{}/commands/poll", server_url, device_id);
+        // We wrap the http request in tokio::time::timeout to enforce a long-poll window client-side.
+        let req_future = client.get(&poll_url).send();
+
+        match timeout(Duration::from_secs(COMMAND_LONGPOLL_TIMEOUT_SECS), req_future).await {
+            Ok(Ok(resp)) => {
+                // Got response from server (maybe empty list)
+                if !resp.status().is_success() {
+                    log::warn!("Command poll returned non-OK: {}", resp.status());
+                    sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
+                    continue;
+                }
+
+                match resp.json::<Value>().await {
+                    Ok(val) => {
+                        // Expecting an array of commands
+                        if let Some(arr) = val.as_array() {
+                            if arr.is_empty() {
+                                // No commands; immediately loop to re-poll
+                                continue;
+                            }
+
+                            // For each command, spawn a task to execute and report
+                            for cmd_item in arr.iter() {
+                                // Clone client/server/device for the spawned task
+                                let client_clone = client.clone();
+                                let server_clone = server_url.clone();
+                                let device_clone = device_id.clone();
+                                let cmd_clone = cmd_item.clone();
+                                tokio::spawn(async move {
+                                    execute_command_and_post_result(client_clone, server_clone, device_clone, cmd_clone).await;
+                                });
+                            }
+                        } else {
+                            log::warn!("Unexpected command poll response (not array): {:?}", val);
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to parse command poll JSON: {}", e);
+                        sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
+                    }
+                }
+            }
+            Ok(Err(e)) => {
+                // HTTP error
+                log::warn!("Command poll HTTP error: {}", e);
+                sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
+            }
+            Err(_) => {
+                // Timeout (long-poll duration elapsed) -> simply re-loop to poll again
+                // This is expected behavior; server may hold request up to longpoll timeout.
+                continue;
+            }
         }
     }
 }
@@ -311,17 +479,46 @@ async fn run_adoption_and_update_loop(
 
     let device_id = device_id.unwrap();
 
+    // Ensure adoption via heartbeat
     loop {
-        if send_heartbeat(client, server_url, &device_id, &device_type, &device_model).await {
-            break;
+        match send_heartbeat(client, server_url, &device_id, &device_type, &device_model).await {
+            Ok(v) => {
+                let adopted = v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
+                    || v.get("status").and_then(|x| x.as_str()) == Some("adopted");
+                if adopted {
+                    break;
+                } else {
+                    log::info!("Device not yet adopted; heartbeat returned {:?}", v);
+                }
+            }
+            Err(e) => {
+                log::warn!("Heartbeat failed while waiting for adoption: {}", e);
+            }
         }
         sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
     }
 
+    // Launch command long-poll loop as a background task so updates & heartbeats continue.
+    // Provide a clone of client and server_url. The loop will observe `running_flag`.
+    let client_for_poller = client.clone();
+    let server_url_string = server_url.to_string();
+    let device_id_string = device_id.clone();
+    let flag_for_poller = running_flag.map(|f| f as *const AtomicBool); // raw pointer for move into closure
+
+    // spawn background poller
+    let poller_handle = {
+        let running_flag_owned = running_flag;
+        tokio::spawn(async move {
+            command_longpoll_loop(client_for_poller, server_url_string, device_id_string, running_flag_owned).await;
+        })
+    };
+
+    // Main periodic system update loop (keeps heartbeat & updates)
     loop {
         if let Some(flag) = running_flag {
             if !flag.load(Ordering::SeqCst) {
-                return Ok(());
+                log::info!("Shutting down update loop due to flag");
+                break;
             }
         }
 
@@ -329,8 +526,25 @@ async fn run_adoption_and_update_loop(
             log::warn!("system_update failed: {}", e);
         }
 
+        // Heartbeat (also lets server send back immediate commands or status if you choose)
+        match send_heartbeat(client, server_url, &device_id, &device_type, &device_model).await {
+            Ok(v) => {
+                log::debug!("Heartbeat OK: {:?}", v);
+            }
+            Err(e) => {
+                log::warn!("Heartbeat failed: {}", e);
+            }
+        }
+
         sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL)).await;
     }
+
+    // When shutting down, allow poller to stop (it checks running_flag)
+    if let Ok(join) = poller_handle.await {
+        let _ = join;
+    }
+
+    Ok(())
 }
 
 #[cfg(any(unix, target_os = "macos"))]

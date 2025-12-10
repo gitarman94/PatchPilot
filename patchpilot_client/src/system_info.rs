@@ -1,490 +1,598 @@
-use std::collections::HashMap;
-use std::fs;
-use std::net::IpAddr;
-use std::time::{Duration, Instant};
-
-#[cfg(target_os = "macos")]
-use std::process::Command;
-
-use local_ip_address::local_ip;
+use anyhow::{Context, Result};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use sysinfo::{
-    CpuRefreshKind, DiskRefreshKind, Disks, MemoryRefreshKind, Networks, RefreshKind, System,
-};
+use serde_json::json;
+use std::{fs, time::Duration};
+use crate::system_info::{SystemInfo, get_system_info, SystemInfoService};
+use local_ip_address::local_ip;
+use tokio::time::sleep;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::time::timeout;
+use std::process::Stdio;
 
-// Network interface representation
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct NetworkInterface {
-    pub name: String,
-    pub mac: String,
-    pub ipv4: String,
-    pub ipv6: String,
+const ADOPTION_CHECK_INTERVAL: u64 = 10;
+const SYSTEM_UPDATE_INTERVAL: u64 = 600;
+const COMMAND_POLL_INTERVAL: u64 = 5; // seconds between polls for commands (server recommended small)
+const COMMAND_DEFAULT_TIMEOUT_SECS: u64 = 300; // default timeout for running commands (5 minutes)
+
+#[cfg(any(unix, target_os = "macos"))]
+const DEVICE_ID_FILE: &str = "/opt/patchpilot_client/device_id.txt";
+#[cfg(windows)]
+const DEVICE_ID_FILE: &str = "C:\\ProgramData\\PatchPilot\\device_id.txt";
+
+#[cfg(any(unix, target_os = "macos"))]
+const SERVER_URL_FILE: &str = "/opt/patchpilot_client/server_url.txt";
+#[cfg(windows)]
+const SERVER_URL_FILE: &str = "C:\\ProgramData\\PatchPilot\\server_url.txt";
+
+#[cfg(any(unix, target_os = "macos"))]
+const SCRIPTS_DIR: &str = "/opt/patchpilot_client/scripts";
+#[cfg(windows)]
+const SCRIPTS_DIR: &str = "C:\\ProgramData\\PatchPilot\\scripts";
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "type")]
+enum CommandSpec {
+    #[serde(rename = "shell")]
+    Shell { command: String, timeout_secs: Option<u64> },
+
+    #[serde(rename = "script")]
+    Script { name: String, args: Option<Vec<String>>, timeout_secs: Option<u64> },
 }
 
-// Public system snapshot structure (serializable).
-#[derive(Serialize, Debug)]
-pub struct SystemInfo {
-    // sysinfo System kept private (not serialized)
-    #[serde(skip)]
-    sys: System,
-
-    // previous network counters used for lightweight throughput calculations (not serialized)
-    #[serde(skip)]
-    prev_network: HashMap<String, u64>,
-
-    // exposed fields
-    pub hostname: String,
-    pub ip_address: String,
-    pub os_name: String,
-    pub os_version: String,
-    pub kernel_version: String,
-    pub uptime: String,
-
-    pub cpu_brand: String,
-    pub cpu_count: u32,
-    // current CPU usage percent
-    pub cpu_usage: f32,
-
-    pub ram_total: u64,
-    pub ram_used: u64,
-    pub ram_free: u64,
-
-    pub disk_total: u64,
-    pub disk_free: u64,
-    pub disk_health: String,
-
-    pub network_throughput: u64,
-    pub network_interfaces: Vec<NetworkInterface>,
-
-    pub architecture: String,
-
-    pub device_type: String,
-    pub device_model: String,
-    pub serial_number: String,
-
-    // Optional ping latency (ms) placeholder; populate externally if desired.
-    pub ping_latency: f32,
+/// Server's representation of an enqueued command.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ServerCommand {
+    pub id: String,
+    pub spec: CommandSpec,
+    pub created_at: Option<String>,
+    pub run_as_root: Option<bool>,
 }
 
-impl SystemInfo {
-    // Blocking gather that performs an expensive, full snapshot.
-    // Intended to be called inside spawn_blocking for async contexts.
-    pub fn gather_blocking() -> SystemInfo {
-        // Build sysinfo::System with detailed refresh kinds
-        let mut sys = System::new_with_specifics(
-            RefreshKind::everything()
-                .with_cpu(CpuRefreshKind::everything())
-                .with_memory(MemoryRefreshKind::everything()),
-        );
-        // full sync update
-        sys.refresh_all();
-
-        let (device_type, device_model, serial_number) = get_hardware_info();
-
-        let hostname = System::host_name().unwrap_or_default();
-        let os_name = System::name().unwrap_or_default();
-        let os_version = System::os_version().unwrap_or_default();
-        let kernel_version = System::kernel_version().unwrap_or_default();
-        let uptime = format!("{}s", System::uptime());
-
-        let ip_address = local_ip().ok().map(|ip: IpAddr| ip.to_string()).unwrap_or_default();
-
-        let cpu_brand = sys.cpus().first().map(|c| c.brand().to_string()).unwrap_or_default();
-        let cpu_count = sys.cpus().len() as u32;
-        let cpu_usage = sys.global_cpu_usage();
-
-        // Memory
-        let ram_total = sys.total_memory();
-        let ram_used = sys.used_memory();
-        let ram_free = ram_total.saturating_sub(ram_used);
-
-        // Disks (fresh list)
-        let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
-        let disk_total: u64 = disks.list().iter().map(|d| d.total_space()).sum();
-        let disk_free: u64 = disks.list().iter().map(|d| d.available_space()).sum();
-
-        let mut s = SystemInfo {
-            sys,
-            prev_network: HashMap::new(),
-            hostname,
-            ip_address,
-            os_name,
-            os_version,
-            kernel_version,
-            uptime,
-            cpu_brand,
-            cpu_count,
-            cpu_usage,
-            ram_total,
-            ram_used,
-            ram_free,
-            disk_total,
-            disk_free,
-            disk_health: "unknown".into(),
-            network_throughput: 0,
-            network_interfaces: Vec::new(),
-            architecture: std::env::consts::ARCH.to_string(),
-            device_type: device_type.unwrap_or_default(),
-            device_model: device_model.unwrap_or_default(),
-            serial_number: serial_number.unwrap_or_default(),
-            ping_latency: 0.0,
-        };
-
-        // gather network details and throughput
-        s.refresh_network_interfaces_blocking();
-
-        s
-    }
-
-    // Light-weight CPU usage refresh that only refreshes CPU data.
-    // This is a blocking call on the calling thread; callers in async contexts should call this inside spawn_blocking or use the service.
-    pub fn cpu_usage_light(&mut self) -> f32 {
-        // sysinfo uses refresh_cpu_all in newer versions
-        self.sys.refresh_cpu_all();
-        let usage = self.sys.global_cpu_usage();
-        self.cpu_usage = usage;
-        usage
-    }
-
-    // Light-weight disk usage computed without full System reinitialization.
-    pub fn disk_usage_light(&self) -> (u64, u64) {
-        let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::everything());
-        let total = disks.list().iter().map(|d| d.total_space()).sum();
-        let free = disks.list().iter().map(|d| d.available_space()).sum();
-        (total, free)
-    }
-
-    // Light-weight network throughput recompute (non-persistent).
-    // This will update the internal prev_network counters so repeated calls can compute deltas.
-    pub fn network_throughput_light(&mut self) -> u64 {
-        let networks = Networks::new_with_refreshed_list();
-        let mut total: u64 = 0;
-        for (name, iface) in networks.list().iter() {
-            let current = iface.received() + iface.transmitted();
-            let prev = *self.prev_network.get(name).unwrap_or(&current);
-            total += current.saturating_sub(prev);
-            self.prev_network.insert(name.clone(), current);
-        }
-        self.network_throughput = total;
-        total
-    }
-
-    // Blocking network interfaces refresh + throughput compute (used by full gather).
-    fn refresh_network_interfaces_blocking(&mut self) {
-        let networks = Networks::new_with_refreshed_list();
-
-        let mut all_ifaces: Vec<(String, NetworkInterface)> = Vec::new();
-
-        for (name, iface) in networks.list().iter() {
-            // read MAC / ip networks
-            let mac = iface.mac_address().to_string();
-
-            let ipv4 = iface
-                .ip_networks()
-                .iter()
-                .filter_map(|n| if n.addr.is_ipv4() { Some(n.addr.to_string()) } else { None })
-                .next()
-                .unwrap_or_default();
-
-            let ipv6 = iface
-                .ip_networks()
-                .iter()
-                .filter_map(|n| if n.addr.is_ipv6() { Some(n.addr.to_string()) } else { None })
-                .next()
-                .unwrap_or_default();
-
-            all_ifaces.push((
-                name.clone(),
-                NetworkInterface {
-                    name: name.clone(),
-                    mac,
-                    ipv4,
-                    ipv6,
-                },
-            ));
-        }
-
-        // Filter: prefer physical but keep VM NICs with MAC/IP
-        let filtered: Vec<NetworkInterface> = all_ifaces
-            .iter()
-            .filter(|(name, ni)| {
-                let name = name.as_str();
-
-                // Drop loopback
-                if name == "lo" || name == "lo0" {
-                    return false;
-                }
-
-                // drop obvious container/bridge/veth prefixes
-                let virtual_prefixes = [
-                    "docker", "br-", "veth", "cni", "kube", "vbox", "virbr", "vmnet", "vnet",
-                ];
-                if virtual_prefixes.iter().any(|p| name.starts_with(p)) {
-                    return false;
-                }
-
-                // vpn prefixes: keep only if they have IPs
-                let vpn_prefixes = ["tun", "tap", "wg", "zt", "wg-"];
-                if vpn_prefixes.iter().any(|p| name.starts_with(p)) {
-                    if ni.ipv4.is_empty() && ni.ipv6.is_empty() {
-                        return false;
-                    }
-                }
-
-                // Must have either MAC or an IP to be useful
-                if ni.mac.is_empty() && ni.ipv4.is_empty() && ni.ipv6.is_empty() {
-                    return false;
-                }
-
-                true
-            })
-            .map(|(_, iface)| iface.clone())
-            .collect();
-
-        self.network_interfaces = if filtered.is_empty() {
-            all_ifaces.into_iter().map(|(_, iface)| iface).collect()
-        } else {
-            filtered
-        };
-
-        // throughput counters (delta since previous)
-        let mut total_delta: u64 = 0;
-        for (name, iface) in networks.list().iter() {
-            let current = iface.received() + iface.transmitted();
-            let prev = *self.prev_network.get(name).unwrap_or(&current);
-            total_delta += current.saturating_sub(prev);
-            self.prev_network.insert(name.clone(), current);
-        }
-        self.network_throughput = total_delta;
-    }
+/// Result object to post back to server for a command
+#[derive(Serialize, Deserialize, Debug)]
+struct CommandResult {
+    pub id: String,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_secs: f64,
+    pub success: bool,
 }
 
-// Synchronous compatibility helper — blocking gather.
-pub fn get_system_info() -> anyhow::Result<SystemInfo> {
-    Ok(SystemInfo::gather_blocking())
-}
+pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
+    use flexi_logger::{
+        Age, Cleanup, Criterion, FileSpec, Logger, Naming, WriteMode,
+    };
 
-// Service that enforces a lightweight async rate-limit while always returning fresh data.
-// Create one and re-use it across the program to avoid per-call throttling races.
-pub struct SystemInfoService {
-    last_call: tokio::sync::Mutex<Instant>,
-    min_interval: Duration,
-}
+    let base_dir = crate::get_base_dir();
+    let log_dir = format!("{}/logs", base_dir);
 
-impl SystemInfoService {
-    // Create a new service with a user-specified minimum interval between actual gathers.
-    // The interval is a *rate-limit* — if calls happen more quickly, they'll asynchronously wait until the interval expires.
-    pub fn new(min_interval: Duration) -> Self {
-        // initialize last_call to a time far in the past so first call is immediate
-        let last = Instant::now() - min_interval - Duration::from_millis(1);
-        Self {
-            last_call: tokio::sync::Mutex::new(last),
-            min_interval,
-        }
-    }
+    let _ = std::fs::create_dir_all(&log_dir);
 
-    // Default service: 200ms minimum interval (lightweight).
-    pub fn default() -> Self {
-        Self::new(Duration::from_millis(200))
-    }
-
-    // Async method to fetch a fresh SystemInfo snapshot while enforcing the lightweight rate-limit.
-    // This method:
-    // - asynchronously waits if the previous gather was within `min_interval` (no blocking threads),
-    // - spawns a blocking task to run the expensive `gather_blocking` and returns the fresh snapshot.
-    pub async fn get_system_info_async(&self) -> anyhow::Result<SystemInfo> {
-        // determine how long to wait (if anything) in an async-safe way
-        let mut guard = self.last_call.lock().await;
-        let now = Instant::now();
-        if let Some(remaining) = self
-            .min_interval
-            .checked_sub(now.duration_since(*guard))
-        {
-            if remaining > Duration::from_millis(0) {
-                // asynchronous sleep; does not block the runtime thread
-                tokio::time::sleep(remaining).await;
-            }
-        }
-        // update last_call to now (we're about to perform the gather)
-        *guard = Instant::now();
-        drop(guard);
-
-        // perform blocking gather in threadpool
-        let si = tokio::task::spawn_blocking(|| SystemInfo::gather_blocking())
-            .await
-            .map_err(|e| anyhow::anyhow!("spawn_blocking failed: {}", e))?;
-
-        Ok(si)
-    }
-}
-
-// Convenience async helper that uses the default service instance (200ms min interval).
-pub async fn get_system_info_async_default() -> anyhow::Result<SystemInfo> {
-    let svc = SystemInfoService::default();
-    svc.get_system_info_async().await
-}
-
-// Platform helpers
-fn get_hardware_info() -> (Option<String>, Option<String>, Option<String>) {
     #[cfg(target_os = "linux")]
     {
-        let dmi_path = "/sys/devices/virtual/dmi/id/";
-        let read = |name: &str| -> Option<String> {
-            fs::read_to_string(format!("{dmi_path}{name}"))
-                .ok()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        };
-        return (read("product_family"), read("product_name"), read("product_serial"));
-    }
+        use std::os::unix::fs::PermissionsExt;
 
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::System::Com::*;
-        use windows::Win32::System::Wmi::*;
-        use windows::core::*;
+        if let Ok(meta) = std::fs::metadata(&log_dir) {
+            let mut perms = meta.permissions();
+            perms.set_mode(0o770);
 
-        unsafe {
-            CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED).ok();
-
-            let locator: IWbemLocator =
-                CoCreateInstance(&CLSID_WbemLocator, None, CLSCTX_INPROC_SERVER).unwrap();
-
-            let services = locator
-                .ConnectServer(
-                    &BSTR::from("ROOT\\CIMV2"),
-                    &BSTR::new(),
-                    &BSTR::new(),
-                    &BSTR::new(),
-                    0,
-                    &BSTR::new(),
-                    None,
-                )
-                .unwrap();
-
-            let mut enumerator = None;
-            services
-                .ExecQuery(
-                    &BSTR::from("WQL"),
-                    &BSTR::from("SELECT * FROM Win32_ComputerSystem"),
-                    WBEM_FLAG_FORWARD_ONLY,
-                    None,
-                    &mut enumerator,
-                )
-                .ok();
-
-            let enumerator = match enumerator {
-                Some(e) => e,
-                None => return (None, None, None),
-            };
-
-            let mut device_type_raw: Option<String> = None;
-            let mut device_model: Option<String> = None;
-
-            loop {
-                let mut obj = None;
-                if enumerator.Next(WBEM_INFINITE, 1, &mut obj, std::ptr::null_mut()) != 0 {
-                    break;
-                }
-                if let Some(obj) = obj {
-                    if let Some(raw) = get_wmi_string(&obj, "PCSystemTypeEx") {
-                        device_type_raw = Some(decode_pc_system_type(&raw));
-                    }
-                    if device_model.is_none() {
-                        device_model = get_wmi_string(&obj, "Model");
-                    }
-                }
+            if std::fs::set_permissions(&log_dir, perms.clone()).is_err() {
+                let mut fallback = perms;
+                fallback.set_mode(0o777);
+                let _ = std::fs::set_permissions(&log_dir, fallback);
             }
 
-            let mut bios_enum = None;
-            services
-                .ExecQuery(
-                    &BSTR::from("WQL"),
-                    &BSTR::from("SELECT SerialNumber FROM Win32_BIOS"),
-                    WBEM_FLAG_FORWARD_ONLY,
-                    None,
-                    &mut bios_enum,
-                )
-                .ok();
-
-            let mut serial_number = None;
-            if let Some(bios_enum) = bios_enum {
-                loop {
-                    let mut obj = None;
-                    if bios_enum.Next(WBEM_INFINITE, 1, &mut obj, std::ptr::null_mut()) != 0 {
-                        break;
-                    }
-                    if let Some(obj) = obj {
-                        serial_number = get_wmi_string(&obj, "SerialNumber");
-                    }
-                }
+            if nix::unistd::Uid::effective().is_root() {
+                let _ =
+                    std::process::Command::new("chown")
+                        .arg("-R")
+                        .arg("patchpilot:patchpilot")
+                        .arg(&log_dir)
+                        .output();
             }
-
-            return (device_type_raw, device_model, serial_number);
         }
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        let output = Command::new("system_profiler")
-            .arg("-json")
-            .arg("SPHardwareDataType")
-            .output()
-            .ok()?; // return None on failure
-        let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
-        let hw = json.get("SPHardwareDataType")?.get(0)?;
+    let symlink_path = format!("{}/patchpilot_current.log", log_dir);
 
-        return (
-            hw.get("machine_model").and_then(|v| v.as_str()).map(str::to_string),
-            hw.get("model_name").and_then(|v| v.as_str()).map(str::to_string),
-            hw.get("serial_number").and_then(|v| v.as_str()).map(str::to_string),
-        );
-    }
-
-    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    {
-        (Some("unknown".into()), Some("unknown".into()), Some("unknown".into()))
-    }
-}
-
-#[cfg(target_os = "windows")]
-unsafe fn get_wmi_string(obj: &IWbemClassObject, field: &str) -> Option<String> {
-    use windows::Win32::System::Variant::*;
-
-    let mut vt_prop = VARIANT::default();
-    if obj
-        .Get(
-            &BSTR::from(field),
-            0,
-            &mut vt_prop,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
+    let logger = Logger::try_with_str("info")?
+        .log_to_file(
+            FileSpec::default()
+                .directory(&log_dir)
+                .basename("patchpilot"),
         )
-        .is_err()
-    {
-        return None;
-    }
+        .create_symlink(symlink_path)
+        .write_mode(WriteMode::Direct)
+        .duplicate_to_stderr(flexi_logger::Duplicate::None)
+        .rotate(
+            Criterion::Age(Age::Day),
+            Naming::Timestamps,
+            Cleanup::KeepLogFiles(7),
+        )
+        .start()?;
 
-    if vt_prop.Anonymous.Anonymous.vt as u32 != VT_BSTR.0 {
-        return None;
-    }
-
-    Some(vt_prop.Anonymous.Anonymous.Anonymous.bstrVal.to_string())
+    Ok(logger)
 }
 
-// Heuristic Windows PCSystemTypeEx decoder (only compiled on Windows).
-#[cfg(target_os = "windows")]
-fn decode_pc_system_type(raw: &str) -> String {
-    match raw.parse::<i32>() {
-        Ok(1) => "Desktop".into(),
-        Ok(2) => "Mobile".into(),
-        Ok(3) => "Workstation".into(),
-        Ok(4) => "Enterprise Server".into(),
-        Ok(5) => "SOHO Server".into(),
-        Ok(6) => "Appliance PC".into(),
-        Ok(7) => "Performance Server".into(),
-        Ok(8) => "Maximum".into(),
-        Ok(n) => format!("unknown({})", n),
-        Err(_) => raw.to_string(),
+async fn read_server_url() -> Result<String> {
+    let url = fs::read_to_string(SERVER_URL_FILE)
+        .with_context(|| format!("Failed to read server URL from {}", SERVER_URL_FILE))?;
+    Ok(url.trim().to_string())
+}
+
+pub fn get_ip_address() -> String {
+    local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "0.0.0.0".into())
+}
+
+fn get_local_device_id() -> Option<String> {
+    fs::read_to_string(DEVICE_ID_FILE).ok().map(|s| s.trim().to_string())
+}
+
+fn write_local_device_id(device_id: &str) -> Result<()> {
+    fs::write(DEVICE_ID_FILE, device_id).context("Failed to write local device_id")
+}
+
+fn get_device_info_basic() -> (String, String) {
+    match get_system_info() {
+        Ok(info) => {
+            let device_type =
+                if info.device_type.trim().is_empty() { "".into() } else { info.device_type };
+            let device_model =
+                if info.device_model.trim().is_empty() { "".into() } else { info.device_model };
+            (device_type, device_model)
+        }
+        Err(_) => ("".into(), "".into()),
     }
+}
+
+async fn register_device(
+    client: &Client,
+    server_url: &str,
+    device_type: &str,
+    device_model: &str,
+) -> Result<String> {
+
+    // Collect system info properly (use async rate-limited gather)
+    let svc = SystemInfoService::default();
+    let sys_info = svc.get_system_info_async().await.unwrap_or_else(|_| SystemInfo::gather_blocking());
+
+    // Build JSON payload
+    let payload = json!({
+        "system_info": {
+            "hostname": sys_info.hostname,
+            "os_name": sys_info.os_name,
+            "architecture": sys_info.architecture,
+            "cpu_usage": sys_info.cpu_usage,
+            "cpu_count": sys_info.cpu_count,
+            "cpu_brand": sys_info.cpu_brand,
+            "ram_total": sys_info.ram_total,
+            "ram_used": sys_info.ram_used,
+            "disk_total": sys_info.disk_total,
+            "disk_free": sys_info.disk_free,
+            "disk_health": sys_info.disk_health,
+            "network_throughput": sys_info.network_throughput,
+            "ping_latency": sys_info.ping_latency,
+            "ip_address": sys_info.ip_address,
+            "network_interfaces": sys_info.network_interfaces,
+        },
+        "device_type": device_type,
+        "device_model": device_model,
+        "capabilities": ["shell","script-run","sysinfo"]
+    });
+
+    let url = format!("{}/api/register", server_url);
+
+    let response = client
+        .post(&url)
+        .json(&payload)
+        .send()
+        .await
+        .context("Error sending registration request")?;
+
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+
+    if !status.is_success() {
+        anyhow::bail!("Registration failed {}: {}", status, body);
+    }
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&body).context("Server returned invalid JSON")?;
+
+    if let Some(pid) = parsed["pending_id"].as_str() {
+        write_local_device_id(pid)?;
+        return Ok(pid.to_string());
+    }
+
+    anyhow::bail!("Server did not return pending_id");
+}
+
+
+async fn send_system_update(
+    client: &Client,
+    server_url: &str,
+    device_id: &str,
+    device_type: &str,
+    device_model: &str,
+) -> Result<()> {
+
+    // Use the default async SystemInfoService to get fresh data (with lightweight rate-limit)
+    let svc = SystemInfoService::default();
+    let sys_info = svc.get_system_info_async().await.unwrap_or_else(|_| SystemInfo::gather_blocking());
+
+    let payload = json!({
+        "system_info": sys_info,
+        "device_type": device_type,
+        "device_model": device_model
+    });
+
+    let resp = client
+        .post(format!("{}/api/devices/{}", server_url, device_id))
+        .json(&payload)
+        .send()
+        .await
+        .context("Update request failed")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("Server update rejected: {}", resp.status());
+    }
+
+    Ok(())
+}
+
+
+async fn send_heartbeat(
+    client: &Client,
+    server_url: &str,
+    device_id: &str,
+    device_type: &str,
+    device_model: &str,
+) -> bool {
+
+    let svc = SystemInfoService::default();
+    let sys_info = svc.get_system_info_async().await.unwrap_or_else(|_| SystemInfo::gather_blocking());
+
+    // Build heartbeat payload
+    let payload = json!({
+        "device_id": device_id,
+        "system_info": sys_info,
+        "device_type": device_type,
+        "device_model": device_model
+    });
+
+    let resp = client
+        .post(format!("{}/api/devices/heartbeat", server_url))
+        .json(&payload)
+        .send()
+        .await;
+
+    match resp {
+        Ok(r) => {
+            if !r.status().is_success() {
+                log::warn!("Heartbeat request returned non-OK: {}", r.status());
+                return false;
+            }
+
+            match r.json::<serde_json::Value>().await {
+                Ok(v) => {
+                    v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
+                        || v.get("status").and_then(|x| x.as_str()) == Some("adopted")
+                }
+                Err(e) => {
+                    log::warn!("Failed to parse heartbeat JSON response: {}", e);
+                    false
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("Failed to send heartbeat: {}", e);
+            false
+        }
+    }
+}
+
+/// Poll the server for pending commands for this device once.
+/// Expects server to return JSON array of `ServerCommand` objects.
+/// This is intentionally lightweight and predictable.
+async fn poll_for_commands_once(client: &Client, server_url: &str, device_id: &str) -> Result<Vec<ServerCommand>> {
+    let resp = client
+        .get(format!("{}/api/devices/{}/commands/poll", server_url, device_id))
+        .send()
+        .await
+        .context("Failed to poll commands")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("Command poll failed: {}", resp.status());
+    }
+
+    let commands: Vec<ServerCommand> = resp.json().await.context("Invalid command JSON")?;
+    Ok(commands)
+}
+
+/// Execute a single command spec and return the result struct.
+/// This runs the command inside spawn_blocking to avoid blocking the async runtime and applies a timeout.
+async fn execute_command_and_collect_result(cmd: &ServerCommand) -> CommandResult {
+    let start = std::time::Instant::now();
+
+    // Default timeout if not specified
+    let timeout_secs = match &cmd.spec {
+        CommandSpec::Shell { timeout_secs, .. } => timeout_secs.unwrap_or(COMMAND_DEFAULT_TIMEOUT_SECS),
+        CommandSpec::Script { timeout_secs, .. } => timeout_secs.unwrap_or(COMMAND_DEFAULT_TIMEOUT_SECS),
+    };
+
+    // Run blocking work inside spawn_blocking with Tokio timeout wrapper.
+    let spec_clone = cmd.spec.clone();
+    let id_clone = cmd.id.clone();
+
+    let run = tokio::task::spawn_blocking(move || {
+        // This closure is executed on a blocking thread.
+        match spec_clone {
+            CommandSpec::Shell { command, .. } => {
+                // On Unix use /bin/sh -c, on Windows use cmd /C or powershell as needed
+                #[cfg(unix)]
+                {
+                    let mut c = std::process::Command::new("/bin/sh");
+                    c.arg("-c").arg(command);
+                    c.stdin(Stdio::null());
+                    c.stdout(Stdio::piped());
+                    c.stderr(Stdio::piped());
+                    let out = c.output();
+                    return out.map_err(|e| format!("failed spawn: {}", e));
+                }
+                #[cfg(windows)]
+                {
+                    // Use PowerShell for improved compatibility
+                    let mut c = std::process::Command::new("powershell");
+                    c.arg("-NoProfile").arg("-NonInteractive").arg("-Command").arg(command);
+                    c.stdin(Stdio::null());
+                    c.stdout(Stdio::piped());
+                    c.stderr(Stdio::piped());
+                    let out = c.output();
+                    return out.map_err(|e| format!("failed spawn: {}", e));
+                }
+            }
+            CommandSpec::Script { name, args, .. } => {
+                // Resolve script path in SCRIPTS_DIR; do basic validation
+                let script_path = {
+                    #[cfg(any(unix, target_os = "macos"))]
+                    {
+                        std::path::PathBuf::from(format!("{}/{}", SCRIPTS_DIR, name))
+                    }
+                    #[cfg(windows)]
+                    {
+                        std::path::PathBuf::from(format!("{}\\{}", SCRIPTS_DIR, name))
+                    }
+                };
+
+                if !script_path.exists() {
+                    return Err(format!("script not found: {:?}", script_path));
+                }
+
+                let mut c = std::process::Command::new(script_path);
+                if let Some(argsv) = args {
+                    for a in argsv {
+                        c.arg(a);
+                    }
+                }
+                c.stdin(Stdio::null());
+                c.stdout(Stdio::piped());
+                c.stderr(Stdio::piped());
+                let out = c.output();
+                return out.map_err(|e| format!("failed spawn: {}", e));
+            }
+        }
+    });
+
+    // wait with timeout
+    let output_res = timeout(Duration::from_secs(timeout_secs), run).await;
+
+    let duration = start.elapsed();
+    match output_res {
+        Ok(join_res) => {
+            match join_res {
+                Ok(Ok(os_output)) => {
+                    let stdout = String::from_utf8_lossy(&os_output.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&os_output.stderr).to_string();
+                    let code = os_output.status.code().unwrap_or(-1);
+                    CommandResult {
+                        id: id_clone,
+                        exit_code: code,
+                        stdout,
+                        stderr,
+                        duration_secs: duration.as_secs_f64(),
+                        success: os_output.status.success(),
+                    }
+                }
+                Ok(Err(err_str)) => {
+                    CommandResult {
+                        id: id_clone,
+                        exit_code: -1,
+                        stdout: "".into(),
+                        stderr: format!("spawn error: {}", err_str),
+                        duration_secs: duration.as_secs_f64(),
+                        success: false,
+                    }
+                }
+                Err(join_err) => {
+                    CommandResult {
+                        id: id_clone,
+                        exit_code: -1,
+                        stdout: "".into(),
+                        stderr: format!("join error: {:?}", join_err),
+                        duration_secs: duration.as_secs_f64(),
+                        success: false,
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            // timeout triggered — attempt to best-effort kill is not always possible because process is on blocking thread.
+            CommandResult {
+                id: id_clone,
+                exit_code: -1,
+                stdout: "".into(),
+                stderr: format!("command timed out after {}s", timeout_secs),
+                duration_secs: duration.as_secs_f64(),
+                success: false,
+            }
+        }
+    }
+}
+
+/// Post command result back to server
+async fn post_command_result(client: &Client, server_url: &str, result: &CommandResult) -> Result<()> {
+    let resp = client
+        .post(format!("{}/api/commands/{}/result", server_url, result.id))
+        .json(result)
+        .send()
+        .await
+        .context("Failed to post command result")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("Server rejected result: {}", resp.status());
+    }
+    Ok(())
+}
+
+/// Poll / execute / report loop (runs concurrently with the adoption/update logic).
+/// This loop is tolerant of network errors and uses a short interval between polls.
+async fn command_poll_loop(client: Client, server_url: String, device_id: String, running_flag: Option<&AtomicBool>) {
+    loop {
+        if let Some(flag) = running_flag {
+            if !flag.load(Ordering::SeqCst) {
+                log::info!("Command poll loop stopping due to service stop signal.");
+                return;
+            }
+        }
+
+        match poll_for_commands_once(&client, &server_url, &device_id).await {
+            Ok(commands) => {
+                if !commands.is_empty() {
+                    log::info!("Received {} commands to execute", commands.len());
+                }
+                for cmd in commands.into_iter() {
+                    // Execute each command and post result (don't let one fail block others)
+                    let r = execute_command_and_collect_result(&cmd).await;
+                    if let Err(e) = post_command_result(&client, &server_url, &r).await {
+                        log::warn!("Failed to post command result for {}: {}", r.id, e);
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Command poll failed: {}", e);
+            }
+        }
+
+        sleep(Duration::from_secs(COMMAND_POLL_INTERVAL)).await;
+    }
+}
+
+async fn run_adoption_and_update_loop(
+    client: &Client,
+    server_url: &str,
+    running_flag: Option<&AtomicBool>
+) -> Result<()> {
+
+    let (device_type, device_model) = get_device_info_basic();
+    let mut device_id = get_local_device_id();
+
+    if device_id.is_none() {
+        loop {
+            match register_device(client, server_url, &device_type, &device_model).await {
+                Ok(id) => {
+                    log::info!("Received device_id from server: {}", id);
+                    write_local_device_id(&id)?;
+                    device_id = Some(id);
+                    break;
+                }
+                Err(e) => {
+                    log::warn!("No device_id yet (server has not approved?). Retrying...: {}", e);
+                    sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
+                }
+            }
+        }
+    }
+
+    let device_id = device_id.unwrap();
+
+    // keep checking heartbeat until adopted
+    loop {
+        if send_heartbeat(client, server_url, &device_id, &device_type, &device_model).await {
+            break;
+        }
+        sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
+    }
+
+    // start command poll loop in background (if desired)
+    {
+        let client_clone = client.clone();
+        let server_clone = server_url.to_string();
+        let device_clone = device_id.clone();
+        // spawn a detached task for command polling; if service is stopped, we'll check running_flag inside.
+        let running_flag_clone = running_flag.map(|f| f as *const AtomicBool);
+        tokio::spawn(async move {
+            let rf: Option<&AtomicBool> = running_flag_clone.map(|p| unsafe { &*p });
+            command_poll_loop(client_clone, server_clone, device_clone, rf).await;
+        });
+    }
+
+    // Main update loop
+    loop {
+        if let Some(flag) = running_flag {
+            if !flag.load(Ordering::SeqCst) {
+                return Ok(());
+            }
+        }
+
+        if let Err(e) = send_system_update(client, server_url, &device_id, &device_type, &device_model).await {
+            log::warn!("system_update failed: {}", e);
+        }
+
+        sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL)).await;
+    }
+}
+
+#[cfg(any(unix, target_os = "macos"))]
+pub async fn run_unix_service() -> Result<()> {
+    let client = Client::new();
+    let server_url = read_server_url().await?;
+    run_adoption_and_update_loop(&client, &server_url, None).await
+}
+
+#[cfg(windows)]
+pub async fn run_service() -> Result<()> {
+    use windows_service::{
+        service::{ServiceControl, ServiceControlHandlerResult},
+        service_control_handler,
+    };
+    use std::sync::Arc;
+
+    let running_flag = Arc::new(AtomicBool::new(true));
+    let running_flag_clone = running_flag.clone();
+
+    fn service_main(flag: Arc<AtomicBool>) -> Result<()> {
+        let client = Client::new();
+        let server_url = futures::executor::block_on(read_server_url())?;
+        futures::executor::block_on(run_adoption_and_update_loop(
+            &client,
+            &server_url,
+            Some(&flag),
+        ))
+    }
+
+    let flag_for_handler = running_flag.clone();
+
+    let _status = service_control_handler::register("PatchPilot", move |control| {
+        match control {
+            ServiceControl::Stop => {
+                flag_for_handler.store(false, Ordering::SeqCst);
+                ServiceControlHandlerResult::NoError
+            }
+            _ => ServiceControlHandlerResult::NotImplemented,
+        }
+    })?;
+
+    service_main(running_flag_clone)
 }
