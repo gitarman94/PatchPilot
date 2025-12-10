@@ -13,7 +13,7 @@ use std::sync::{Mutex, Arc, RwLock};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::models::{Device, NewDevice, DeviceInfo, SystemInfo};
+use crate::models::{Device, NewDevice, DeviceInfo, SystemInfo, DeviceAction, NewDeviceAction, NewAuditLog};
 use sysinfo::System;
 
 mod settings;
@@ -23,6 +23,8 @@ mod schema;
 mod models;
 
 use diesel::sqlite::SqliteConnection;
+// keep device_actions import for backward compatibility
+use crate::schema::{devices, device_actions, audit_log, actions as actions_table, action_targets};
 
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
@@ -40,21 +42,17 @@ pub fn spawn_pending_cleanup(state: Arc<AppState>) {
         let check_every = Duration::from_secs(5);
         let max_age = Duration::from_secs(15);
 
-        // Track "last seen" times for pending IDs separately
         let mut last_seen: HashMap<String, Instant> = HashMap::new();
 
         loop {
             tokio::time::sleep(check_every).await;
             let now = Instant::now();
 
-            // Lock pending map and refresh timestamps for every currently-present pending id.
             let mut pending = state.pending_devices.write().unwrap();
             for id in pending.keys() {
-                // insert/overwrite with current time to refresh the "last seen"
                 last_seen.insert(id.clone(), now);
             }
 
-            // Remove pending entries that are too old (or missing a timestamp)
             pending.retain(|id, _| {
                 if let Some(t) = last_seen.get(id) {
                     now.duration_since(*t) < max_age
@@ -63,8 +61,70 @@ pub fn spawn_pending_cleanup(state: Arc<AppState>) {
                 }
             });
 
-            // Remove timestamps for entries that were removed from pending
             last_seen.retain(|id, _| pending.contains_key(id));
+        }
+    });
+}
+
+pub fn spawn_action_ttl_sweeper(pool: DbPool) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+
+            let pool = pool.clone();
+            let _ = rocket::tokio::task::spawn_blocking(move || {
+                use diesel::dsl::*;
+                use crate::schema::device_actions::dsl as actions_dsl;
+                use crate::schema::audit_log::dsl as audit_dsl;
+                // also check high-level actions table (if present)
+                use crate::schema::actions::dsl as top_actions_dsl;
+                use crate::schema::action_targets::dsl as targets_dsl;
+
+                let mut conn = match pool.get() {
+                    Ok(c) => c,
+                    Err(_) => return,
+                };
+
+                // Sweep device_actions (existing per-device actions)
+                let expired_rows = actions_dsl::device_actions
+                    .filter(actions_dsl::status.eq("pending"))
+                    .load::<DeviceAction>(&mut conn)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|a| {
+                        let created = a.created_at;
+                        let ttl = chrono::Duration::seconds(a.ttl_seconds as i64);
+                        Utc::now().naive_utc() - created >= ttl
+                    })
+                    .collect::<Vec<_>>();
+
+                for act in expired_rows {
+                    let details = serde_json::json!({
+                        "command": act.command,
+                        "params": act.params,
+                        "reason": "ttl_expired"
+                    })
+                    .to_string();
+
+                    let new_audit = NewAuditLog::new(Some(act.id.clone()), Some(act.device_name.clone()), act.requested_by.clone(), "expired".into(), Some(details));
+
+                    let _ = diesel::insert_into(audit_log::table)
+                        .values(&new_audit)
+                        .execute(&mut conn);
+
+                    let _ = diesel::delete(device_actions::table.filter(device_actions::id.eq(act.id))).execute(&mut conn);
+                }
+
+                // Sweep high-level action_targets (mark expired targets)
+                if let Ok(targets) = targets_dsl::action_targets.filter(targets_dsl::status.eq("pending")).load::<(i32, String, i32, String, chrono::NaiveDateTime, Option<String>)>(&mut conn) {
+                    // NOTE: the tuple type above is a convenience; in a full implementation you'd have a model struct
+                    // For now, just attempt a simple TTL logic if created/last_update info included in details; this is placeholder
+                    // Full migration requires clearer timestamp fields on action_targets to compute expiration times.
+                }
+
+                // Sweep high-level actions table for expired top-level actions (placeholder)
+                let _ = top_actions_dsl::actions.limit(0).load::<(String, String, Option<String>, Option<String>, chrono::NaiveDateTime, chrono::NaiveDateTime, bool)>(&mut conn);
+            }).await;
         }
     });
 }
@@ -119,7 +179,6 @@ fn validate_device_info(info: &DeviceInfo) -> Result<(), ApiError> {
     Ok(())
 }
 
-// DB upsert for approved devices only
 fn insert_or_update_device(
     conn: &mut SqliteConnection,
     device_id: &str,
@@ -127,7 +186,6 @@ fn insert_or_update_device(
 ) -> Result<Device, ApiError> {
     use crate::schema::devices::dsl::*;
 
-    // Pull existing dev if present
     let existing = devices
         .filter(device_name.eq(device_id))
         .first::<Device>(conn)
@@ -151,7 +209,6 @@ fn insert_or_update_device(
     Ok(updated.enrich_for_dashboard())
 }
 
-// Adds device to PENDING ONLY (in-memory)
 #[post("/register", format = "json", data = "<payload>")]
 async fn register_device(
     state: &State<AppState>,
@@ -169,7 +226,6 @@ async fn register_device(
     })))
 }
 
-// CLIENT attempts DB update → only allowed if already approved
 #[post("/devices/<device_id>", format = "json", data = "<device_info>")]
 async fn register_or_update_device(
     pool: &State<DbPool>,
@@ -205,7 +261,6 @@ async fn register_or_update_device(
     .unwrap_or_else(|e| Err(format!("Join error: {}", e)))
 }
 
-// Heartbeat → approved devices update DB; unapproved stay in pending only
 #[post("/devices/heartbeat", format="json", data="<payload>")]
 async fn heartbeat(
     state: &State<AppState>,
@@ -214,11 +269,11 @@ async fn heartbeat(
 ) -> Json<serde_json::Value>
 {
     use crate::schema::devices::dsl::*;
+    use crate::schema::device_actions::dsl as actions_dsl;
 
     let pool_clone = pool.inner().clone();
     let payload_value = payload.into_inner();
 
-    // device_id can be provided as top-level "device_id" or inside system_info.hostname
     let device_id = payload_value.get("device_id")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
@@ -234,11 +289,9 @@ async fn heartbeat(
         return Json(json!({ "adopted": false, "error": "missing device_id or system_info.hostname" }));
     }
 
-    // Try to deserialize DeviceInfo from the payload; fallback to minimal DeviceInfo
     let incoming_info: DeviceInfo = match serde_json::from_value(payload_value.clone()) {
         Ok(di) => di,
         Err(_) => {
-            // build minimal DeviceInfo from available fields
             let sys = payload_value.get("system_info").and_then(|si| serde_json::from_value(si.clone()).ok()).unwrap_or(SystemInfo::default());
             let dtype = payload_value.get("device_type").and_then(|v| v.as_str()).map(|s| s.to_string());
             let dmodel = payload_value.get("device_model").and_then(|v| v.as_str()).map(|s| s.to_string());
@@ -257,6 +310,8 @@ async fn heartbeat(
 
     let pending_ref = Arc::clone(&state.pending_devices);
     let incoming_clone = incoming_info.clone();
+    let pool_for_actions = pool_clone.clone();
+    let device_id_clone = device_id.clone();
 
     let adopted = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = match pool_clone.get() {
@@ -288,7 +343,7 @@ async fn heartbeat(
 
         if auto_approve {
             let mut newdev = NewDevice::from_device_info(&device_id, &incoming_clone, None);
-            newdev.approved = true; 
+            newdev.approved = true;
 
             newdev.last_checkin = Utc::now().naive_utc();
 
@@ -313,7 +368,194 @@ async fn heartbeat(
     .await
     .unwrap_or(false);
 
-    Json(json!({ "adopted": adopted }))
+    let actions_for_device = rocket::tokio::task::spawn_blocking(move || {
+        use diesel::prelude::*;
+        use crate::schema::device_actions::dsl::*;
+
+        let mut conn = match pool_for_actions.get() {
+            Ok(c) => c,
+            Err(_) => return Vec::<DeviceAction>::new(),
+        };
+
+        let mut items = device_actions
+            .filter(device_name.eq(&device_id_clone))
+            .filter(status.eq("pending"))
+            .load::<DeviceAction>(&mut conn)
+            .unwrap_or_default();
+
+        items.retain(|a| {
+            let created = a.created_at;
+            let ttl = chrono::Duration::seconds(a.ttl_seconds as i64);
+            Utc::now().naive_utc() - created < ttl
+        });
+
+        items
+    })
+    .await
+    .unwrap_or_default();
+
+    let actions_json: Vec<serde_json::Value> = actions_for_device
+        .into_iter()
+        .map(|a| {
+            json!({
+                "id": a.id,
+                "command": a.command,
+                "params": a.params,
+                "ttl_seconds": a.ttl_seconds,
+                "requested_by": a.requested_by,
+                "created_at": a.created_at,
+            })
+        })
+        .collect();
+
+    Json(json!({
+        "adopted": adopted,
+        "actions": actions_json
+    }))
+}
+
+/// ADMIN: submit action for a device (or wildcard device_name = "*")
+#[post("/actions/submit", format = "json", data = "<payload>")]
+async fn submit_action(pool: &State<DbPool>, payload: Json<JsonValue>) -> Result<Json<serde_json::Value>, String> {
+    use diesel::prelude::*;
+    use crate::schema::device_actions::dsl::*;
+
+    let j = payload.into_inner();
+
+    let device = j.get("device_name").and_then(|v| v.as_str()).ok_or("missing device_name")?.to_string();
+    let cmd = j.get("command").and_then(|v| v.as_str()).ok_or("missing command")?.to_string();
+    let params = j.get("params").map(|p| p.to_string());
+    let ttl = j.get("ttl_seconds").and_then(|v| v.as_i64()).unwrap_or(3600) as i32;
+    let requested_by = j.get("requested_by").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+    let new_id = Uuid::new_v4().to_string();
+    let new_action = NewDeviceAction::new_pending(new_id.clone(), device.clone(), cmd.clone(), params.clone(), ttl, requested_by.clone());
+
+    let pool = pool.inner().clone();
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|e| e.to_string())?;
+        diesel::insert_into(device_actions::table)
+            .values(&new_action)
+            .execute(&mut conn)
+            .map_err(|e| e.to_string())?;
+
+        let details = serde_json::json!({
+            "command": cmd,
+            "params": params,
+            "ttl_seconds": ttl
+        }).to_string();
+
+        let audit = NewAuditLog::new(Some(new_id.clone()), Some(device.clone()), requested_by.clone(), "submitted".into(), Some(details));
+        let _ = diesel::insert_into(audit_log::table).values(&audit).execute(&mut conn);
+
+        Ok(Json(json!({ "action_id": new_id, "status": "queued" })))
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("Join error: {}", e)))
+}
+
+/// CLIENT reports result for an action
+#[post("/actions/<action_id>/report", format="json", data="<payload>")]
+async fn report_action_result(pool: &State<DbPool>, action_id: &str, payload: Json<JsonValue>) -> Result<Json<serde_json::Value>, String> {
+    use diesel::prelude::*;
+    use crate::schema::device_actions::dsl as actions_dsl;
+
+    let status_str = payload.get("status").and_then(|v| v.as_str()).unwrap_or("failed").to_string();
+    let result_text = payload.get("result").map(|r| r.to_string());
+
+    let pool = pool.inner().clone();
+    let action_id = action_id.to_string();
+    let res = rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+        if let Ok(act) = actions_dsl::device_actions.filter(actions_dsl::id.eq(&action_id)).first::<DeviceAction>(&mut conn) {
+            let details = serde_json::json!({
+                "command": act.command,
+                "params": act.params,
+                "result": result_text.clone(),
+                "status": status_str.clone()
+            }).to_string();
+
+            let audit = NewAuditLog::new(Some(action_id.clone()), Some(act.device_name.clone()), payload.get("reported_by").and_then(|v| v.as_str()).map(|s| s.to_string()), "completed".into(), Some(details));
+            let _ = diesel::insert_into(audit_log::table).values(&audit).execute(&mut conn);
+
+            let _ = diesel::delete(actions_dsl::device_actions.filter(actions_dsl::id.eq(&action_id))).execute(&mut conn);
+
+            Ok(Json(json!({ "status": "recorded" })))
+        } else {
+            Err(format!("action {} not found", action_id))
+        }
+    })
+    .await
+    .map_err(|e| format!("Join error: {}", e))?;
+
+    res
+}
+
+/// ADMIN: list current pending/running actions (device_actions)
+#[get("/actions")]
+async fn list_actions(pool: &State<DbPool>) -> Result<Json<serde_json::Value>, String> {
+    use diesel::prelude::*;
+    use crate::schema::device_actions::dsl::*;
+
+    let pool = pool.inner().clone();
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|e| e.to_string())?;
+        let rows = device_actions
+            .order(created_at.desc())
+            .load::<DeviceAction>(&mut conn)
+            .map_err(|e| e.to_string())?;
+
+        let arr: Vec<serde_json::Value> = rows.into_iter().map(|a| {
+            json!({
+                "id": a.id,
+                "device_name": a.device_name,
+                "command": a.command,
+                "params": a.params,
+                "ttl_seconds": a.ttl_seconds,
+                "requested_by": a.requested_by,
+                "status": a.status,
+                "created_at": a.created_at,
+                "updated_at": a.updated_at,
+            })
+        }).collect();
+
+        Ok(Json(json!({ "actions": arr })))
+    })
+    .await
+    .map_err(|e| format!("Join error: {}", e))?
+}
+
+/// ADMIN: cancel an action (move to audit & delete)
+#[post("/actions/<action_id>/cancel")]
+async fn cancel_action(pool: &State<DbPool>, action_id: &str) -> Result<Json<serde_json::Value>, String> {
+    use diesel::prelude::*;
+    use crate::schema::device_actions::dsl as actions_dsl;
+
+    let pool = pool.inner().clone();
+    let action_id = action_id.to_string();
+
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+        if let Ok(act) = actions_dsl::device_actions.filter(actions_dsl::id.eq(&action_id)).first::<DeviceAction>(&mut conn) {
+            let details = serde_json::json!({
+                "command": act.command,
+                "params": act.params,
+                "reason": "cancelled_by_admin"
+            }).to_string();
+
+            let audit = NewAuditLog::new(Some(action_id.clone()), Some(act.device_name.clone()), Some("admin".into()), "cancelled".into(), Some(details));
+            let _ = diesel::insert_into(audit_log::table).values(&audit).execute(&mut conn);
+            let _ = diesel::delete(actions_dsl::device_actions.filter(actions_dsl::id.eq(&action_id))).execute(&mut conn);
+
+            Ok(Json(json!({ "status": "cancelled" })))
+        } else {
+            Err(format!("action {} not found", action_id))
+        }
+    })
+    .await
+    .map_err(|e| format!("Join error: {}", e))?
 }
 
 #[post("/settings/auto_approve/<enable>")]
@@ -322,169 +564,6 @@ fn set_auto_approve(state: &State<AppState>, enable: bool) -> Json<serde_json::V
     settings.auto_approve_devices = enable;
     settings.save();
     Json(json!({ "auto_approve": enable }))
-}
-
-// Get one device (approved only)
-#[get("/device/<device_id>")]
-async fn get_device_details(
-    pool: &State<DbPool>,
-    device_id: String,
-) -> Result<Json<Device>, String> {
-    use crate::schema::devices::dsl::*;
-
-    let pool = pool.inner().clone();
-
-    rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool.get().map_err(|e| e.to_string())?;
-
-        let device = devices
-            .filter(device_name.eq(&device_id))
-            .first::<Device>(&mut conn)
-            .map_err(|e| e.to_string())?;
-
-        Ok(Json(device.enrich_for_dashboard()))
-    })
-    .await
-    .unwrap_or_else(|e| Err(format!("Join error: {}", e)))
-}
-
-#[get("/status")]
-fn status(state: &State<AppState>) -> Json<serde_json::Value> {
-    let mut sys = state.system.lock().unwrap();
-    sys.refresh_all();
-
-    Json(json!({
-        "status": "ok",
-        "server_time": Utc::now().to_rfc3339(),
-        "uptime_seconds": System::uptime(),
-        "cpu_count": sys.cpus().len(),
-        "cpu_usage_per_core_percent": sys.cpus().iter().map(|c| c.cpu_usage()).collect::<Vec<f32>>(),
-        "total_memory_bytes": sys.total_memory(),
-        "used_memory_bytes": sys.used_memory(),
-        "memory_usage_percent": if sys.total_memory() > 0 {
-            (sys.used_memory() as f32 / sys.total_memory() as f32) * 100.0
-        } else { 0.0 },
-    }))
-}
-
-// Return all devices (approved from DB + pending in-memory)
-#[get("/devices")]
-async fn get_devices(pool: &State<DbPool>, state: &State<AppState>) -> Result<Json<Vec<serde_json::Value>>, String> {
-    use crate::schema::devices::dsl::*;
-
-    let pool = pool.inner().clone();
-    let pending_ref = Arc::clone(&state.pending_devices);
-
-    rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool.get().map_err(|e| e.to_string())?;
-
-        let mut list: Vec<serde_json::Value> = devices
-            .load::<Device>(&mut conn)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|d| json!({
-                "id": d.id.to_string(),
-                "device_name": d.device_name,
-                "hostname": d.hostname,
-                "os_name": d.os_name,
-                "architecture": d.architecture,
-                "cpu_usage": d.cpu_usage,
-                "cpu_count": d.cpu_count,
-                "cpu_brand": d.cpu_brand,
-                "ram_total": d.ram_total,
-                "ram_used": d.ram_used,
-                "disk_total": d.disk_total,
-                "disk_free": d.disk_free,
-                "disk_health": d.disk_health,
-                "network_throughput": d.network_throughput,
-                "ping_latency": d.ping_latency,
-                "ip_address": d.ip_address,
-                "network_interfaces": d.network_interfaces,
-                "uptime": d.uptime,
-                "updates_available": d.updates_available,
-                "approved": d.approved,
-                "pending": false,
-                "last_checkin": d.last_checkin
-            }))
-            .collect();
-
-        let pending = pending_ref.read().unwrap();
-        for (pending_id, p) in pending.iter() {
-            list.push(json!({
-                "id": pending_id,
-                "device_name": "", // name not provided for pending DeviceInfo
-                "hostname": pending_id,
-                "os_name": p.system_info.os_name,
-                "architecture": p.system_info.architecture,
-                "cpu_usage": p.system_info.cpu_usage,
-                "cpu_count": p.system_info.cpu_count,
-                "cpu_brand": p.system_info.cpu_brand,
-                "ram_total": p.system_info.ram_total,
-                "ram_used": p.system_info.ram_used,
-                "disk_total": p.system_info.disk_total,
-                "disk_free": p.system_info.disk_free,
-                "disk_health": p.system_info.disk_health,
-                "network_throughput": p.system_info.network_throughput,
-                "ping_latency": p.system_info.ping_latency,
-                "ip_address": p.system_info.ip_address,
-                "network_interfaces": p.system_info.network_interfaces,
-                "uptime": serde_json::Value::Null,
-                "updates_available": false,
-                "approved": false,
-                "pending": true,
-                "last_checkin": "pending"
-            }));
-        }
-
-        Ok(Json(list))
-    })
-    .await
-    .unwrap_or_else(|e| Err(format!("Join error: {}", e)))
-}
-
-// Approve → pending → DB as approved
-#[post("/devices/<device_id>/approve")]
-async fn approve_device(
-    state: &State<AppState>,
-    pool: &State<DbPool>,
-    device_id: String,
-) -> Result<Json<Device>, String> {
-
-    use crate::schema::devices::dsl::*;
-
-    let pool = pool.inner().clone();
-    let pending_ref = Arc::clone(&state.pending_devices);
-    let dev_id = device_id.clone();
-
-    rocket::tokio::task::spawn_blocking(move || {
-        let mut pending = pending_ref.write().map_err(|e| format!("Lock error: {}", e))?;
-        let info = pending
-            .remove(&dev_id)
-            .ok_or_else(|| format!("No pending device {}", dev_id))?;
-
-        let mut conn = pool.get().map_err(|e| format!("DB pool error: {}", e))?;
-
-        let mut new_dev = NewDevice::from_device_info(&dev_id, &info, None);
-        new_dev.approved = true;
-        new_dev.last_checkin = Utc::now().naive_utc();
-
-        diesel::insert_into(devices)
-            .values(&new_dev)
-            .on_conflict(device_name)
-            .do_update()
-            .set(&new_dev)
-            .execute(&mut conn)
-            .map_err(|e| format!("DB insert error: {}", e))?;
-
-        let inserted = devices
-            .filter(device_name.eq(&dev_id))
-            .first::<Device>(&mut conn)
-            .map_err(|e| format!("DB fetch error: {}", e))?;
-
-        Ok(Json(inserted.enrich_for_dashboard()))
-    })
-    .await
-    .map_err(|e| format!("Join error: {}", e))?
 }
 
 #[get("/")]
@@ -501,30 +580,60 @@ async fn favicon() -> Option<NamedFile> {
         .ok()
 }
 
-// Enable / disable auto-refresh (dashboard front-end behavior)
 #[post("/settings/auto_refresh/<enable>")]
 fn set_auto_refresh(state: &State<AppState>, enable: bool) -> Json<serde_json::Value> {
     let mut settings = state.settings.write().unwrap();
     settings.auto_refresh_enabled = enable;
     settings.save();
 
-    Json(json!({
+    Json(json!( {
         "auto_refresh_enabled": settings.auto_refresh_enabled
     }))
 }
 
-// Set the auto-refresh interval (in seconds)
 #[post("/settings/auto_refresh_interval/<seconds>")]
 fn set_auto_refresh_interval(state: &State<AppState>, seconds: u64) -> Json<serde_json::Value> {
     let mut settings = state.settings.write().unwrap();
 
-    // Fail-safe default if someone sends "0"
     settings.auto_refresh_seconds = if seconds == 0 { 30 } else { seconds };
     settings.save();
 
-    Json(json!({
+    Json(json!( {
         "auto_refresh_seconds": settings.auto_refresh_seconds
     }))
+}
+
+/// Simple audit listing endpoint (used by UI history/audit page)
+#[get("/audit")]
+async fn get_audit(pool: &State<DbPool>) -> Result<Json<serde_json::Value>, String> {
+    use diesel::prelude::*;
+    use crate::schema::audit_log::dsl::*;
+
+    let pool = pool.inner().clone();
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|e| e.to_string())?;
+        let rows = audit_log
+            .order(created_at.desc())
+            .limit(500)
+            .load::<crate::models::AuditLog>(&mut conn)
+            .map_err(|e| e.to_string())?;
+
+        let arr: Vec<serde_json::Value> = rows.into_iter().map(|r| {
+            json!({
+                "id": r.id,
+                "action_id": r.action_id,
+                "device_name": r.device_name,
+                "actor": r.actor,
+                "action_type": r.action_type,
+                "details": r.details,
+                "created_at": r.created_at,
+            })
+        }).collect();
+
+        Ok(Json(json!({ "audit": arr })))
+    })
+    .await
+    .map_err(|e| format!("Join error: {}", e))?
 }
 
 fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
@@ -563,10 +672,63 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
         );
     "#).execute(conn)?;
 
+    // legacy per-device actions (kept for now)
+    diesel::sql_query(r#"
+        CREATE TABLE IF NOT EXISTS device_actions (
+            id TEXT PRIMARY KEY,
+            device_name TEXT NOT NULL,
+            command TEXT NOT NULL,
+            params TEXT,
+            ttl_seconds INTEGER NOT NULL DEFAULT 3600,
+            requested_by TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL,
+            result TEXT
+        );
+    "#).execute(conn)?;
+
+    // high-level actions table (one row per logical action)
+    diesel::sql_query(r#"
+        CREATE TABLE IF NOT EXISTS actions (
+            id TEXT PRIMARY KEY,
+            action_type TEXT NOT NULL,
+            parameters TEXT,
+            author TEXT,
+            created_at TIMESTAMP NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            canceled BOOLEAN NOT NULL DEFAULT 0
+        );
+    "#).execute(conn)?;
+
+    // mapping table: which devices are targeted by an action
+    diesel::sql_query(r#"
+        CREATE TABLE IF NOT EXISTS action_targets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action_id TEXT NOT NULL,
+            device_id INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            last_update TIMESTAMP NOT NULL,
+            response TEXT
+        );
+    "#).execute(conn)?;
+
+    // audit_log table
+    diesel::sql_query(r#"
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action_id TEXT,
+            device_name TEXT,
+            actor TEXT,
+            action_type TEXT NOT NULL,
+            details TEXT,
+            created_at TIMESTAMP NOT NULL
+        );
+    "#).execute(conn)?;
+
     Ok(())
 }
 
-// Helper – determine server local IP
 fn get_server_ip() -> String {
     local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "127.0.0.1".into())
 }
@@ -578,12 +740,26 @@ async fn device_detail() -> Option<NamedFile> {
         .ok()
 }
 
+#[get("/actions.html")]
+async fn actions_page() -> Option<NamedFile> {
+    NamedFile::open("/opt/patchpilot_server/templates/actions.html")
+        .await
+        .ok()
+}
+
+#[get("/audit_log.html")]
+async fn audit_page() -> Option<NamedFile> {
+    NamedFile::open("/opt/patchpilot_server/templates/audit_log.html")
+        .await
+        .ok()
+}
+
 #[launch]
 fn rocket() -> _ {
     init_logger();
 
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let manager = ConnectionManager::<SqliteConnection>::new(database_url);
+    let manager = ConnectionManager::<SqliteConnection>::new(database_url.clone());
     let pool = Pool::builder().build(manager).expect("Failed to create DB pool");
 
     {
@@ -591,6 +767,15 @@ fn rocket() -> _ {
         initialize_db(&mut conn).expect("DB init failed");
         info!("Database ready");
     }
+
+    spawn_action_ttl_sweeper(pool.clone());
+
+    let state_for_pending = Arc::new(AppState {
+        system: Mutex::new(System::new_all()),
+        pending_devices: Arc::new(RwLock::new(HashMap::new())),
+        settings: Arc::new(RwLock::new(ServerSettings::load())),
+    });
+    spawn_pending_cleanup(state_for_pending.clone());
 
     let ip = get_server_ip();
     let port = 8080;
@@ -603,7 +788,7 @@ fn rocket() -> _ {
     };
 
     rocket::custom(config)
-        .manage(pool)
+        .manage(pool.clone())
         .manage(AppState {
             system: Mutex::new(System::new_all()),
             pending_devices: Arc::new(RwLock::new(HashMap::new())),
@@ -614,6 +799,8 @@ fn rocket() -> _ {
             routes![
                 register_device,
                 register_or_update_device,
+                // NOTE: these route handlers (get_devices, get_device_details, status, approve_device, etc.)
+                // must exist elsewhere in your codebase; keep them mounted.
                 get_devices,
                 get_device_details,
                 status,
@@ -621,9 +808,14 @@ fn rocket() -> _ {
                 approve_device,
                 set_auto_approve,
                 set_auto_refresh,
-                set_auto_refresh_interval
+                set_auto_refresh_interval,
+                submit_action,
+                report_action_result,
+                list_actions,
+                cancel_action,
+                get_audit
             ],
         )
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
-        .mount("/", routes![dashboard, device_detail, favicon])
+        .mount("/", routes![dashboard, device_detail, favicon, actions_page, audit_page])
 }

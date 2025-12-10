@@ -1,0 +1,46 @@
+{{#*inline "page"}}
+<div class="container mt-4">
+    <h3 class="mb-3">Server Settings</h3>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+
+            <form id="settingsForm" method="POST" action="/settings/update">
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Auto Approve Devices</label>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="autoApprove" name="auto_approve_devices" {{#if settings.auto_approve_devices}}checked{{/if}}>
+                        <label class="form-check-label" for="autoApprove">Approve new devices automatically</label>
+                    </div>
+                </div>
+
+                <hr>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Auto Refresh Dashboard</label>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="autoRefresh" name="auto_refresh_enabled" {{#if settings.auto_refresh_enabled}}checked{{/if}}>
+                        <label class="form-check-label" for="autoRefresh">Enable auto-refresh</label>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Refresh Interval (seconds)</label>
+                    <input type="number" class="form-control" name="auto_refresh_seconds" min="5" max="3600"
+                           value="{{settings.auto_refresh_seconds}}">
+                </div>
+
+                <button type="submit" class="btn btn-primary mt-2">
+                    <i class="bi bi-save"></i> Save Settings
+                </button>
+
+            </form>
+
+        </div>
+    </div>
+
+</div>
+{{/inline}}
+
+{{> (lookup . "layout") }}

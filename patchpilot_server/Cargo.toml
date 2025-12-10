@@ -7,6 +7,7 @@ edition = "2024"
 rocket = { version = "0.5.1", features = ["json"] }
 rocket_dyn_templates = { version = "0.2", features = ["handlebars"] }
 diesel = { version = "2.3.3", features = ["sqlite", "r2d2", "chrono", "serde_json"] }
+diesel_migrations = "2.0.0"
 r2d2 = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -14,7 +15,7 @@ serde_json = "1.0"
 log = "0.4"
 flexi_logger = "0.31.7"
 anyhow = "1.0"
-local-ip-address = "0.6.5" 
+local-ip-address = "0.6.5"
 sysinfo = "0.37.2"
 tokio = "1.48.0"
 uuid = { version = "1.7", features = ["v4"] }

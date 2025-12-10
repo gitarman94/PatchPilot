@@ -1,8 +1,8 @@
 use diesel::prelude::*;
-use chrono::{NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, Utc, Duration};
 use rocket::serde::{Serialize, Deserialize};
 
-use crate::schema::devices;
+use crate::schema::{devices, actions, action_targets, audit_log};
 
 #[derive(Queryable, Serialize, Deserialize, Debug)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
@@ -15,7 +15,6 @@ pub struct Device {
     pub last_checkin: NaiveDateTime,
     pub approved: bool,
 
-    // updated to match client
     pub cpu_usage: f32,
     pub cpu_count: i32,
     pub cpu_brand: String,
@@ -77,7 +76,6 @@ pub struct SystemInfo {
     pub os_name: String,
     pub architecture: String,
 
-    // updated to match client
     pub cpu_usage: f32,
     pub cpu_count: i32,
     pub cpu_brand: String,
@@ -108,10 +106,10 @@ impl DeviceInfo {
         let s = &mut self.system_info;
         let o = &other.system_info;
 
-        if !o.os_name.is_empty()            { s.os_name = o.os_name.clone(); }
-        if !o.architecture.is_empty()       { s.architecture = o.architecture.clone(); }
-        if !o.cpu_brand.is_empty()          { s.cpu_brand = o.cpu_brand.clone(); }
-        if !o.disk_health.is_empty()        { s.disk_health = o.disk_health.clone(); }
+        if !o.os_name.is_empty() { s.os_name = o.os_name.clone(); }
+        if !o.architecture.is_empty() { s.architecture = o.architecture.clone(); }
+        if !o.cpu_brand.is_empty() { s.cpu_brand = o.cpu_brand.clone(); }
+        if !o.disk_health.is_empty() { s.disk_health = o.disk_health.clone(); }
 
         if let Some(ip) = &o.ip_address {
             if !ip.is_empty() {
@@ -129,10 +127,10 @@ impl DeviceInfo {
         s.cpu_count = o.cpu_count;
 
         s.ram_total = o.ram_total;
-        s.ram_used  = o.ram_used;
+        s.ram_used = o.ram_used;
 
         s.disk_total = o.disk_total;
-        s.disk_free  = o.disk_free;
+        s.disk_free = o.disk_free;
 
         s.network_throughput = o.network_throughput;
         s.ping_latency = o.ping_latency;
@@ -155,8 +153,8 @@ impl DeviceInfo {
 
         Device {
             id: 0,
-            device_name: device_id.to_string(),
-            hostname: device_id.to_string(),
+            device_name: device_id.into(),
+            hostname: device_id.into(),
 
             os_name: s.os_name.clone(),
             architecture: s.architecture.clone(),
@@ -209,19 +207,15 @@ impl Device {
 
 impl NewDevice {
     pub fn from_device_info(device_id: &str, info: &DeviceInfo, existing: Option<&Device>) -> Self {
-        // Helpers to merge values safely
         fn pick_string(new: String, old: &str) -> String {
             if new.trim().is_empty() { old.to_string() } else { new }
         }
-
         fn pick_i64(new: i64, old: i64) -> i64 {
             if new == 0 { old } else { new }
         }
-
         fn pick_f32(new: f32, old: f32) -> f32 {
             if new == 0.0 { old } else { new }
         }
-
         fn pick_option<T: Clone>(new: Option<T>, old: Option<T>) -> Option<T> {
             if new.is_none() { old } else { new }
         }
@@ -233,8 +227,8 @@ impl NewDevice {
             None => (
                 &Device {
                     id: 0,
-                    device_name: device_id.to_string(),
-                    hostname: device_id.to_string(),
+                    device_name: device_id.into(),
+                    hostname: device_id.into(),
                     os_name: "".into(),
                     architecture: "".into(),
                     last_checkin: Utc::now().naive_utc(),
@@ -261,8 +255,8 @@ impl NewDevice {
         };
 
         Self {
-            device_name: device_id.to_string(),
-            hostname: device_id.to_string(),
+            device_name: device_id.into(),
+            hostname: device_id.into(),
 
             os_name: pick_string(si.os_name.clone(), &old.os_name),
             architecture: pick_string(si.architecture.clone(), &old.architecture),
@@ -289,10 +283,118 @@ impl NewDevice {
 
             uptime: pick_option(Some("0h 0m".into()), old.uptime.clone()),
 
-            updates_available: old.updates_available, // server controls this, not client
-
+            updates_available: old.updates_available,
             network_interfaces: pick_option(si.network_interfaces.clone(), old.network_interfaces.clone()),
             ip_address: pick_option(si.ip_address.clone(), old.ip_address.clone()),
+        }
+    }
+}
+
+#[derive(Queryable, Serialize, Deserialize, Debug)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct Action {
+    pub id: String,
+    pub action_type: String,
+    pub parameters: Option<String>,
+    pub author: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub expires_at: NaiveDateTime,
+    pub canceled: bool,
+}
+
+#[derive(Insertable, Serialize, Deserialize, Debug)]
+#[diesel(table_name = actions)]
+pub struct NewAction {
+    pub id: String,
+    pub action_type: String,
+    pub parameters: Option<String>,
+    pub author: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub expires_at: NaiveDateTime,
+    pub canceled: bool,
+}
+
+impl NewAction {
+    pub fn new_pending(id: String, action_type: String, parameters: Option<String>, author: Option<String>, ttl_seconds: i64) -> Self {
+        let created = Utc::now().naive_utc();
+        let expires = created + Duration::seconds(ttl_seconds);
+        Self {
+            id,
+            action_type,
+            parameters,
+            author,
+            created_at: created,
+            expires_at: expires,
+            canceled: false,
+        }
+    }
+}
+
+#[derive(Queryable, Serialize, Deserialize, Debug)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ActionTarget {
+    pub id: i32,
+    pub action_id: String,
+    pub device_id: i32,
+    pub status: String,
+    pub last_update: NaiveDateTime,
+    pub response: Option<String>,
+}
+
+#[derive(Insertable, Serialize, Deserialize, Debug)]
+#[diesel(table_name = action_targets)]
+pub struct NewActionTarget {
+    pub action_id: String,
+    pub device_id: i32,
+    pub status: String,
+    pub last_update: NaiveDateTime,
+    pub response: Option<String>,
+}
+
+impl NewActionTarget {
+    pub fn new(action_id: String, device_id: i32) -> Self {
+        Self {
+            action_id,
+            device_id,
+            status: "pending".into(),
+            last_update: Utc::now().naive_utc(),
+            response: None,
+        }
+    }
+}
+
+#[derive(Queryable, Serialize, Deserialize, Debug)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct AuditRecord {
+    pub id: i32,
+    pub action_id: Option<String>,
+    pub device_name: Option<String>,
+    pub actor: Option<String>,
+    pub action_type: String,
+    pub details: Option<String>,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Insertable, Serialize, Deserialize, Debug)]
+#[diesel(table_name = audit_log)]
+pub struct NewAuditRecord {
+    pub action_id: Option<String>,
+    pub device_name: Option<String>,
+    pub actor: Option<String>,
+    pub action_type: String,
+    pub details: Option<String>,
+    pub created_at: NaiveDateTime,
+}
+
+impl NewAuditRecord {
+    pub fn new(action_id: Option<String>, device_name: Option<String>, actor: Option<String>, action_type: String, details: Option<String>) -> Self {
+        Self {
+            action_id,
+            device_name,
+            actor,
+            action_type,
+            details,
+            created_at: Utc::now().naive_utc(),
         }
     }
 }

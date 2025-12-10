@@ -5,14 +5,16 @@ use std::fs;
 pub struct ServerSettings {
     pub auto_approve_devices: bool,
 
-    // NEW SETTINGS
     pub auto_refresh_enabled: bool,
     pub auto_refresh_seconds: u64,
+
+    // NEW OPTIONAL SETTINGS
+    pub default_action_ttl_seconds: u64,
+    pub action_polling_enabled: bool,
 }
 
 impl ServerSettings {
     pub fn load() -> Self {
-        // Try load JSON → if missing fields, insert defaults
         let loaded: Option<ServerSettings> = fs::read_to_string("settings.json")
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok());
@@ -20,14 +22,12 @@ impl ServerSettings {
         match loaded {
             Some(cfg) => Self {
                 auto_approve_devices: cfg.auto_approve_devices,
-
-                // If values missing in JSON, fallback to defaults
                 auto_refresh_enabled: cfg.auto_refresh_enabled,
-                auto_refresh_seconds: if cfg.auto_refresh_seconds == 0 {
-                    30
-                } else {
-                    cfg.auto_refresh_seconds
-                },
+                auto_refresh_seconds: if cfg.auto_refresh_seconds == 0 { 30 } else { cfg.auto_refresh_seconds },
+
+                // NEW SETTINGS W/ FALLBACKS
+                default_action_ttl_seconds: if cfg.default_action_ttl_seconds == 0 { 3600 } else { cfg.default_action_ttl_seconds },
+                action_polling_enabled: cfg.action_polling_enabled,
             },
 
             None => Self::default(),
@@ -49,6 +49,10 @@ impl Default for ServerSettings {
 
             auto_refresh_enabled: true,
             auto_refresh_seconds: 30,
+
+            // NEW DEFAULTS
+            default_action_ttl_seconds: 3600, // 1 hour TTL
+            action_polling_enabled: true,
         }
     }
 }

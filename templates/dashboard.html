@@ -307,7 +307,7 @@
       });
     });
 
-    // --------------------- Utilities ---------------------
+    //Utilities 
     function showAlert(msg, type = 'success', timeout = 3500) {
       const id = 'a' + Date.now();
       const el = $(
@@ -317,7 +317,7 @@
       setTimeout(() => el.fadeOut(300, () => el.remove()), timeout);
     }
 
-    // --------------------- Dark Mode ---------------------
+    //Dark Mode 
     function applyDarkMode(enabled) {
       document.body.classList.toggle('dark', enabled);
       localStorage.setItem('darkMode', enabled ? 'enabled' : 'disabled');
@@ -347,7 +347,7 @@
     const storedDark = localStorage.getItem('darkMode') === 'enabled';
     applyDarkMode(storedDark);
 
-    // --------------------- Formatters ---------------------
+    //Formatters 
     function fmtPercent(num) {
       if (num == null) return '—';
       const v = Number(num);
@@ -360,7 +360,7 @@
       return ((used / total) * 100).toFixed(1) + '%';
     }
 
-    // --------------------- DataTable ---------------------
+    //DataTable 
     const table = $('#devicesTable').DataTable({
       responsive: true,
       columns: [
@@ -426,7 +426,7 @@
       language: { emptyTable: 'No devices yet — check registration / heartbeat' },
     });
 
-    // --------------------- Load Devices ---------------------
+    //Load Devices 
     async function loadDevices() {
       try {
         const res = await fetch('/api/devices');
@@ -499,7 +499,7 @@
     // manual refresh button
     document.getElementById('refreshBtn').addEventListener('click', () => loadDevices());
 
-    // --------------------- Delegated actions ---------------------
+    //Delegated actions 
     // view details (open in new tab)
     $('body').on('click', '.view-btn, .device-link', function (e) {
       e.preventDefault();
@@ -543,7 +543,7 @@
       showAlert(`Action requested for ${id}`, 'info', 2200);
     });
 
-    // --------------------- Settings: Auto-refresh ---------------------
+    //Settings: Auto-refresh 
     const DEFAULT_REFRESH_INTERVAL = 30; // seconds
     let refreshTimer = null;
 
@@ -559,13 +559,13 @@
       }
     }
 
-    // --------------------- Tooltips ---------------------
+    //Tooltips 
     // initialize Bootstrap tooltips for elements that exist now
     document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
       try { new bootstrap.Tooltip(el); } catch (e) { /* ignore */ }
     });
 
-    // --------------------- Settings persistence (localStorage) ---------------------
+    //Settings persistence (localStorage) 
     function loadSettings() {
       // read from localStorage with sensible defaults
       const dark = localStorage.getItem('darkMode') === 'enabled';

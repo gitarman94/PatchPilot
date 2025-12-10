@@ -31,3 +31,45 @@ diesel::table! {
         ip_address -> Nullable<Text>,
     }
 }
+
+diesel::table! {
+    actions (id) {
+        id -> Text,
+        action_type -> Text,
+        parameters -> Nullable<Text>,
+        author -> Nullable<Text>,
+        created_at -> Timestamp,
+        expires_at -> Timestamp,
+        canceled -> Bool,
+    }
+}
+
+diesel::table! {
+    action_targets (id) {
+        id -> Integer,
+        action_id -> Text,
+        device_id -> Integer,
+        status -> Text,
+        last_update -> Timestamp,
+        response -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    audit_log (id) {
+        id -> Integer,
+        action_id -> Nullable<Text>,
+        device_name -> Nullable<Text>,
+        actor -> Nullable<Text>,
+        action_type -> Text,
+        details -> Nullable<Text>,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::allow_tables_to_appear_in_same_query!(
+    devices,
+    actions,
+    action_targets,
+    audit_log,
+);

@@ -1,0 +1,159 @@
+{{> navbar }}
+
+<div class="content-container">
+    <h2 class="mb-3">Devices</h2>
+
+    <div class="d-flex align-items-center mb-3">
+        <div class="me-2">
+            <input type="checkbox" id="selectAllDevices" />
+            <label for="selectAllDevices" class="ms-1">Select All</label>
+        </div>
+
+        <select id="bulkActionSelect" class="form-select w-auto me-2">
+            <option value="">Choose Action…</option>
+            <option value="send_command">Send Command…</option>
+            <option value="force_update">Force Update</option>
+            <option value="reboot">Reboot</option>
+            <option value="shutdown">Shutdown</option>
+        </select>
+
+        <button id="runBulkActionBtn" class="btn btn-primary btn-sm">
+            Execute
+        </button>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-striped table-hover align-middle">
+            <thead>
+                <tr>
+                    <th style="width: 40px;"></th>
+                    <th>Hostname</th>
+                    <th>IP Address</th>
+                    <th>OS</th>
+                    <th>Architecture</th>
+                    <th>Uptime</th>
+                    <th>CPU</th>
+                    <th>RAM</th>
+                    <th>Disk</th>
+                    <th>Last Check-in</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {{#each devices}}
+                <tr class="device-row" data-id="{{id}}">
+                    <td>
+                        <input type="checkbox" class="device-checkbox" value="{{id}}" />
+                    </td>
+
+                    <td>
+                        <a href="/device/{{id}}" class="text-primary text-decoration-none">
+                            {{hostname}}
+                        </a>
+                        <div class="text-muted small">{{device_name}}</div>
+                    </td>
+
+                    <td>{{ip_address}}</td>
+
+                    <td>
+                        {{os_name}}
+                        {{#if updates_available}}
+                            <span class="badge bg-info ms-1">Updates</span>
+                        {{/if}}
+                    </td>
+
+                    <td>{{architecture}}</td>
+
+                    <td>
+                        {{#if uptime}}
+                            {{uptime}}
+                        {{else}}
+                            --
+                        {{/if}}
+                    </td>
+
+                    <td>
+                        {{cpu_brand}}
+                        <div class="small text-muted">
+                            {{cpu_count}} cores · {{cpu_usage}}%
+                        </div>
+                    </td>
+
+                    <td>
+                        {{ram_used}} / {{ram_total}}
+                        <div class="small text-muted">bytes</div>
+                    </td>
+
+                    <td>
+                        {{disk_free}} / {{disk_total}}
+                        <div class="small text-muted">{{disk_health}}</div>
+                    </td>
+
+                    <td>{{last_checkin}}</td>
+
+                    <td>
+                        {{#if approved}}
+                            <span class="badge bg-success">Approved</span>
+                        {{else}}
+                            <span class="badge bg-warning text-dark">Pending</span>
+                        {{/if}}
+                    </td>
+                </tr>
+                {{/each}}
+            </tbody>
+        </table>
+    </div>
+
+    <nav aria-label="Devices pagination" class="mt-3">
+        <ul class="pagination">
+
+            {{#if (gt page 1)}}
+            <li class="page-item">
+                <a class="page-link" href="/devices?page={{dec page}}">Previous</a>
+            </li>
+            {{/if}}
+
+            {{#each (range 1 total_pages)}}
+            <li class="page-item {{#if (eq ../page this)}}active{{/if}}">
+                <a class="page-link" href="/devices?page={{this}}">
+                    {{this}}
+                </a>
+            </li>
+            {{/each}}
+
+            {{#if (lt page total_pages)}}
+            <li class="page-item">
+                <a class="page-link" href="/devices?page={{inc page}}">Next</a>
+            </li>
+            {{/if}}
+
+        </ul>
+    </nav>
+</div>
+
+<div class="modal fade" id="sendCommandModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md">
+    <div class="modal-content">
+
+      <div class="modal-header">
+        <h5 class="modal-title">Send Command</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body">
+        <label for="commandInput" class="form-label">Command to execute</label>
+        <textarea id="commandInput" class="form-control" rows="4"></textarea>
+
+        <label for="ttlInput" class="form-label mt-3">TTL (seconds)</label>
+        <input type="number" class="form-control" id="ttlInput" value="600" min="10" />
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="submitCommandBtn">Send</button>
+      </div>
+
+    </div>
+  </div>
+</div>

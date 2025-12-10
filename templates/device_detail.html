@@ -3,246 +3,591 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Device — PatchPilot</title>
+  <title>PatchPilot — Device Detail</title>
 
-  <!-- Bootstrap -->
+  <!-- Bootstrap 5 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
+
+  <!-- DataTables (for lists inside cards if needed) -->
+  <link href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css" rel="stylesheet"/>
+  <link href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css" rel="stylesheet"/>
+
+  <!-- Font Awesome -->
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet"/>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
     :root {
       --bg:#f6f8fb;
-      --card:#fff;
-      --text:#0b1720;
+      --card:#ffffff;
+      --accent:#0d6efd;
       --muted:#6c757d;
+      --success:#198754;
+      --warn:#ffc107;
+      --danger:#dc3545;
+      --text:#0b1720;
+      --table-head:#f1f3f5;
     }
     body.dark {
-      --bg:#0b1220;
-      --card:#0f1720;
-      --text:#e6eef6;
-      --muted:#9ca3af;
+      --bg: #0b1220; --card: #0f1720; --accent: #58a6ff; --muted: #98a0a6; --success: #2ea043; --warn: #f2cc60; --danger: #f85149; --text: #e6eef6; --table-head: #0f1725;
     }
-
     body {
-      background:var(--bg);
-      color:var(--text);
-      font-family:Inter,system-ui,Segoe UI,Roboto,Arial;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
     }
 
-    .header {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
-    .device-title {font-weight:600}
-    .meta {color:var(--muted)}
-    .card-soft {background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.04); color:var(--text)}
-    .stat {font-size:1.25rem;font-weight:600}
-    .muted {color:var(--muted)}
-    .tab-pane {padding-top:10px;}
-    .small-muted {color:var(--muted)}
+    .page-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
+    .device-title { display:flex; gap:1rem; align-items:center; }
+    .device-badges { display:flex; gap:.5rem; align-items:center; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .card { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(16,24,40,.06); }
+    .panel-scroll { max-height: 260px; overflow:auto; padding-right:8px; }
+
+    .kv { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed rgba(0,0,0,0.04); }
+    .kv .k { color:var(--muted); }
+    .kv .v { font-weight:600; }
+
+    .small-muted { color:var(--muted); font-size:.9rem; }
+
+    .ttl-bar { height:10px; border-radius:6px; overflow:hidden; background: rgba(0,0,0,0.06); }
+    .ttl-fill { height:100%; width:0%; transition: width 500ms linear; background:var(--accent); }
+
+    .respond-list { max-height: 150px; overflow:auto; padding:0; margin:0; list-style:none; }
+    .respond-list li { display:flex; justify-content:space-between; padding:6px 8px; border-bottom:1px solid rgba(0,0,0,0.03); }
+
+    .action-controls { display:flex; gap:8px; flex-wrap:wrap; }
+
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
   <div id="navbar-container"></div>
+
   <div class="container py-3">
-    <div class="header">
-      <div>
-        <div class="device-title" id="deviceName">Loading…</div>
-        <div class="meta" id="deviceIdLine">—</div>
+    <div class="page-head">
+      <div class="device-title">
+        <img src="/static/favicon.ico" alt="logo" style="height:36px;width:36px;object-fit:contain;">
+        <div>
+          <h3 id="dev-hostname" style="margin:0">—</h3>
+          <div class="small-muted" id="dev-sub">Loading device details…</div>
+        </div>
       </div>
-      <div class="text-end">
-        <div id="statusBadge"></div>
-        <div class="muted" id="lastCheckinLine">—</div>
+
+      <div class="device-badges">
+        <div id="statusBadge" class="badge bg-secondary">Loading</div>
+        <div id="lastSeen" class="small-muted">—</div>
+        <div>
+          <div class="btn-group">
+            <button id="openCommandModal" class="btn btn-outline-primary btn-sm">Send Command</button>
+            <button id="forcePatchBtn" class="btn btn-outline-secondary btn-sm">Force Update</button>
+            <button id="rebootBtn" class="btn btn-outline-warning btn-sm">Reboot</button>
+            <button id="shutdownBtn" class="btn btn-outline-danger btn-sm">Shutdown</button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="row g-3">
-      <div class="col-lg-4">
-        <div class="card card-soft p-3 mb-3">
-          <div class="mb-2"><strong>Summary</strong></div>
-          <div class="small-muted mb-2" id="osLine"></div>
-          <div class="mb-2"><span class="muted">IP:</span> <span id="ipAddr">—</span></div>
-          <div class="mb-2"><span class="muted">Type / Model:</span> <span id="typeModel">—</span></div>
-          <div class="mb-2"><span class="muted">Uptime:</span> <span id="uptime">—</span></div>
-          <div class="mb-2"><span class="muted">Updates:</span> <span id="updatesFlag">—</span></div>
-        </div>
+    <div class="grid">
+      <!-- Left: big content -->
+      <div>
+        <div class="row g-3">
+          <div class="col-12">
+            <div class="card p-3">
+              <h5 class="mb-2">System Overview</h5>
+              <div class="row">
+                <div class="col-md-6">
+                  <div class="kv"><div class="k">Hostname</div><div class="v" id="sys_hostname">—</div></div>
+                  <div class="kv"><div class="k">OS</div><div class="v" id="sys_os">—</div></div>
+                  <div class="kv"><div class="k">Kernel</div><div class="v" id="sys_kernel">—</div></div>
+                  <div class="kv"><div class="k">Architecture</div><div class="v" id="sys_arch">—</div></div>
+                </div>
+                <div class="col-md-6">
+                  <div class="kv"><div class="k">CPU</div><div class="v" id="sys_cpu">—</div></div>
+                  <div class="kv"><div class="k">CPU Usage</div><div class="v" id="sys_cpu_usage">—</div></div>
+                  <div class="kv"><div class="k">RAM</div><div class="v" id="sys_ram">—</div></div>
+                  <div class="kv"><div class="k">Uptime</div><div class="v" id="sys_uptime">—</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
 
-        <div class="card card-soft p-3">
-          <div class="mb-2"><strong>Quick Actions</strong></div>
-          <div class="d-grid gap-2">
-            <button id="btnCheckin" class="btn btn-outline-primary btn-sm">Force Check-in</button>
-            <button id="btnPatch" class="btn btn-outline-warning btn-sm">Force Patch</button>
-            <button id="btnReinstall" class="btn btn-outline-danger btn-sm">Force Reinstall</button>
+          <div class="col-12">
+            <div class="card p-3">
+              <h5 class="mb-2">Hardware</h5>
+              <div class="row">
+                <div class="col-sm-6">
+                  <div class="kv"><div class="k">Device Type</div><div class="v" id="hw_type">—</div></div>
+                  <div class="kv"><div class="k">Device Model</div><div class="v" id="hw_model">—</div></div>
+                  <div class="kv"><div class="k">Serial</div><div class="v" id="hw_serial">—</div></div>
+                </div>
+                <div class="col-sm-6">
+                  <div class="kv"><div class="k">Disk Total</div><div class="v" id="hw_disk_total">—</div></div>
+                  <div class="kv"><div class="k">Disk Free</div><div class="v" id="hw_disk_free">—</div></div>
+                  <div class="kv"><div class="k">Disk Health</div><div class="v" id="hw_disk_health">—</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12">
+            <div class="card p-3">
+              <h5 class="mb-2">Network</h5>
+              <div class="row">
+                <div class="col-sm-6">
+                  <div class="kv"><div class="k">IP Address</div><div class="v" id="net_ip">—</div></div>
+                  <div class="kv"><div class="k">Throughput (delta)</div><div class="v" id="net_throughput">—</div></div>
+                </div>
+                <div class="col-sm-6">
+                  <div class="kv"><div class="k">Ping (ms)</div><div class="v" id="net_ping">—</div></div>
+                  <div class="kv"><div class="k">Interfaces</div><div class="v small-muted" id="net_ifaces">—</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Installed Software -->
+          <div class="col-12">
+            <div class="card p-3">
+              <h5 class="mb-2">Installed Software</h5>
+              <div id="sw_list" class="panel-scroll small-muted">No data.</div>
+            </div>
+          </div>
+
+          <!-- Running Processes -->
+          <div class="col-12">
+            <div class="card p-3">
+              <h5 class="mb-2">Running Processes</h5>
+              <div id="proc_list" class="panel-scroll small-muted">No data.</div>
+            </div>
+          </div>
+
+          <!-- Audit Log (recent) -->
+          <div class="col-12">
+            <div class="card p-3">
+              <h5 class="mb-2">Recent Audit / Events</h5>
+              <div id="audit_list" class="panel-scroll small-muted">No events yet.</div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="col-lg-8">
-        <ul class="nav nav-tabs" id="detailTabs" role="tablist">
-          <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="perf-tab" data-bs-toggle="tab" data-bs-target="#perf" type="button">Performance</button>
-          </li>
-          <li class="nav-item" role="presentation">
-            <button class="nav-link" id="hardware-tab" data-bs-toggle="tab" data-bs-target="#hardware" type="button">Hardware</button>
-          </li>
-          <li class="nav-item" role="presentation">
-            <button class="nav-link" id="network-tab" data-bs-toggle="tab" data-bs-target="#network" type="button">Network</button>
-          </li>
-        </ul>
+      <!-- Right column: Active instruction + quick info -->
+      <div>
+        <div class="card p-3 mb-3">
+          <h6>Active Instruction</h6>
+          <div id="instruction_empty" class="small-muted">No active instruction for this device.</div>
 
-        <div class="tab-content card card-soft p-3">
-          <div class="tab-pane fade show active" id="perf">
-            <div class="row">
-              <div class="col-md-6">
-                <h6 class="mb-2">CPU Usage</h6>
-                <canvas id="cpuChart" height="140"></canvas>
-              </div>
-              <div class="col-md-6">
-                <h6 class="mb-2">RAM Usage</h6>
-                <canvas id="ramChart" height="140"></canvas>
-              </div>
+          <div id="instruction_box" style="display:none;">
+            <div class="mb-2 small-muted" id="instr_meta">Instruction: <strong id="instr_type">—</strong></div>
+            <div class="kv"><div class="k">Issued by</div><div class="v" id="instr_by">—</div></div>
+            <div class="kv"><div class="k">Created</div><div class="v" id="instr_created">—</div></div>
+            <div class="kv"><div class="k">TTL remaining</div><div class="v" id="instr_ttl_text">—</div></div>
+
+            <div class="mb-2 mt-2 ttl-bar"><div id="instr_ttl_fill" class="ttl-fill"></div></div>
+
+            <h6 class="mt-3 mb-2">Participants</h6>
+            <ul id="instr_participants" class="respond-list small-muted"></ul>
+
+            <div class="mt-3 action-controls">
+              <button id="cancel_instr_btn" class="btn btn-danger btn-sm">Cancel Instruction</button>
+              <button id="view_action_btn" class="btn btn-outline-secondary btn-sm">Open Action Details</button>
             </div>
           </div>
+        </div>
 
-          <div class="tab-pane fade" id="hardware">
-            <div class="row">
-              <div class="col-6"><div class="muted">CPU Cores</div><div id="cpuCores" class="stat">—</div></div>
-              <div class="col-6"><div class="muted">CPU Brand</div><div id="cpuBrand" class="stat">—</div></div>
-            </div>
-            <hr/>
-            <div class="row">
-              <div class="col-6"><div class="muted">RAM</div><div id="ramRaw" class="stat">—</div></div>
-              <div class="col-6"><div class="muted">Disk (used/total)</div><div id="diskRaw" class="stat">—</div></div>
-            </div>
-          </div>
+        <div class="card p-3 mb-3">
+          <h6>Quick Info</h6>
+          <div class="kv"><div class="k">Device ID</div><div class="v" id="quick_id">—</div></div>
+          <div class="kv"><div class="k">Last check-in</div><div class="v" id="quick_checkin">—</div></div>
+          <div class="kv"><div class="k">Approved</div><div class="v" id="quick_approved">—</div></div>
+          <div class="kv"><div class="k">Updates available</div><div class="v" id="quick_updates">—</div></div>
+        </div>
 
-          <div class="tab-pane fade" id="network">
-            <div class="mb-2"><span class="muted">Interfaces</span><div id="ifaces">—</div></div>
-            <div class="mb-2"><span class="muted">Throughput</span><div id="throughput">—</div></div>
-            <div class="mb-2"><span class="muted">Ping</span><div id="ping">—</div></div>
+        <div class="card p-3">
+          <h6>Actions</h6>
+          <div class="d-grid gap-2">
+            <button id="btn_force_update" class="btn btn-primary btn-sm">Force Update</button>
+            <button id="btn_reboot" class="btn btn-warning btn-sm">Reboot</button>
+            <button id="btn_shutdown" class="btn btn-danger btn-sm">Shutdown</button>
+            <button id="btn_send_command" class="btn btn-outline-primary btn-sm">Send Command</button>
           </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Scripts -->
+  <!-- Send command modal -->
+  <div class="modal fade" id="sendCommandModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Send Command</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-2 small-muted">Command will be queued with a TTL and executed by the client when it processes pending instructions.</div>
+          <div class="mb-2">
+            <label class="form-label small">Command</label>
+            <textarea id="commandText" class="form-control" rows="4" placeholder="e.g. sudo apt-get update && sudo apt-get -y upgrade"></textarea>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">TTL (seconds)</label>
+            <input id="commandTTL" type="number" min="10" class="form-control form-control-sm" value="3600"/>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Run as (username)</label>
+            <input id="commandUser" type="text" class="form-control form-control-sm" placeholder="root"/>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="sendCommandSubmit" class="btn btn-primary">Queue Instruction</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dependencies -->
   <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+
   <script>
-    $(function () {
+    // --- helper utils ---
+    function shortDate(ts) {
+      if (!ts) return '—';
+      try { return new Date(ts).toLocaleString(); } catch (e) { return ts; }
+    }
+    function bytesToHuman(b) {
+      if (!b && b !== 0) return '—';
+      const units = ['B','KB','MB','GB','TB'];
+      let i = 0; let v = Number(b);
+      while (v >= 1024 && i < units.length-1) { v /= 1024; i++; }
+      return v.toFixed(1) + ' ' + units[i];
+    }
+    function pct(used, total) {
+      if (!total || total === 0) return '—';
+      return ((used/total)*100).toFixed(1) + '%';
+    }
+
+    // load navbar
+    $(function() {
       $("#navbar-container").load("/navbar.html", function () {
-        // Reinitialize tooltips inside the loaded navbar
         document.querySelectorAll('#navbar-container [data-bs-toggle="tooltip"]').forEach(el => {
           try { new bootstrap.Tooltip(el); } catch (e) {}
         });
       });
     });
 
-    // Apply dark mode if chosen
-    (function(){
-      if (localStorage.getItem('darkMode') === 'enabled') {
-        document.body.classList.add('dark');
+    // --- device id from query param ---
+    function getQueryParam(name) {
+      const params = new URLSearchParams(window.location.search);
+      return params.get(name);
+    }
+    const DEVICE_ID = getQueryParam('deviceID') || '';
+
+    if (!DEVICE_ID) {
+      document.body.innerHTML = '<div class="container py-5"><div class="alert alert-warning">Missing deviceID query parameter. Open this page from the devices list.</div></div>';
+      throw new Error('missing deviceID');
+    }
+
+    // polling interval (ms)
+    const POLL_MS = 5000;
+    let pollTimer = null;
+    let currentInstruction = null;
+    let instrTickInterval = null;
+
+    // fetch device details (server should expose an endpoint /api/device/<id> or equivalent)
+    async function fetchDeviceDetails() {
+      try {
+        const res = await fetch(`/api/device/${encodeURIComponent(DEVICE_ID)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const dev = await res.json();
+        renderDevice(dev);
+      } catch (err) {
+        console.warn('fetchDeviceDetails error', err);
       }
-    })();
-
-    const params = new URLSearchParams(window.location.search);
-    const deviceID = params.get('deviceID');
-
-    function prettyBytes(n){
-      if (n == null || n === undefined) return '—';
-      const thresh = 1024;
-      if (Math.abs(n) < thresh) return n + ' B';
-      const units = ['KB','MB','GB','TB'];
-      let u = -1;
-      do { n /= thresh; ++u; } while(Math.abs(n) >= thresh && u < units.length-1);
-      return n.toFixed(1) + ' ' + units[u];
     }
 
-    function safe(v, fallback='—'){ return v == null ? fallback : v; }
-
-    // simple chart helper (uses Chart.js)
-    function makeLineChart(ctx, data, label){
-      if (!ctx) return null;
-      return new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: data.map((_,i)=>i+1),
-          datasets: [{ label, data, tension:0.25, fill:false, borderWidth:2 }]
-        },
-        options: { responsive:true, plugins:{legend:{display:false}} }
-      });
-    }
-
-    async function loadDetails(){
-      try{
-        const r = await fetch(`/api/device/${encodeURIComponent(deviceID)}`);
-        if (!r.ok){ throw new Error('Not found'); }
-        const device = await r.json();
-
-        // header
-        const title = device.hostname || device.device_name || device.id || device.device_name;
-        $('#deviceName').text(title);
-        $('#deviceIdLine').text(`ID: ${device.id || device.device_name || '—'}`);
-        $('#osLine').text((device.os_name || '—') + (device.architecture ? ' · ' + device.architecture : ''));
-
-        $('#ipAddr').text(safe(device.ip_address));
-        $('#typeModel').text(((device.device_type || device.device_model) || '—'));
-        $('#uptime').text(safe(device.uptime));
-        $('#updatesFlag').text(device.updates_available ? 'Yes' : 'No');
-
-        // status
-        const last = device.last_checkin ? new Date(device.last_checkin) : null;
-        $('#lastCheckinLine').text(last ? `Last: ${last.toLocaleString()}` : 'No check-ins');
-        const statusEl = $('#statusBadge').empty();
-        if (device.pending) {
-          statusEl.append(`<span class="badge badge-pending">Pending approval</span>`);
-        } else {
-          if (!last) statusEl.append(`<span class="badge bg-secondary">Offline</span>`);
-          else {
-            const diff = (Date.now() - new Date(last)) / 1000;
-            statusEl.append(diff < 600 ? `<span class="badge bg-success">Online</span>` : `<span class="badge bg-secondary">Offline</span>`);
-          }
+    // fetch running instruction for the device (server-side endpoint assumed)
+    async function fetchDeviceInstruction() {
+      try {
+        const res = await fetch(`/api/actions/for_device/${encodeURIComponent(DEVICE_ID)}`); // server must implement
+        if (!res.ok) {
+          // No action / not found
+          showInstruction(null);
+          return;
         }
-
-        // hardware
-        $('#cpuCores').text(device.cpu_count ?? '—');
-        $('#cpuBrand').text(device.cpu_brand ?? '—');
-        $('#ramRaw').text(`${prettyBytes(device.ram_used ?? 0)} used / ${prettyBytes(device.ram_total ?? 0)} total`);
-        $('#diskRaw').text(`${prettyBytes((device.disk_total ?? 0) - (device.disk_free ?? 0))} used / ${prettyBytes(device.disk_total ?? 0)} total`);
-
-        // network
-        $('#ifaces').text(device.network_interfaces || '—');
-        $('#throughput').text(device.network_throughput ? `${device.network_throughput} bytes` : '—');
-        $('#ping').text(device.ping_latency ? `${device.ping_latency} ms` : '—');
-
-        // performance charts: use fields cpu_usage_history etc if present, otherwise use single point
-        const cpuData = (device.cpu_usage_history && device.cpu_usage_history.length) ? device.cpu_usage_history : (device.cpu_usage != null ? [device.cpu_usage] : []);
-        const ramPct = (device.ram_total && device.ram_total>0) ? ((device.ram_used/device.ram_total)*100) : null;
-        const ramData = (device.ram_usage_history && device.ram_usage_history.length) ? device.ram_usage_history : (ramPct != null ? [ramPct] : []);
-
-        // create charts (destroy previous if exist)
-        if (window._cpuChart) window._cpuChart.destroy();
-        if (window._ramChart) window._ramChart.destroy();
-        window._cpuChart = makeLineChart(document.getElementById('cpuChart'), cpuData, 'CPU %');
-        window._ramChart = makeLineChart(document.getElementById('ramChart'), ramData, 'RAM %');
-
-      }catch(e){
-        console.error(e);
-        $('#deviceName').text('Failed to load device');
-        $('#deviceIdLine').text('');
+        const action = await res.json();
+        if (!action) { showInstruction(null); return; }
+        showInstruction(action);
+      } catch (err) {
+        console.warn('fetchDeviceInstruction error', err);
       }
     }
 
-    // quick action placeholders
-    $('#btnCheckin').on('click', ()=> alert('Force check-in requested (server action not implemented here)'));
-    $('#btnPatch').on('click', ()=> alert('Force patch requested (server action not implemented here)'));
-    $('#btnReinstall').on('click', ()=> alert('Force reinstall requested (server action not implemented here)'));
+    // render device object
+    function renderDevice(d) {
+      $('#dev-hostname').text(d.hostname || d.device_name || DEVICE_ID);
+      $('#dev-sub').text(`${d.os_name || '—'} • ${d.architecture || '—'}`);
+      $('#sys_hostname').text(d.hostname || '—');
+      $('#sys_os').text(`${d.os_name || '—'} ${d.os_version ? (' ' + d.os_version) : ''}`);
+      $('#sys_kernel').text(d.kernel_version || '—');
+      $('#sys_arch').text(d.architecture || '—');
+      $('#sys_cpu').text((d.cpu_brand||'—') + ' x' + (d.cpu_count || '—'));
+      $('#sys_cpu_usage').text(d.cpu_usage != null ? d.cpu_usage.toFixed(1) + '%' : '—');
+      $('#sys_ram').text(`${bytesToHuman(d.ram_used*1024)} used / ${bytesToHuman(d.ram_total*1024)}`);
+      $('#sys_uptime').text(d.uptime || '—');
 
-    if (!deviceID) {
-      $('#deviceName').text('No device specified');
-      $('#deviceIdLine').text('');
-    } else {
-      loadDetails();
+      $('#hw_type').text(d.device_type || '—');
+      $('#hw_model').text(d.device_model || '—');
+      $('#hw_serial').text(d.serial_number || '—');
+      $('#hw_disk_total').text(bytesToHuman(d.disk_total || 0));
+      $('#hw_disk_free').text(bytesToHuman(d.disk_free || 0));
+      $('#hw_disk_health').text(d.disk_health || '—');
+
+      $('#net_ip').text(d.ip_address || '—');
+      $('#net_throughput').text(d.network_throughput != null ? d.network_throughput + ' bytes' : '—');
+      $('#net_ping').text(d.ping_latency != null ? d.ping_latency + ' ms' : '—');
+
+      // interfaces (string or object)
+      let ifaces = d.network_interfaces;
+      if (!ifaces) {
+        $('#net_ifaces').text('—');
+      } else if (typeof ifaces === 'string') {
+        $('#net_ifaces').text(ifaces);
+      } else {
+        try {
+          $('#net_ifaces').text(JSON.stringify(ifaces));
+        } catch {
+          $('#net_ifaces').text('—');
+        }
+      }
+
+      $('#sw_list').html(renderKeyList(d.installed_software || [], 'name'));
+      $('#proc_list').html(renderKeyList(d.processes || [], 'name'));
+      $('#audit_list').html(renderAuditList(d.recent_audit || []));
+
+      $('#statusBadge').removeClass().addClass('badge');
+      if (d.pending) {
+        $('#statusBadge').addClass('bg-warning text-dark').text('Pending');
+      } else {
+        // determine online/offline by last_checkin
+        const last = d.last_checkin ? new Date(d.last_checkin) : null;
+        if (!last) $('#statusBadge').addClass('bg-secondary').text('Offline');
+        else {
+          const diff = (Date.now() - new Date(last))/1000;
+          if (diff < 600) $('#statusBadge').addClass('bg-success').text('Online');
+          else $('#statusBadge').addClass('bg-secondary').text('Offline');
+        }
+      }
+
+      $('#quick_id').text(d.device_name || DEVICE_ID);
+      $('#quick_checkin').text(d.last_checkin ? shortDate(d.last_checkin) : '—');
+      $('#quick_approved').text(d.approved ? 'Yes' : 'No');
+      $('#quick_updates').text(d.updates_available ? 'Yes' : 'No');
+
+      $('#lastSeen').text(d.last_checkin ? shortDate(d.last_checkin) : '—');
     }
+
+    function renderKeyList(items, key) {
+      if (!items || items.length === 0) return '<div class="small-muted">No items.</div>';
+      const html = items.map(it => {
+        if (typeof it === 'string') return `<div style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.03)">${it}</div>`;
+        const title = it[key] || it.name || JSON.stringify(it);
+        return `<div style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.03)"><strong>${title}</strong><div class="small-muted">${it.version ? it.version : ''}</div></div>`;
+      }).join('');
+      return html;
+    }
+
+    function renderAuditList(events) {
+      if (!events || events.length === 0) return '<div class="small-muted">No recent audit events.</div>';
+      return events.map(ev => `<div style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.03)"><div><strong>${ev.action}</strong> <span class="small-muted">by ${ev.actor || 'system'} • ${shortDate(ev.when)}</span></div><div class="small-muted">${ev.note || ''}</div></div>`).join('');
+    }
+
+    // shows instruction object (or null)
+    function showInstruction(instr) {
+      if (!instr) {
+        currentInstruction = null;
+        $('#instruction_box').hide();
+        $('#instruction_empty').show();
+        clearInterval(instrTickInterval);
+        return;
+      }
+
+      currentInstruction = instr;
+      $('#instruction_empty').hide();
+      $('#instruction_box').show();
+
+      $('#instr_type').text(instr.kind || instr.type || 'command');
+      $('#instr_by').text(instr.actor || instr.requested_by || 'unknown');
+      $('#instr_created').text(shortDate(instr.created_at || instr.created));
+      // participants: array of { device_id, status: pending|running|done|failed, response_ts, output }
+      const parts = instr.participants || (instr.devices ? instr.devices : []);
+      const $ul = $('#instr_participants');
+      $ul.empty();
+      parts.forEach(p => {
+        const state = p.status || 'pending';
+        const label = state === 'done' ? `<span class="text-success">Done</span>` : (state === 'running' ? `<span class="text-primary">Running</span>` : (state === 'failed' ? `<span class="text-danger">Failed</span>` : `<span class="small-muted">Waiting</span>`));
+        const name = p.hostname || p.device_id || p.device_name || '—';
+        $ul.append(`<li><div>${name}</div><div>${label}</div></li>`);
+      });
+
+      // TTL handling
+      const ttlSecs = instr.ttl_seconds || instr.ttl || 0;
+      const created = new Date(instr.created_at || instr.created).getTime();
+      const expiresAt = created + (ttlSecs * 1000);
+      updateTtlUI(expiresAt);
+
+      // start tick interval to update remaining ttl
+      clearInterval(instrTickInterval);
+      instrTickInterval = setInterval(() => updateTtlUI(expiresAt), 800);
+    }
+
+    function updateTtlUI(expiresAt) {
+      const now = Date.now();
+      const remMs = Math.max(0, expiresAt - now);
+      const remSeconds = Math.ceil(remMs / 1000);
+      $('#instr_ttl_text').text(`${remSeconds}s`);
+      // width percentage (if we knew original ttl, compute by comparing to created->expires)
+      if (!currentInstruction) return;
+      const ttlSecs = currentInstruction.ttl_seconds || currentInstruction.ttl || 0;
+      if (ttlSecs <= 0) {
+        $('#instr_ttl_fill').css('width','100%');
+        return;
+      }
+      const created = new Date(currentInstruction.created_at || currentInstruction.created).getTime();
+      const totalMs = ttlSecs * 1000;
+      const elapsed = Math.min(totalMs, Date.now() - created);
+      const pct = Math.max(0, ((totalMs - elapsed) / totalMs) * 100);
+      $('#instr_ttl_fill').css('width', pct + '%');
+      if (remMs <= 0) {
+        // TTL expired — hide instruction and ask server to clear it (server should remove expired items)
+        clearInterval(instrTickInterval);
+        // attempt notify server to clear expired (endpoint server must implement `/api/actions/expire/<action_id>`)
+        if (currentInstruction && currentInstruction.id) {
+          fetch(`/api/actions/expire/${encodeURIComponent(currentInstruction.id)}`, { method: 'POST' }).catch(()=>{});
+        }
+        showInstruction(null);
+      }
+    }
+
+    // cancel instruction action
+    $('#cancel_instr_btn').on('click', async () => {
+      if (!currentInstruction || !currentInstruction.id) return showAlert('No instruction to cancel', 'warning');
+      if (!confirm('Cancel this running instruction?')) return;
+      try {
+        const res = await fetch(`/api/actions/${encodeURIComponent(currentInstruction.id)}/cancel`, { method: 'POST' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showAlert('Cancel request submitted', 'success');
+        // refresh instruction state
+        fetchDeviceInstruction();
+      } catch (err) {
+        console.error(err);
+        showAlert('Failed to cancel instruction', 'danger');
+      }
+    });
+
+    // view action details: open running actions page
+    $('#view_action_btn').on('click', () => {
+      if (!currentInstruction || !currentInstruction.id) {
+        showAlert('No instruction selected', 'warning');
+      } else {
+        window.open(`/running_actions.html?actionID=${encodeURIComponent(currentInstruction.id)}`, '_blank');
+      }
+    });
+
+    // buttons to queue common actions (server endpoints assumed)
+    async function queueAction(kind, extras={}) {
+      const payload = {
+        kind,
+        devices: [DEVICE_ID],
+        ttl_seconds: Number(extras.ttl_seconds || 3600),
+        payload: extras.payload || {},
+        actor: extras.actor || 'web-ui',
+        note: extras.note || ''
+      };
+      try {
+        const res = await fetch('/api/actions', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        if (!res.ok) {
+          const text = await res.text().catch(()=>res.statusText);
+          throw new Error(text || `HTTP ${res.status}`);
+        }
+        const info = await res.json();
+        showAlert('Instruction queued', 'success');
+        // open running actions page for visibility
+        window.open(`/running_actions.html?actionID=${encodeURIComponent(info.id)}`, '_blank');
+        // refresh instruction
+        fetchDeviceInstruction();
+      } catch (err) {
+        console.error('queueAction error', err);
+        showAlert('Failed to queue instruction: ' + (err.message || ''), 'danger');
+      }
+    }
+
+    $('#forcePatchBtn, #btn_force_update').on('click', () => queueAction('force_update', { ttl_seconds: 1800 }));
+    $('#rebootBtn, #btn_reboot').on('click', () => {
+      if (!confirm('Reboot device now?')) return;
+      queueAction('reboot', { ttl_seconds: 300 });
+    });
+    $('#shutdownBtn, #btn_shutdown').on('click', () => {
+      if (!confirm('Shutdown device now?')) return;
+      queueAction('shutdown', { ttl_seconds: 300 });
+    });
+
+    // send command modal actions
+    function openCommandModal() {
+      $('#commandText').val('');
+      $('#commandTTL').val(3600);
+      $('#commandUser').val('');
+      const m = new bootstrap.Modal(document.getElementById('sendCommandModal'));
+      m.show();
+    }
+    $('#openCommandModal, #btn_send_command, #sendCommandSubmit').on('click', (e) => {
+      const el = e.target.id;
+      if (el === 'sendCommandSubmit') {
+        // submit command
+        const cmd = $('#commandText').val().trim();
+        const ttl = parseInt($('#commandTTL').val(), 10) || 3600;
+        const user = $('#commandUser').val().trim() || undefined;
+        if (!cmd) { showAlert('Please enter a command', 'warning'); return; }
+        queueAction('run_command', { ttl_seconds: ttl, payload: { command: cmd, run_as: user } });
+        bootstrap.Modal.getInstance(document.getElementById('sendCommandModal')).hide();
+        return;
+      }
+      openCommandModal();
+    });
+
+    // small alert helper
+    function showAlert(msg, type='success', timeout=3000) {
+      const id = 'a' + Date.now();
+      const el = $(`<div id="${id}" class="alert alert-${type} shadow-sm" role="alert" style="min-width:240px;">${msg}</div>`);
+      $('body').append(el);
+      setTimeout(()=>el.fadeOut(300, ()=>el.remove()), timeout);
+    }
+
+    // start polling
+    async function startPolling() {
+      await fetchDeviceDetails();
+      await fetchDeviceInstruction();
+      pollTimer = setInterval(async () => {
+        await fetchDeviceDetails();
+        await fetchDeviceInstruction();
+      }, POLL_MS);
+    }
+
+    // initial
+    startPolling();
   </script>
 </body>
 </html>
