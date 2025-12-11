@@ -227,8 +227,7 @@ async fn send_heartbeat(
     device_model: &str,
 ) -> Result<Value> {
     // heartbeat returns server JSON (we will inspect it for adopted/status and commands optionally)
-    let mut sys_info = get_system_info();
-    };
+    let sys_info = get_system_info(); // <-- remove the `};`
 
     let payload = json!({
         "device_id": device_id,
