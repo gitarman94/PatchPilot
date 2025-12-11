@@ -1,4 +1,3 @@
-// src/system_info.rs
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -8,7 +7,9 @@ use local_ip_address::local_ip;
 use tokio::time::{sleep, timeout};
 use std::process::Stdio;
 use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
-use sysinfo::{System, SystemExt, DiskExt, CpuExt, NetworksExt};
+use sysinfo::{System, NetworkExt, CpuExt, DiskExt};
+use futures_util::future::FutureExt;
+
 
 /// Intervals (defaults). Server can override refresh interval by sending a config value
 /// in heartbeat response; client can call `set_system_info_refresh_secs(...)`.
@@ -40,6 +41,7 @@ static SYSTEM_INFO_REFRESH_SECS: AtomicU64 = AtomicU64::new(10);
 pub fn set_system_info_refresh_secs(secs: u64) {
     SYSTEM_INFO_REFRESH_SECS.store(if secs == 0 { 10 } else { secs }, Ordering::SeqCst);
 }
+
 fn get_system_info_refresh_secs() -> u64 {
     SYSTEM_INFO_REFRESH_SECS.load(Ordering::SeqCst)
 }
@@ -107,12 +109,11 @@ pub struct SystemInfo {
 impl SystemInfo {
     /// Blocking gather (spawn_blocking should be used by async callers).
     pub fn gather_blocking() -> SystemInfo {
-        let mut sys = System::new_all();
-        // a lightweight refresh
+        let mut sys = sysinfo::System::new_all();
         sys.refresh_all();
 
-        let hostname = sys.host_name().unwrap_or_else(|| "unknown".into());
-        let os_name = sys.name().unwrap_or_else(|| "unknown".into());
+        let hostname = sys.host_name().unwrap_or_else(|| "unknown".to_string());
+        let os_name = sys.name().unwrap_or_else(|| "unknown".to_string());
         let architecture = std::env::consts::ARCH.to_string();
 
         // CPU
@@ -122,14 +123,14 @@ impl SystemInfo {
             0.0
         } else {
             let sum: f32 = sys.cpus().iter().map(|c| c.cpu_usage()).sum();
-            sum / (sys.cpus().len() as f32)
+            sum / cpu_count as f32
         };
 
-        // Memory (sysinfo returns KB)
+        // Memory
         let ram_total = sys.total_memory() as i64;
         let ram_used = sys.used_memory() as i64;
 
-        // Disks aggregated (bytes)
+        // Disks
         let mut disk_total: i64 = 0;
         let mut disk_free: i64 = 0;
         for disk in sys.disks() {
@@ -137,16 +138,22 @@ impl SystemInfo {
             disk_free += disk.available_space() as i64;
         }
 
-        // Network throughput (sum of received+transmitted bytes)
+        // Network
         let mut network_throughput: i64 = 0;
-        for (_name, data) in sys.networks() {
-            network_throughput += (data.received() + data.transmitted()) as i64;
-        }
+        let network_interfaces: Vec<String> = sys.networks()
+            .iter()
+            .map(|(name, data)| {
+                network_throughput += (data.received() + data.transmitted()) as i64;
+                name.clone()
+            })
+            .collect();
 
-        let network_interfaces = sys.networks().keys().cloned().collect::<Vec<_>>().join(",");
-        let network_interfaces = if network_interfaces.is_empty() { None } else { Some(network_interfaces) };
+        let network_interfaces = if network_interfaces.is_empty() {
+            None
+        } else {
+            Some(network_interfaces.join(","))
+        };
 
-        // IP best-effort (use local_ip crate)
         let ip_address = local_ip().ok().map(|ip| ip.to_string());
 
         SystemInfo {
@@ -197,7 +204,7 @@ impl SystemInfoService {
         {
             let last = self.last.read().await;
             let cache = self.cache.read().await;
-            if let (Some(ts), Some(ref si)) = (*last, &*cache) {
+            if let (Some(ts), Some(si)) = (*last, &*cache) {
                 if ts.elapsed() < Duration::from_secs(refresh_secs) {
                     return Ok(si.clone());
                 }
@@ -209,7 +216,7 @@ impl SystemInfoService {
             let mut last = self.last.write().await;
             let mut cache = self.cache.write().await;
 
-            if let (Some(ts), Some(ref si)) = (*last, &*cache) {
+            if let (Some(ts), Some(si)) = (*last, &*cache) {
                 if ts.elapsed() < Duration::from_secs(refresh_secs) {
                     return Ok(si.clone());
                 }
@@ -227,9 +234,7 @@ impl SystemInfoService {
     }
 }
 
-/* ---------------------------
-   Client / agent logic (unchanged intent; fixed types & clones)
-   --------------------------- */
+    //Client / agent logic (unchanged intent; fixed types & clones)
 
 pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
     use flexi_logger::{Age, Cleanup, Criterion, FileSpec, Logger, Naming, WriteMode};
@@ -291,15 +296,12 @@ fn write_local_device_id(device_id: &str) -> Result<()> {
 }
 
 fn get_device_info_basic() -> (String, String) {
-    match SystemInfoService::default().get_system_info_async().now_or_never() {
-        Some(Ok(info)) => {
-            let device_type = if info.device_type.trim().is_empty() { "".into() } else { info.device_type };
-            let device_model = if info.device_model.trim().is_empty() { "".into() } else { info.device_model };
-            (device_type, device_model)
-        }
-        _ => ("".into(), "".into()),
-    }
+    let si = SystemInfo::gather_blocking();
+    let device_type = if si.device_type.trim().is_empty() { "".into() } else { si.device_type };
+    let device_model = if si.device_model.trim().is_empty() { "".into() } else { si.device_model };
+    (device_type, device_model)
 }
+
 
 /// Register device (returns pending_id if created)
 async fn register_device(
@@ -308,10 +310,8 @@ async fn register_device(
     device_type: &str,
     device_model: &str,
 ) -> Result<String> {
-    let svc = SystemInfoService::default();
-    let sys_info = svc.get_system_info_async().await.unwrap_or_else(|_| SystemInfo::gather_blocking());
+    let sys_info = SystemInfo::gather_blocking();
 
-    // Build payload (system_info serializes)
     let payload = json!({
         "system_info": sys_info,
         "device_type": device_type,
@@ -320,19 +320,31 @@ async fn register_device(
     });
 
     let url = format!("{}/api/register", server_url);
-    let response = client.post(&url).json(&payload).send().await.context("Error sending registration")?;
+    let response = client
+        .post(&url)
+        .json(&payload)
+        .send()
+        .await
+        .context("Error sending registration")?;
+
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
+
     if !status.is_success() {
         anyhow::bail!("Registration failed {}: {}", status, body);
     }
-    let parsed: serde_json::Value = serde_json::from_str(&body).context("Server returned invalid JSON")?;
-    if let Some(pid) = parsed["pending_id"].as_str() {
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&body).context("Server returned invalid JSON")?;
+
+    if let Some(pid) = parsed.get("pending_id").and_then(|v| v.as_str()) {
         write_local_device_id(pid)?;
         return Ok(pid.to_string());
     }
+
     anyhow::bail!("Server did not return pending_id");
 }
+
 
 async fn send_system_update(
     client: &Client,
@@ -341,10 +353,21 @@ async fn send_system_update(
     device_type: &str,
     device_model: &str,
 ) -> Result<()> {
-    let svc = SystemInfoService::default();
-    let sys_info = svc.get_system_info_async().await.unwrap_or_else(|_| SystemInfo::gather_blocking());
-    let payload = json!({ "system_info": sys_info, "device_type": device_type, "device_model": device_model });
-    let resp = client.post(format!("{}/api/devices/{}", server_url, device_id)).json(&payload).send().await.context("Update request failed")?;
+    let sys_info = SystemInfo::gather_blocking();
+
+    let payload = json!({
+        "system_info": sys_info,
+        "device_type": device_type,
+        "device_model": device_model
+    });
+
+    let resp = client
+        .post(format!("{}/api/devices/{}", server_url, device_id))
+        .json(&payload)
+        .send()
+        .await
+        .context("Update request failed")?;
+
     if !resp.status().is_success() {
         anyhow::bail!("Server update rejected: {}", resp.status());
     }
@@ -358,12 +381,16 @@ async fn send_heartbeat(
     device_type: &str,
     device_model: &str,
 ) -> bool {
-    let svc = SystemInfoService::default();
-    let sys_info = svc.get_system_info_async().await.unwrap_or_else(|_| SystemInfo::gather_blocking());
-    let payload = json!({ "device_id": device_id, "system_info": sys_info, "device_type": device_type, "device_model": device_model });
+    let sys_info = SystemInfo::gather_blocking();
 
-    let resp = client.post(format!("{}/api/devices/heartbeat", server_url)).json(&payload).send().await;
-    match resp {
+    let payload = json!({
+        "device_id": device_id,
+        "system_info": sys_info,
+        "device_type": device_type,
+        "device_model": device_model
+    });
+
+    match client.post(format!("{}/api/devices/heartbeat", server_url)).json(&payload).send().await {
         Ok(r) => {
             if !r.status().is_success() {
                 log::warn!("Heartbeat request returned non-OK: {}", r.status());
@@ -371,8 +398,9 @@ async fn send_heartbeat(
             }
             match r.json::<serde_json::Value>().await {
                 Ok(v) => {
-                    // if server provides a system_info refresh override, apply it
-                    if let Some(sec) = v.get("config").and_then(|c| c.get("system_info_refresh_secs")).and_then(|s| s.as_u64()) {
+                    if let Some(sec) = v.get("config")
+                        .and_then(|c| c.get("system_info_refresh_secs"))
+                        .and_then(|s| s.as_u64()) {
                         set_system_info_refresh_secs(sec);
                     }
                     v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)

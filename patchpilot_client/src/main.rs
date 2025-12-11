@@ -167,8 +167,7 @@ WantedBy=multi-user.target
 fn log_initial_system_info() {
     use system_info::SystemInfo;
 
-    let mut info = SystemInfo::new();
-    info.refresh();
+    let info = SystemInfo::gather_blocking();
 
     let (disk_total, disk_free) = info.disk_usage();
     let net = info.network_throughput();
