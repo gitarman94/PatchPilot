@@ -344,8 +344,9 @@ async fn heartbeat(
         .clone()
         .unwrap_or_else(|| try_device_uuid.clone().unwrap_or_default());
 
-    // ADOPTION / UPDATE LOGIC
+    let try_device_uuid_clone = try_device_uuid.clone();
     let adopted = rocket::tokio::task::spawn_blocking(move || {
+        let try_device_uuid = try_device_uuid_clone;
         let mut conn = pool_clone.get().ok()?;
 
         if let Some(ref uuid_str) = try_device_uuid {
@@ -376,7 +377,6 @@ async fn heartbeat(
                 return Some(true);
             }
 
-            // Auto-approve on first sight
             if auto_approve {
                 let mut newdev = NewDevice::from_device_info(
                     uuid_str,
@@ -398,7 +398,6 @@ async fn heartbeat(
             }
         }
 
-        // Not approved or no UUID — keep pending
         let mut pending = pending_ref.write().unwrap();
         let key = try_friendly.clone();
         pending
@@ -411,6 +410,7 @@ async fn heartbeat(
     .await
     .unwrap_or(Some(false))
     .unwrap_or(false);
+
 
     // Fetch pending actions
     let actions_for_device = {
@@ -500,7 +500,7 @@ async fn report_action_result(pool: &State<DbPool>, action_id: &str, payload: Js
                 targets_dsl::last_update.eq(Utc::now().naive_utc()),
             ))
             .execute(&mut conn)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e: diesel::result::Error| e.to_string())?;
 
         if updated == 0 {
             return Err(format!("no action target found for action {} and device {}", action_id, device_id));
@@ -865,13 +865,16 @@ async fn approve_device(pool: &State<DbPool>, device_uuid: &str) -> Result<Json<
 
 #[post("/submit_action", format="json", data="<action>")]
 async fn submit_action(pool: &State<DbPool>, action: Json<NewAction>) -> Result<Json<serde_json::Value>, String> {
-    use crate::schema::actions::dsl::*;
+    use crate::schema::actions::dsl::actions as actions_dsl;
     let pool = pool.inner().clone();
     let action = action.into_inner();
 
     rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool.get().map_err(|e| e.to_string())?;
-        diesel::insert_into(actions_table).values(&action).execute(&mut conn).map_err(|e| e.to_string())?;
+        let mut conn = pool.get().map_err(|e: diesel::result::Error| e.to_string())?;
+        diesel::insert_into(actions_dsl)
+            .values(&action)
+            .execute(&mut conn)
+            .map_err(|e: diesel::result::Error| e.to_string())?;
         Ok(Json(json!({ "status": "submitted", "action_id": action.id })))
     })
     .await
