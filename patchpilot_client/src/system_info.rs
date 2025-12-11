@@ -7,7 +7,7 @@ use local_ip_address::local_ip;
 use tokio::time::{sleep, timeout};
 use std::process::Stdio;
 use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
-use sysinfo::{System, SystemExt, CpuExt, DiskExt};
+use sysinfo::{System, Cpu, Disk};
 use crate::action::*;
 
 // Intervals (defaults). Server can override refresh interval by sending a config value

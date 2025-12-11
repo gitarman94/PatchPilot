@@ -12,7 +12,7 @@ lazy_static! {
     static ref LOGGER_HANDLE: Mutex<Option<flexi_logger::LoggerHandle>> = Mutex::new(None);
 }
 
-/// Determine platform-specific application base directory.
+// Determine platform-specific application base directory.
 fn get_base_dir() -> String {
     #[cfg(target_os = "linux")]
     {
@@ -38,7 +38,7 @@ fn get_base_dir() -> String {
     }
 }
 
-/// Ensure runtime directory exists and chown everything once.
+// Ensure runtime directory exists and chown everything once.
 fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
     let base_dir = get_base_dir();
 
@@ -73,7 +73,7 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Guarantee logs directory exists with correct ownership/permissions.
+// Guarantee logs directory exists with correct ownership/permissions.
 fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
     let base_dir = get_base_dir();
     let logs_dir = format!("{}/logs", base_dir);
@@ -98,7 +98,7 @@ fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Ensure systemd service and service user exist (Linux).
+// Ensure systemd service and service user exist (Linux).
 #[cfg(target_os = "linux")]
 fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
     let service_path = "/etc/systemd/system/patchpilot_client.service";
@@ -163,32 +163,26 @@ WantedBy=multi-user.target
     Ok(())
 }
 
-/// Log system information at startup.
+// Log system information at startup.
 fn log_initial_system_info() {
     use system_info::SystemInfo;
 
     let info = SystemInfo::gather_blocking();
 
-    let (disk_total, disk_free) = info.disk_usage();
-    let net = info.network_throughput();
-
     log::info!("Initial system information:");
     log::info!("Hostname: {:?}", info.hostname);
     log::info!("OS Name: {:?}", info.os_name);
-    log::info!("OS Version: {:?}", info.os_version);
-    log::info!("Kernel Version: {:?}", info.kernel_version);
-    log::info!("CPU Usage: {:.2}%", info.cpu_usage());
-    log::info!(
-        "RAM: total {} KB, used {} KB, free {} KB",
-        info.ram_total, info.ram_used, info.ram_free
-    );
-    log::info!("Disk: total {} bytes, free {} bytes", disk_total, disk_free);
-    log::info!("Initial network throughput: {} bytes", net);
-    log::info!("IP Address: {:?}", service::get_ip_address());
-    log::info!("Architecture: {}", info.architecture);
+    log::info!("Architecture: {:?}", info.architecture);
+    log::info!("CPU Usage: {:.2}%", info.cpu_usage);
+    log::info!("CPU Count: {}", info.cpu_count);
+    log::info!("CPU Brand: {:?}", info.cpu_brand);
+    log::info!("RAM: total {} KB, used {} KB", info.ram_total, info.ram_used);
+    log::info!("Disk: total {} bytes, free {} bytes", info.disk_total, info.disk_free);
+    log::info!("Network throughput: {} bytes", info.network_throughput);
+    log::info!("Ping latency: {:?}", info.ping_latency);
+    log::info!("IP Address: {:?}", info.ip_address);
     log::info!("Device Type: {:?}", info.device_type);
     log::info!("Device Model: {:?}", info.device_model);
-    log::info!("Serial Number: {:?}", info.serial_number);
 }
 
 #[tokio::main]
