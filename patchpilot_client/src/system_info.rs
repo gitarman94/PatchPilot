@@ -111,12 +111,12 @@ impl SystemInfo {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        let hostname = sys.host_name().unwrap_or_else(|| "unknown".to_string());
-        let os_name = sys.long_os_version().unwrap_or_else(|| "unknown".to_string());
-        // kernel_version is collected if needed by other code; keep local var so the gather logic is explicit
-        let _kernel_version = sys.kernel_version().unwrap_or_else(|| "unknown".to_string());
+        // Hostname / OS
+        let hostname = sys.name().unwrap_or_else(|| "unknown".to_string());
+        let os_name = sys.os_version().unwrap_or_else(|| "unknown".to_string());
         let architecture = std::env::consts::ARCH.to_string();
 
+        // CPU info
         let cpus = sys.cpus();
         let cpu_count = cpus.len() as i32;
         let cpu_brand = cpus.get(0).map(|c| c.brand().to_string()).unwrap_or_default();
@@ -126,9 +126,11 @@ impl SystemInfo {
             cpus.iter().map(|c| c.cpu_usage()).sum::<f32>() / cpu_count as f32
         };
 
+        // RAM
         let ram_total = sys.total_memory() as i64;
         let ram_used = sys.used_memory() as i64;
 
+        // Disk
         let mut disk_total: i64 = 0;
         let mut disk_free: i64 = 0;
         for disk in sys.disks() {
@@ -136,6 +138,7 @@ impl SystemInfo {
             disk_free += disk.available_space() as i64;
         }
 
+        // IP
         let ip_address = local_ip().ok().map(|ip| ip.to_string());
 
         SystemInfo {
@@ -157,11 +160,6 @@ impl SystemInfo {
             device_type: "".into(),
             device_model: "".into(),
         }
-    }
-
-    // synchronous convenience helper
-    pub fn get_system_info() -> Self {
-        Self::gather_blocking()
     }
 }
 

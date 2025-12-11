@@ -1,5 +1,6 @@
 mod system_info;
 mod service;
+mod action;
 
 use std::{fs, path::Path};
 use crate::service::init_logging;
