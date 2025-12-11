@@ -265,8 +265,8 @@ async fn register_or_update_device(
     .unwrap_or_else(|e| Err(format!("Join error: {}", e)))
 }
 
-/// HEARTBEAT — accepts full JSON. Prefer device_id (UUID) as stable id. Fallback to system_info.hostname as friendly name.
-/// Returns whether adopted and any pending actions for that device (action_targets with status pending).
+// HEARTBEAT — accepts complete JSON. UUID (device_id/device_uuid) is the stable identity.
+// Returns: adoption status, pending actions, and client settings from server policy.
 #[post("/devices/heartbeat", format="json", data="<payload>")]
 async fn heartbeat(
     state: &State<AppState>,
@@ -279,57 +279,74 @@ async fn heartbeat(
     let pool_clone = pool.inner().clone();
     let payload_value = payload.into_inner();
 
-    // device_id (stable UUID) is preferred
-    let device_uuid_opt = payload_value.get("device_id")
+    // Extract preferred device UUID
+    let device_uuid_opt = payload_value
+        .get("device_id")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .or_else(|| payload_value.get("device_uuid").and_then(|v| v.as_str()).map(|s| s.to_string()));
+        .or_else(|| {
+            payload_value
+                .get("device_uuid")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
 
-    // friendly hostname (used as device_name)
-    let friendly_name_opt = payload_value.get("system_info")
+    // Extract friendly hostname for UI
+    let friendly_name_opt = payload_value
+        .get("system_info")
         .and_then(|si| si.get("hostname"))
         .and_then(|h| h.as_str())
         .map(|s| s.to_string());
 
-    // try to deserialize DeviceInfo; ensure device_uuid inside struct is set
+    // Deserialize DeviceInfo, fallback-friendly if mismatched
     let mut incoming_info: DeviceInfo = match serde_json::from_value(payload_value.clone()) {
         Ok(di) => di,
         Err(_) => {
-            let sys = payload_value.get("system_info").and_then(|si| serde_json::from_value(si.clone()).ok()).unwrap_or(SystemInfo::default());
-            let dtype = payload_value.get("device_type").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let dmodel = payload_value.get("device_model").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let sys = payload_value
+                .get("system_info")
+                .and_then(|si| serde_json::from_value(si.clone()).ok())
+                .unwrap_or(SystemInfo::default());
+
             DeviceInfo {
                 device_uuid: device_uuid_opt.clone(),
                 system_info: sys,
-                device_type: dtype,
-                device_model: dmodel,
+                device_type: payload_value
+                    .get("device_type")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                device_model: payload_value
+                    .get("device_model")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
             }
         }
     };
 
-    // ensure struct's device_uuid is filled if we parsed earlier differently
+    // Ensure proper UUID is filled
     if incoming_info.device_uuid.is_none() {
         if let Some(ref u) = device_uuid_opt {
             incoming_info.device_uuid = Some(u.clone());
         }
     }
 
-    let auto_approve = {
+    // Server settings (includes heartbeat rate)
+    let settings_snapshot = {
         let cfg = state.settings.read().unwrap();
-        cfg.auto_approve_devices
+        cfg.clone()
     };
+
+    let auto_approve = settings_snapshot.auto_approve_devices;
 
     let pending_ref = Arc::clone(&state.pending_devices);
     let incoming_clone = incoming_info.clone();
-    let pool_for_actions = pool_clone.clone();
     let try_device_uuid = device_uuid_opt.clone();
-    let try_friendly = friendly_name_opt.clone().unwrap_or_else(|| try_device_uuid.clone().unwrap_or_default());
+    let try_friendly = friendly_name_opt
+        .clone()
+        .unwrap_or_else(|| try_device_uuid.clone().unwrap_or_default());
 
+    // ADOPTION / UPDATE LOGIC
     let adopted = rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = match pool_clone.get() {
-            Ok(c) => c,
-            Err(_) => return false,
-        };
+        let mut conn = pool_clone.get().ok()?;
 
         if let Some(ref uuid_str) = try_device_uuid {
             let is_approved = devices
@@ -339,15 +356,34 @@ async fn heartbeat(
                 .unwrap_or(false);
 
             if is_approved {
-                let existing = devices.filter(uuid.eq(uuid_str)).first::<Device>(&mut conn).ok();
-                let newdev = NewDevice::from_device_info(uuid_str, &try_friendly, &incoming_clone, existing.as_ref());
+                let existing = devices
+                    .filter(uuid.eq(uuid_str))
+                    .first::<Device>(&mut conn)
+                    .ok();
 
-                let _ = diesel::update(devices.filter(uuid.eq(uuid_str))).set(&newdev).execute(&mut conn).ok();
-                return true;
+                let newdev = NewDevice::from_device_info(
+                    uuid_str,
+                    &try_friendly,
+                    &incoming_clone,
+                    existing.as_ref(),
+                );
+
+                let _ = diesel::update(devices.filter(uuid.eq(uuid_str)))
+                    .set(&newdev)
+                    .execute(&mut conn)
+                    .ok();
+
+                return Some(true);
             }
 
+            // Auto-approve on first sight
             if auto_approve {
-                let mut newdev = NewDevice::from_device_info(uuid_str, &try_friendly, &incoming_clone, None);
+                let mut newdev = NewDevice::from_device_info(
+                    uuid_str,
+                    &try_friendly,
+                    &incoming_clone,
+                    None,
+                );
                 newdev.approved = true;
                 newdev.last_checkin = Utc::now().naive_utc();
 
@@ -357,11 +393,12 @@ async fn heartbeat(
                     .do_update()
                     .set(&newdev)
                     .execute(&mut conn);
-                return true;
+
+                return Some(true);
             }
         }
 
-        // No UUID or not approved — keep/update pending in-memory keyed by friendly name
+        // Not approved or no UUID — keep pending
         let mut pending = pending_ref.write().unwrap();
         let key = try_friendly.clone();
         pending
@@ -369,44 +406,44 @@ async fn heartbeat(
             .and_modify(|existing| existing.merge_with(&incoming_clone))
             .or_insert(incoming_clone);
 
-        false
+        Some(false)
     })
     .await
+    .unwrap_or(Some(false))
     .unwrap_or(false);
 
-    // Regardless of adoption, now fetch pending action targets for this device (by UUID)
-    let actions_for_device = rocket::tokio::task::spawn_blocking(move || {
-        use diesel::prelude::*;
-        use crate::schema::action_targets::dsl as targets_dsl;
-        use crate::schema::actions::dsl as top_actions_dsl;
+    // Fetch pending actions
+    let actions_for_device = {
+        let pool_for_actions = pool.inner().clone();
+        rocket::tokio::task::spawn_blocking(move || {
+            use crate::schema::action_targets::dsl as targets_dsl;
+            use crate::schema::actions::dsl as top_actions_dsl;
+            use diesel::prelude::*;
 
-        let mut conn = match pool_for_actions.get() {
-            Ok(c) => c,
-            Err(_) => return Vec::<(ActionTarget, Option<Action>)>::new(),
-        };
+            let mut conn = pool_for_actions.get().ok()?;
+            let uuid_str = try_device_uuid?;
 
-        if let Some(ref uuid_str) = try_device_uuid {
-            let targets = match targets_dsl::action_targets
-                .filter(targets_dsl::device_uuid.eq(uuid_str))
+            let targets = targets_dsl::action_targets
+                .filter(targets_dsl::device_uuid.eq(&uuid_str))
                 .filter(targets_dsl::status.eq("pending"))
                 .load::<ActionTarget>(&mut conn)
-            {
-                Ok(v) => v,
-                Err(_) => Vec::new(),
-            };
+                .unwrap_or_default();
 
             let mut pairs = Vec::new();
             for t in targets {
-                let parent = top_actions_dsl::actions.filter(top_actions_dsl::id.eq(&t.action_id)).first::<Action>(&mut conn).ok();
+                let parent = top_actions_dsl::actions
+                    .filter(top_actions_dsl::id.eq(&t.action_id))
+                    .first::<Action>(&mut conn)
+                    .ok();
                 pairs.push((t, parent));
             }
-            pairs
-        } else {
-            Vec::new()
-        }
-    })
-    .await
-    .unwrap_or_default();
+
+            Some(pairs)
+        })
+        .await
+        .unwrap_or(None)
+        .unwrap_or_default()
+    };
 
     let actions_json: Vec<serde_json::Value> = actions_for_device
         .into_iter()
@@ -423,7 +460,7 @@ async fn heartbeat(
                     "parameters": a.parameters,
                     "author": a.author,
                     "created_at": a.created_at,
-                    "expires_at": a.expires_at,
+                    "expires_at": a.expires_at
                 }))
             })
         })
@@ -431,68 +468,11 @@ async fn heartbeat(
 
     Json(json!({
         "adopted": adopted,
-        "actions": actions_json
-    }))
-}
-
-/// ADMIN: submit high-level action. payload: { action_type, parameters(opt), ttl_seconds, target (uuid|string|array|"*"), author }
-#[post("/actions/submit", format = "json", data = "<payload>")]
-async fn submit_action(pool: &State<DbPool>, payload: Json<JsonValue>) -> Result<Json<serde_json::Value>, String> {
-    use diesel::prelude::*;
-    use crate::schema::actions::dsl as actions_dsl;
-    use crate::schema::action_targets::dsl as targets_dsl;
-
-    let j = payload.into_inner();
-
-    let action_type = j.get("action_type").and_then(|v| v.as_str()).ok_or("missing action_type")?.to_string();
-    let parameters = j.get("parameters").map(|p| p.to_string());
-    let ttl = j.get("ttl_seconds").and_then(|v| v.as_i64()).unwrap_or(3600) as i64;
-    let author = j.get("author").and_then(|v| v.as_str()).map(|s| s.to_string());
-
-    let target = j.get("target").cloned();
-
-    let new_id = Uuid::new_v4().to_string();
-    let new_action = NewAction::new_pending(new_id.clone(), action_type.clone(), parameters.clone(), author.clone(), ttl);
-
-    let pool = pool.inner().clone();
-    rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool.get().map_err(|e| e.to_string())?;
-
-        diesel::insert_into(actions_table::table)
-            .values(&new_action)
-            .execute(&mut conn)
-            .map_err(|e| e.to_string())?;
-
-        let details = serde_json::json!({
-            "action_type": action_type,
-            "parameters": parameters,
-            "ttl_seconds": ttl
-        }).to_string();
-        let audit = NewAuditRecord::new(Some(new_id.clone()), None, author.clone(), "submitted".into(), Some(details));
-        let _ = diesel::insert_into(audit_log::table).values(&audit).execute(&mut conn);
-
-        if let Some(t) = target {
-            if t.is_string() {
-                let t_str = t.as_str().unwrap().to_string();
-                if t_str != "*" {
-                    let new_target = NewActionTarget::new(new_id.clone(), t_str.clone());
-                    let _ = diesel::insert_into(action_targets::table).values(&new_target).execute(&mut conn);
-                }
-            } else if t.is_array() {
-                let arr = t.as_array().unwrap();
-                for el in arr {
-                    if let Some(s) = el.as_str() {
-                        let new_target = NewActionTarget::new(new_id.clone(), s.to_string());
-                        let _ = diesel::insert_into(action_targets::table).values(&new_target).execute(&mut conn);
-                    }
-                }
-            }
+        "actions": actions_json,
+        "settings": {
+            "heartbeat_interval_sec": settings_snapshot.client_heartbeat_interval_sec
         }
-
-        Ok(Json(json!({ "action_id": new_id, "status": "queued" })))
-    })
-    .await
-    .unwrap_or_else(|e| Err(format!("Join error: {}", e)))
+    }))
 }
 
 /// CLIENT reports result for an action target
