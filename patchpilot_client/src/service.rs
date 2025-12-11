@@ -122,16 +122,9 @@ async fn register_device(
     device_model: &str,
 ) -> Result<String> {
 
-    // Collect system info properly (synchronous short path + refresh)
-    let mut sys_info = match get_system_info() {
-        Ok(info) => info,
-        Err(_) => SystemInfo::gather_blocking(),
-    };
+    // fresh synchronous snapshot
+    let sys_info = get_system_info();
 
-    // Note: get_system_info() returns a fresh blocking snapshot in your current implementation.
-    // If you have async helpers, you can call those instead.
-
-    // Build JSON payload
     let payload = json!({
         "system_info": {
             "hostname": sys_info.hostname,
@@ -170,9 +163,8 @@ async fn register_device(
         anyhow::bail!("Registration failed {}: {}", status, body);
     }
 
-    // Server returns { pending_id: "..." } or { device_id: "..." }
-    let parsed: Value =
-        serde_json::from_str(&body).context("Server returned invalid JSON")?;
+    let parsed: Value = serde_json::from_str(&body)
+        .context("Server returned invalid JSON")?;
 
     if let Some(pid) = parsed.get("pending_id").and_then(|v| v.as_str()) {
         write_local_device_id(pid)?;
@@ -186,6 +178,7 @@ async fn register_device(
     anyhow::bail!("Server did not return pending_id or device_id");
 }
 
+
 async fn send_system_update(
     client: &Client,
     server_url: &str,
@@ -194,10 +187,7 @@ async fn send_system_update(
     device_model: &str,
 ) -> Result<()> {
 
-    let mut sys_info = match get_system_info() {
-        Ok(info) => info,
-        Err(_) => SystemInfo::gather_blocking(),
-    };
+    let sys_info = get_system_info();
 
     let payload = json!({
         "system_info": sys_info,
@@ -226,8 +216,8 @@ async fn send_heartbeat(
     device_type: &str,
     device_model: &str,
 ) -> Result<Value> {
-    // heartbeat returns server JSON (we will inspect it for adopted/status and commands optionally)
-    let sys_info = get_system_info(); // <-- remove the `};`
+
+    let sys_info = get_system_info();
 
     let payload = json!({
         "device_id": device_id,
@@ -247,7 +237,11 @@ async fn send_heartbeat(
         anyhow::bail!("Heartbeat request rejected: {}", resp.status());
     }
 
-    let v = resp.json::<Value>().await.context("Parsing heartbeat response JSON")?;
+    let v = resp
+        .json::<Value>()
+        .await
+        .context("Parsing heartbeat response JSON")?;
+
     Ok(v)
 }
 
@@ -373,29 +367,27 @@ async fn post_command_result(
 
 /// Long-poll loop: repeatedly ask server for commands and execute them.
 /// This returns only when the running_flag becomes false (if provided) or an unrecoverable error occurs.
-async fn command_longpoll_loop(
+async fn command_poll_loop(
     client: Client,
     server_url: String,
     device_id: String,
-    running_flag: Option<&AtomicBool>,
+    running_flag: Option<Arc<AtomicBool>>,
 ) {
-    log::info!("Starting command long-poll loop for device {}", device_id);
+    log::info!("Starting command poll loop for device {}", device_id);
 
     loop {
-        if let Some(flag) = running_flag {
+        if let Some(flag) = &running_flag {
             if !flag.load(Ordering::SeqCst) {
-                log::info!("Command long-poll stopping due to service shutdown flag");
+                log::info!("Command poll loop stopping via flag");
                 return;
             }
         }
 
         let poll_url = format!("{}/api/devices/{}/commands/poll", server_url, device_id);
-        // We wrap the http request in tokio::time::timeout to enforce a long-poll window client-side.
         let req_future = client.get(&poll_url).send();
 
         match timeout(Duration::from_secs(COMMAND_LONGPOLL_TIMEOUT_SECS), req_future).await {
             Ok(Ok(resp)) => {
-                // Got response from server (maybe empty list)
                 if !resp.status().is_success() {
                     log::warn!("Command poll returned non-OK: {}", resp.status());
                     sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
@@ -404,42 +396,31 @@ async fn command_longpoll_loop(
 
                 match resp.json::<Value>().await {
                     Ok(val) => {
-                        // Expecting an array of commands
                         if let Some(arr) = val.as_array() {
-                            if arr.is_empty() {
-                                // No commands; immediately loop to re-poll
-                                continue;
-                            }
-
-                            // For each command, spawn a task to execute and report
-                            for cmd_item in arr.iter() {
-                                // Clone client/server/device for the spawned task
-                                let client_clone = client.clone();
-                                let server_clone = server_url.clone();
-                                let device_clone = device_id.clone();
-                                let cmd_clone = cmd_item.clone();
-                                tokio::spawn(async move {
-                                    execute_command_and_post_result(client_clone, server_clone, device_clone, cmd_clone).await;
-                                });
+                            for cmd_item in arr {
+                                tokio::spawn(execute_command_and_post_result(
+                                    client.clone(),
+                                    server_url.clone(),
+                                    device_id.clone(),
+                                    cmd_item.clone(),
+                                ));
                             }
                         } else {
-                            log::warn!("Unexpected command poll response (not array): {:?}", val);
+                            log::warn!("Unexpected poll response: {:?}", val);
                         }
                     }
                     Err(e) => {
-                        log::warn!("Failed to parse command poll JSON: {}", e);
+                        log::warn!("JSON parse failure: {}", e);
                         sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
                     }
                 }
             }
             Ok(Err(e)) => {
-                // HTTP error
-                log::warn!("Command poll HTTP error: {}", e);
+                log::warn!("HTTP error: {}", e);
                 sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
             }
             Err(_) => {
-                // Timeout (long-poll duration elapsed) -> simply re-loop to poll again
-                // This is expected behavior; server may hold request up to longpoll timeout.
+                // timeout is normal — long-poll expired
                 continue;
             }
         }
