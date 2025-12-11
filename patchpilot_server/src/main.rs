@@ -807,6 +807,13 @@ async fn audit_page() -> Option<NamedFile> {
         .ok()
 }
 
+#[get("/history.html")]
+async fn history_page() -> Option<NamedFile> {
+    NamedFile::open("/opt/patchpilot_server/templates/history.html")
+        .await
+        .ok()
+}
+
 #[launch]
 fn rocket() -> _ {
     init_logger();
@@ -852,18 +859,13 @@ fn rocket() -> _ {
             routes![
                 register_device,
                 register_or_update_device,
-
-                // If these routes live elsewhere, keep them; otherwise you'll get new missing-symbol errors next.
                 get_devices,
                 get_device_details,
-                status,
                 heartbeat,
                 approve_device,
                 set_auto_approve,
                 set_auto_refresh,
                 set_auto_refresh_interval,
-
-                // actions / audit
                 submit_action,
                 report_action_result,
                 list_actions,
@@ -872,5 +874,5 @@ fn rocket() -> _ {
             ],
         )
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
-        .mount("/", routes![dashboard, device_detail, favicon, actions_page, audit_page])
+        .mount("/", routes![dashboard, device_detail, favicon, actions_page, audit_page, history_page])
 }

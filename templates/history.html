@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Audit History</title>
+  <link rel="stylesheet" href="/static/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/navbar.css">
+  <script src="/static/bootstrap.bundle.min.js"></script>
+  <style>
+    body { padding-left: 250px; }
+    table { width: 100%; }
+    th, td { padding: 0.5rem; text-align: left; }
+  </style>
+</head>
+<body>
+  <!-- Sidebar -->
+  {{ include "navbar.html" }}
+
+  <main class="p-3">
+    <h2>Audit History</h2>
+    <table class="table table-striped" id="auditTable">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Action</th>
+          <th>Device</th>
+          <th>Actor</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </main>
+
+  <script>
+    async function loadAudit() {
+      const resp = await fetch('/api/audit');
+      const data = await resp.json();
+      const tbody = document.querySelector('#auditTable tbody');
+      tbody.innerHTML = '';
+
+      data.audit.forEach(record => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${new Date(record.created_at).toLocaleString()}</td>
+          <td>${record.action_type}</td>
+          <td>${record.device_name || ''}</td>
+          <td>${record.actor || ''}</td>
+          <td>${record.details || ''}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    loadAudit();
+    setInterval(loadAudit, 10000); // refresh every 10s
+  </script>
+</body>
+</html>
