@@ -7,7 +7,7 @@ use local_ip_address::local_ip;
 use tokio::time::{sleep, timeout};
 use std::process::Stdio;
 use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
-use sysinfo::{System, ProcessorExt, DiskExt};
+use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworksExt};
 
 /// Intervals (defaults). Server can override refresh interval by sending a config value
 /// in heartbeat response; client can call `set_system_info_refresh_secs(...)`.
@@ -533,7 +533,7 @@ pub async fn run_adoption_and_update_loop(
 #[cfg(any(unix, target_os = "macos"))]
 pub async fn run_unix_service() -> Result<()> {
     let client = Client::new();
-    let server_url = read_server_url().await?;
+    let server_url = crate::service::read_server_url().await?;
     run_adoption_and_update_loop(&client, &server_url, None).await
 }
 

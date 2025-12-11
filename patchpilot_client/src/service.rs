@@ -82,11 +82,12 @@ pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
 
     Ok(logger)
 }
-
-async fn read_server_url() -> Result<String> {
-    let url = fs::read_to_string(SERVER_URL_FILE)
-        .with_context(|| format!("Failed to read server URL from {}", SERVER_URL_FILE))?;
-    Ok(url.trim().to_string())
+pub(crate) async fn read_server_url() -> Result<String> {
+    use std::fs;
+    let path = if cfg!(windows) {"C:\\ProgramData\\PatchPilot\\server_url.txt"} 
+        else {"/opt/patchpilot_client/server_url.txt"};
+    let url = fs::read_to_string(path)?.trim().to_string();
+    Ok(url)
 }
 
 pub fn get_ip_address() -> String {
@@ -226,12 +227,7 @@ async fn send_heartbeat(
     device_model: &str,
 ) -> Result<Value> {
     // heartbeat returns server JSON (we will inspect it for adopted/status and commands optionally)
-    let mut sys_info = match get_system_info() {
-        Ok(info) => info,
-        Err(_) => {
-            let mut blank = SystemInfo::gather_blocking();
-            blank
-        }
+    let mut sys_info = get_system_info();
     };
 
     let payload = json!({
