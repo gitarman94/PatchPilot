@@ -226,35 +226,36 @@ fn write_local_device_id(device_id: &str) -> Result<()> {
 }
 
 fn get_device_info_basic() -> (String, String) {
-    let si = SystemInfo::gather_blocking();
-    let device_type = si.device_type.clone();
-    let device_model = si.device_model.clone();
+    let si = crate::system_info::get_system_info();
+    let device_type = if si.device_type.trim().is_empty() { "".into() } else { si.device_type };
+    let device_model = if si.device_model.trim().is_empty() { "".into() } else { si.device_model };
     (device_type, device_model)
 }
 
-/// Register device (returns pending_id if created)
+
+// Register device (returns pending_id if created)
 async fn register_device(
     client: &Client,
     server_url: &str,
     device_type: &str,
     device_model: &str,
 ) -> Result<String> {
-    let sys_info = SystemInfo::gather_blocking();
+    let sys_info = crate::system_info::get_system_info();
 
     let payload = json!({
         "system_info": sys_info,
         "device_type": device_type,
-        "device_model": device_model,
-        "capabilities": ["shell","script-run","sysinfo"]
+        "device_model": device_model
     });
 
     let url = format!("{}/api/register", server_url);
+
     let response = client
         .post(&url)
         .json(&payload)
         .send()
         .await
-        .context("Error sending registration")?;
+        .context("Error sending registration request")?;
 
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
@@ -263,17 +264,20 @@ async fn register_device(
         anyhow::bail!("Registration failed {}: {}", status, body);
     }
 
-    let parsed: serde_json::Value =
-        serde_json::from_str(&body).context("Server returned invalid JSON")?;
+    let parsed: Value = serde_json::from_str(&body).context("Server returned invalid JSON")?;
 
+    // server may return pending_id or device_id
     if let Some(pid) = parsed.get("pending_id").and_then(|v| v.as_str()) {
         write_local_device_id(pid)?;
         return Ok(pid.to_string());
     }
+    if let Some(did) = parsed.get("device_id").and_then(|v| v.as_str()) {
+        write_local_device_id(did)?;
+        return Ok(did.to_string());
+    }
 
-    anyhow::bail!("Server did not return pending_id");
+    anyhow::bail!("Server did not return pending_id or device_id");
 }
-
 
 async fn send_system_update(
     client: &Client,
@@ -282,7 +286,7 @@ async fn send_system_update(
     device_type: &str,
     device_model: &str,
 ) -> Result<()> {
-    let sys_info = SystemInfo::gather_blocking();
+    let sys_info = crate::system_info::get_system_info();
 
     let payload = json!({
         "system_info": sys_info,
@@ -300,6 +304,7 @@ async fn send_system_update(
     if !resp.status().is_success() {
         anyhow::bail!("Server update rejected: {}", resp.status());
     }
+
     Ok(())
 }
 
@@ -309,8 +314,9 @@ async fn send_heartbeat(
     device_id: &str,
     device_type: &str,
     device_model: &str,
-) -> bool {
-    let sys_info = SystemInfo::gather_blocking();
+) -> Result<Value> {
+    // heartbeat returns server JSON (we will inspect it for adopted/status and commands optionally)
+    let sys_info = crate::system_info::get_system_info();
 
     let payload = json!({
         "device_id": device_id,
@@ -319,33 +325,19 @@ async fn send_heartbeat(
         "device_model": device_model
     });
 
-    match client.post(format!("{}/api/devices/heartbeat", server_url)).json(&payload).send().await {
-        Ok(r) => {
-            if !r.status().is_success() {
-                log::warn!("Heartbeat request returned non-OK: {}", r.status());
-                return false;
-            }
-            match r.json::<serde_json::Value>().await {
-                Ok(v) => {
-                    if let Some(sec) = v.get("config")
-                        .and_then(|c| c.get("system_info_refresh_secs"))
-                        .and_then(|s| s.as_u64()) {
-                        set_system_info_refresh_secs(sec);
-                    }
-                    v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
-                        || v.get("status").and_then(|x| x.as_str()) == Some("adopted")
-                }
-                Err(e) => {
-                    log::warn!("Failed to parse heartbeat JSON response: {}", e);
-                    false
-                }
-            }
-        }
-        Err(e) => {
-            log::warn!("Failed to send heartbeat: {}", e);
-            false
-        }
+    let resp = client
+        .post(format!("{}/api/devices/heartbeat", server_url))
+        .json(&payload)
+        .send()
+        .await
+        .context("Heartbeat request failed")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("Heartbeat request rejected: {}", resp.status());
     }
+
+    let v = resp.json::<Value>().await.context("Parsing heartbeat response JSON")?;
+    Ok(v)
 }
 
 async fn poll_for_commands_once(client: &Client, server_url: &str, device_id: &str) -> Result<Vec<ServerCommand>> {
@@ -444,94 +436,176 @@ async fn post_command_result(client: &Client, server_url: &str, result: &Command
 
 /// `running_flag` is Option<Arc<AtomicBool>> so it is Send + 'static for tokio::spawn.
 /// If provided, the loops will stop when the flag is set to false.
-async fn command_poll_loop(client: Client, server_url: String, device_id: String, running_flag: Option<Arc<AtomicBool>>) {
+async fn command_poll_loop(
+    client: Client,
+    server_url: String,
+    device_id: String,
+    running_flag: Option<Arc<AtomicBool>>,
+) {
+    log::info!("Starting command poll loop for device {}", device_id);
+
     loop {
         if let Some(ref flag) = running_flag {
-            if !flag.load(Ordering::SeqCst) {
-                log::info!("Command poll loop stopping due to service stop signal.");
+            if !flag.load(std::sync::atomic::Ordering::SeqCst) {
+                log::info!("Command poll loop stopping due to shutdown flag");
                 return;
             }
         }
 
-        match poll_for_commands_once(&client, &server_url, &device_id).await {
-            Ok(commands) => {
-                if !commands.is_empty() {
-                    log::info!("Received {} commands to execute", commands.len());
+        let poll_url = format!("{}/api/devices/{}/commands/poll", server_url, device_id);
+        let request_future = client.get(&poll_url).send();
+
+        match tokio::time::timeout(
+            Duration::from_secs(COMMAND_LONGPOLL_TIMEOUT_SECS),
+            request_future
+        ).await {
+            Ok(Ok(resp)) => {
+                if !resp.status().is_success() {
+                    log::warn!("Command poll returned non-OK: {}", resp.status());
+                    tokio::time::sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
+                    continue;
                 }
-                for cmd in commands.into_iter() {
-                    let r = execute_command_and_collect_result(&cmd).await;
-                    if let Err(e) = post_command_result(&client, &server_url, &r).await {
-                        log::warn!("Failed to post command result for {}: {}", r.id, e);
+
+                match resp.json::<Value>().await {
+                    Ok(val) => {
+                        if let Some(arr) = val.as_array() {
+                            if arr.is_empty() {
+                                continue;
+                            }
+
+                            for cmd_item in arr {
+                                let client_clone = client.clone();
+                                let server_clone = server_url.clone();
+                                let device_clone = device_id.clone();
+                                let cmd_clone = cmd_item.clone();
+
+                                tokio::spawn(async move {
+                                    execute_command_and_post_result(
+                                        client_clone,
+                                        server_clone,
+                                        device_clone,
+                                        cmd_clone,
+                                    )
+                                    .await;
+                                });
+                            }
+                        } else {
+                            log::warn!("Unexpected response to command poll: {:?}", val);
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to parse command poll JSON: {}", e);
+                        tokio::time::sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
                     }
                 }
             }
-            Err(e) => log::warn!("Command poll failed: {}", e),
+            Ok(Err(e)) => {
+                log::warn!("Command poll HTTP error: {}", e);
+                tokio::time::sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
+            }
+            Err(_) => {
+                // timeout is normal (long poll expired)
+                continue;
+            }
         }
-
-        sleep(Duration::from_secs(DEFAULT_COMMAND_POLL_INTERVAL)).await;
     }
 }
 
-pub async fn run_adoption_and_update_loop(
+
+async fn run_adoption_and_update_loop(
     client: &Client,
     server_url: &str,
     running_flag: Option<Arc<AtomicBool>>
 ) -> Result<()> {
-    let (device_type, device_model) = {
-        // Best-effort synchronous shortcut for boot-time device_type/model
-        let svc = SystemInfoService::default();
-        let si = svc.get_system_info_async().await.unwrap_or_else(|_| SystemInfo::gather_blocking());
-        (si.device_type.clone(), si.device_model.clone())
-    };
 
+    let (device_type, device_model) = get_device_info_basic();
     let mut device_id = get_local_device_id();
 
     if device_id.is_none() {
         loop {
             match register_device(client, server_url, &device_type, &device_model).await {
-                Ok(id) => { log::info!("Received device_id from server: {}", id); write_local_device_id(&id)?; device_id = Some(id); break; }
-                Err(e) => { log::warn!("No device_id yet. Retrying...: {}", e); sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await; }
+                Ok(id) => {
+                    log::info!("Received device_id from server: {}", id);
+                    write_local_device_id(&id)?;
+                    device_id = Some(id);
+                    break;
+                }
+                Err(e) => {
+                    log::warn!("No device_id yet (server has not approved?). Retrying...: {}", e);
+                    sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
+                }
             }
         }
     }
+
     let device_id = device_id.unwrap();
 
-    // keep checking heartbeat until adopted
+    // Ensure adoption via heartbeat
     loop {
-        if send_heartbeat(client, server_url, &device_id, &device_type, &device_model).await { break; }
+        match send_heartbeat(client, server_url, &device_id, &device_type, &device_model).await {
+            Ok(v) => {
+                let adopted = v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
+                    || v.get("status").and_then(|x| x.as_str()) == Some("adopted");
+                if adopted {
+                    break;
+                } else {
+                    log::info!("Device not yet adopted; heartbeat returned {:?}", v);
+                }
+            }
+            Err(e) => {
+                log::warn!("Heartbeat failed while waiting for adoption: {}", e);
+            }
+        }
         sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
     }
 
-    // start command poll loop in background if requested
-    if true {
-        let client_clone = client.clone();
-        let server_clone = server_url.to_string();
-        let device_clone = device_id.clone();
-        let rf = running_flag.clone();
-        tokio::spawn(async move {
-            command_poll_loop(client_clone, server_clone, device_clone, rf).await;
-        });
-    }
+    // spawn command long-poll loop as background task so updates & heartbeats continue.
+    let client_for_poller = client.clone();
+    let server_url_string = server_url.to_string();
+    let device_id_string = device_id.clone();
+    let flag_for_poller = running_flag.clone(); // Option<Arc<AtomicBool>>
 
-    // Main update loop
+    let poller_handle = tokio::spawn(async move {
+        command_longpoll_loop(client_for_poller, server_url_string, device_id_string, flag_for_poller).await;
+    });
+
+    // Main periodic system update loop (keeps heartbeat & updates)
     loop {
         if let Some(ref flag) = running_flag {
             if !flag.load(Ordering::SeqCst) {
-                return Ok(());
+                log::info!("Shutting down update loop due to flag");
+                break;
             }
         }
 
         if let Err(e) = send_system_update(client, server_url, &device_id, &device_type, &device_model).await {
             log::warn!("system_update failed: {}", e);
         }
-        sleep(Duration::from_secs(DEFAULT_SYSTEM_UPDATE_INTERVAL)).await;
+
+        // Heartbeat (also lets server send back immediate commands or status if you choose)
+        match send_heartbeat(client, server_url, &device_id, &device_type, &device_model).await {
+            Ok(v) => {
+                log::debug!("Heartbeat OK: {:?}", v);
+            }
+            Err(e) => {
+                log::warn!("Heartbeat failed: {}", e);
+            }
+        }
+
+        sleep(Duration::from_secs(SYSTEM_UPDATE_INTERVAL)).await;
     }
+
+    // Wait for poller to finish (it should exit when flag is cleared)
+    let _ = poller_handle.await;
+
+    Ok(())
 }
 
 #[cfg(any(unix, target_os = "macos"))]
 pub async fn run_unix_service() -> Result<()> {
     let client = Client::new();
-    let server_url = crate::service::read_server_url().await?;
+    let server_url = read_server_url().await?;
+    // no runtime stop flag for simple unix service invocations
     run_adoption_and_update_loop(&client, &server_url, None).await
 }
 
