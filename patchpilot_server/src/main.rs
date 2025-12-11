@@ -70,8 +70,7 @@ pub fn spawn_pending_cleanup(state: Arc<AppState>) {
 }
 
 /// Sweeper: expire top-level actions and action targets when TTL passed.
-/// This implementation does a simple expiration for `actions` table (compare expires_at)
-/// and marks/archives expired action_targets if their action expired (basic behavior).
+/// Marks expired top-level actions (expires_at) and marks their targets as "expired".
 pub fn spawn_action_ttl_sweeper(pool: DbPool) {
     tokio::spawn(async move {
         loop {
@@ -89,14 +88,13 @@ pub fn spawn_action_ttl_sweeper(pool: DbPool) {
                     Err(_) => return,
                 };
 
-                // Find expired high-level actions
+                // Expire top-level actions whose expires_at <= now and are not already canceled.
                 if let Ok(expired_actions) = top_actions_dsl::actions
                     .filter(top_actions_dsl::expires_at.le(Utc::now().naive_utc()))
                     .filter(top_actions_dsl::canceled.eq(false))
                     .load::<Action>(&mut conn)
                 {
                     for act in expired_actions {
-                        // Insert audit entry that action expired
                         let details = serde_json::json!({
                             "action_type": act.action_type,
                             "parameters": act.parameters,
@@ -106,11 +104,13 @@ pub fn spawn_action_ttl_sweeper(pool: DbPool) {
                         let audit = NewAuditRecord::new(Some(act.id.clone()), None, Some(act.author.clone().unwrap_or_else(|| "system".into())), "expired".into(), Some(details));
                         let _ = diesel::insert_into(audit_log::table).values(&audit).execute(&mut conn);
 
-                        // Mark action as canceled/expired (we'll set canceled = true)
-                        let _ = diesel::update(top_actions_dsl::actions.filter(top_actions_dsl::id.eq(act.id))).set(top_actions_dsl::canceled.eq(true)).execute(&mut conn);
+                        // mark action canceled/expired
+                        let _ = diesel::update(top_actions_dsl::actions.filter(top_actions_dsl::id.eq(act.id.clone())))
+                            .set(top_actions_dsl::canceled.eq(true))
+                            .execute(&mut conn);
 
-                        // Optionally mark action_targets as expired (where pending)
-                        let _ = diesel::update(targets_dsl::action_targets.filter(targets_dsl::action_id.eq(act.id)).filter(targets_dsl::status.eq("pending")))
+                        // mark related targets as expired when still pending
+                        let _ = diesel::update(targets_dsl::action_targets.filter(targets_dsl::action_id.eq(act.id.clone())).filter(targets_dsl::status.eq("pending")))
                             .set((targets_dsl::status.eq("expired"), targets_dsl::last_update.eq(Utc::now().naive_utc())))
                             .execute(&mut conn);
                     }
@@ -170,8 +170,8 @@ fn validate_device_info(info: &DeviceInfo) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// Insert or update a device — ALWAYS targeted by stable device UUID (device_id).
-/// `device_uuid` must be provided by client (device_id). `friendly_name` is human name/hostname.
+/// Insert or update a device using a stable UUID (device_uuid) and a friendly name.
+/// If a row exists for the uuid, it will be updated; otherwise insert (if unique uuid index exists).
 fn insert_or_update_device(
     conn: &mut SqliteConnection,
     device_uuid: &str,
@@ -180,7 +180,7 @@ fn insert_or_update_device(
 ) -> Result<Device, ApiError> {
     use crate::schema::devices::dsl::*;
 
-    // Try to find an existing by uuid first; if not present, try matching by device_name.
+    // Find existing by uuid, otherwise try by device_name (legacy)
     let existing = devices
         .filter(uuid.eq(device_uuid))
         .first::<Device>(conn)
@@ -189,7 +189,6 @@ fn insert_or_update_device(
 
     let new_device = NewDevice::from_device_info(device_uuid, friendly_name, info, existing.as_ref());
 
-    // ON CONFLICT(uuid) requires uuid unique index (created in initialize_db).
     diesel::insert_into(devices)
         .values(&new_device)
         .on_conflict(uuid)
@@ -225,7 +224,7 @@ async fn register_device(
 }
 
 /// CLIENT attempts DB update → only allowed if already approved.
-/// This endpoint expects the device to send its stable device_id (UUID) as part of payload or path.
+/// This endpoint expects the device to use its stable UUID as the path parameter.
 #[post("/devices/<device_id>", format = "json", data = "<device_info>")]
 async fn register_or_update_device(
     pool: &State<DbPool>,
@@ -236,7 +235,7 @@ async fn register_or_update_device(
     validate_device_info(&device_info).map_err(|e| e.message())?;
 
     let pool = pool.inner().clone();
-    // device_id is the stable UUID sent by device
+    // device_id here is expected to be stable device UUID
     let device_uuid = device_id.to_string();
     let device_info = device_info.into_inner();
 
@@ -244,7 +243,7 @@ async fn register_or_update_device(
         use crate::schema::devices::dsl::*;
         let mut conn = establish_connection(&pool).map_err(|e| e.message())?;
 
-        // ensure exists and approved
+        // ensure device exists and is approved
         let approved_state = devices
             .filter(uuid.eq(&device_uuid))
             .select(approved)
@@ -255,13 +254,8 @@ async fn register_or_update_device(
             return Err(format!("Device {} not adopted (approved) yet", device_uuid));
         }
 
-        // use hostname from payload.system_info.hostname if available, else device_uuid
-        let friendly = if !device_info.system_info.ip_address.clone().unwrap_or_default().is_empty() {
-            // fallback: prefer hostname if present in system_info? We'll use device_info.device_type as cheap fallback
-            device_info.system_info.ip_address.clone().unwrap_or(device_uuid.clone())
-        } else {
-            device_uuid.clone()
-        };
+        // friendly name: prefer hostname in payload if available
+        let friendly = device_info.system_info.ip_address.clone().unwrap_or(device_uuid.clone());
 
         insert_or_update_device(&mut conn, &device_uuid, &friendly, &device_info)
             .map(Json)
@@ -286,30 +280,26 @@ async fn heartbeat(
     let payload_value = payload.into_inner();
 
     // device_id (stable UUID) is preferred
-    let device_uuid = payload_value.get("device_id")
+    let device_uuid_opt = payload_value.get("device_id")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .or_else(|| {
-            // fallback: maybe clients send device_uuid
-            payload_value.get("device_uuid").and_then(|v| v.as_str()).map(|s| s.to_string())
-        });
+        .or_else(|| payload_value.get("device_uuid").and_then(|v| v.as_str()).map(|s| s.to_string()));
 
     // friendly hostname (used as device_name)
-    let friendly_name = payload_value.get("system_info")
+    let friendly_name_opt = payload_value.get("system_info")
         .and_then(|si| si.get("hostname"))
         .and_then(|h| h.as_str())
         .map(|s| s.to_string());
 
-    // try to deserialize DeviceInfo; fill in device_id field if present
+    // try to deserialize DeviceInfo; ensure device_uuid inside struct is set
     let mut incoming_info: DeviceInfo = match serde_json::from_value(payload_value.clone()) {
-        Ok(mut di) => di,
+        Ok(di) => di,
         Err(_) => {
             let sys = payload_value.get("system_info").and_then(|si| serde_json::from_value(si.clone()).ok()).unwrap_or(SystemInfo::default());
             let dtype = payload_value.get("device_type").and_then(|v| v.as_str()).map(|s| s.to_string());
             let dmodel = payload_value.get("device_model").and_then(|v| v.as_str()).map(|s| s.to_string());
             DeviceInfo {
-                // if device_id was present, set it into DeviceInfo.device_uuid (so insert_or_update can read)
-                device_uuid: device_uuid.clone(),
+                device_uuid: device_uuid_opt.clone(),
                 system_info: sys,
                 device_type: dtype,
                 device_model: dmodel,
@@ -317,10 +307,10 @@ async fn heartbeat(
         }
     };
 
-    // If earlier deserialization succeeded, ensure device_uuid in struct filled
-    if incoming_info.device_id.is_none() {
-        if let Some(ref d) = device_uuid {
-            incoming_info.device_id = Some(d.clone());
+    // ensure struct's device_uuid is filled if we parsed earlier differently
+    if incoming_info.device_uuid.is_none() {
+        if let Some(ref u) = device_uuid_opt {
+            incoming_info.device_uuid = Some(u.clone());
         }
     }
 
@@ -329,12 +319,11 @@ async fn heartbeat(
         cfg.auto_approve_devices
     };
 
-    // if device_uuid exists, attempt to insert/update or add to pending
     let pending_ref = Arc::clone(&state.pending_devices);
     let incoming_clone = incoming_info.clone();
     let pool_for_actions = pool_clone.clone();
-    let try_device_uuid = device_uuid.clone();
-    let try_friendly = friendly_name.clone().unwrap_or_else(|| try_device_uuid.clone().unwrap_or_default());
+    let try_device_uuid = device_uuid_opt.clone();
+    let try_friendly = friendly_name_opt.clone().unwrap_or_else(|| try_device_uuid.clone().unwrap_or_default());
 
     let adopted = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = match pool_clone.get() {
@@ -342,7 +331,6 @@ async fn heartbeat(
             Err(_) => return false,
         };
 
-        // if we have UUID, check approved flag
         if let Some(ref uuid_str) = try_device_uuid {
             let is_approved = devices
                 .filter(uuid.eq(uuid_str))
@@ -373,7 +361,7 @@ async fn heartbeat(
             }
         }
 
-        // No UUID or not approved — keep/update pending in-memory by friendly name
+        // No UUID or not approved — keep/update pending in-memory keyed by friendly name
         let mut pending = pending_ref.write().unwrap();
         let key = try_friendly.clone();
         pending
@@ -397,10 +385,7 @@ async fn heartbeat(
             Err(_) => return Vec::<(ActionTarget, Option<Action>)>::new(),
         };
 
-        // if we have a device uuid, find action_targets rows for it that are pending,
-        // join to actions to provide command/parameters
         if let Some(ref uuid_str) = try_device_uuid {
-            // Load pending action targets
             let targets = match targets_dsl::action_targets
                 .filter(targets_dsl::device_uuid.eq(uuid_str))
                 .filter(targets_dsl::status.eq("pending"))
@@ -410,7 +395,6 @@ async fn heartbeat(
                 Err(_) => Vec::new(),
             };
 
-            // For each target, try to load its parent Action
             let mut pairs = Vec::new();
             for t in targets {
                 let parent = top_actions_dsl::actions.filter(top_actions_dsl::id.eq(&t.action_id)).first::<Action>(&mut conn).ok();
@@ -424,7 +408,6 @@ async fn heartbeat(
     .await
     .unwrap_or_default();
 
-    // Convert to JSON response
     let actions_json: Vec<serde_json::Value> = actions_for_device
         .into_iter()
         .map(|(t, maybe_act)| {
@@ -452,7 +435,7 @@ async fn heartbeat(
     }))
 }
 
-/// ADMIN: submit high-level action. payload: { action_type, parameters(opt), ttl_seconds, target_device_id (or "*" wildcard), author }
+/// ADMIN: submit high-level action. payload: { action_type, parameters(opt), ttl_seconds, target (uuid|string|array|"*"), author }
 #[post("/actions/submit", format = "json", data = "<payload>")]
 async fn submit_action(pool: &State<DbPool>, payload: Json<JsonValue>) -> Result<Json<serde_json::Value>, String> {
     use diesel::prelude::*;
@@ -466,7 +449,6 @@ async fn submit_action(pool: &State<DbPool>, payload: Json<JsonValue>) -> Result
     let ttl = j.get("ttl_seconds").and_then(|v| v.as_i64()).unwrap_or(3600) as i64;
     let author = j.get("author").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    // target can be a single device_id (UUID) or "*" or array of device_ids
     let target = j.get("target").cloned();
 
     let new_id = Uuid::new_v4().to_string();
@@ -476,13 +458,11 @@ async fn submit_action(pool: &State<DbPool>, payload: Json<JsonValue>) -> Result
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|e| e.to_string())?;
 
-        // Insert action
         diesel::insert_into(actions_table::table)
             .values(&new_action)
             .execute(&mut conn)
             .map_err(|e| e.to_string())?;
 
-        // Audit: submitted
         let details = serde_json::json!({
             "action_type": action_type,
             "parameters": parameters,
@@ -491,16 +471,10 @@ async fn submit_action(pool: &State<DbPool>, payload: Json<JsonValue>) -> Result
         let audit = NewAuditRecord::new(Some(new_id.clone()), None, author.clone(), "submitted".into(), Some(details));
         let _ = diesel::insert_into(audit_log::table).values(&audit).execute(&mut conn);
 
-        // Create targets depending on `target`:
-        // - if missing or "*": no explicit targets created (clients will poll and match wildcard? For now we do nothing)
-        // - if string: create single target for device_uuid if device exists
-        // - if array: create many targets
         if let Some(t) = target {
             if t.is_string() {
                 let t_str = t.as_str().unwrap().to_string();
                 if t_str != "*" {
-                    // try to find device by uuid or device_name -> get its id (devices.id) OR store device_uuid into action_targets.device_uuid
-                    // We'll store device_uuid directly for simplicity (schema uses device_uuid)
                     let new_target = NewActionTarget::new(new_id.clone(), t_str.clone());
                     let _ = diesel::insert_into(action_targets::table).values(&new_target).execute(&mut conn);
                 }
@@ -539,7 +513,6 @@ async fn report_action_result(pool: &State<DbPool>, action_id: &str, payload: Js
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|e| e.to_string())?;
 
-        // Update action_target row for action_id & device_uuid
         let updated = diesel::update(targets_dsl::action_targets.filter(targets_dsl::action_id.eq(&action_id)).filter(targets_dsl::device_uuid.eq(&device_id)))
             .set((
                 targets_dsl::status.eq(&status_str),
@@ -550,11 +523,9 @@ async fn report_action_result(pool: &State<DbPool>, action_id: &str, payload: Js
             .map_err(|e| e.to_string())?;
 
         if updated == 0 {
-            // No target row found — return error
             return Err(format!("no action target found for action {} and device {}", action_id, device_id));
         }
 
-        // Insert audit entry for completion/failure
         let details = serde_json::json!({
             "device_id": device_id,
             "response": response_text,
@@ -585,7 +556,6 @@ async fn list_actions(pool: &State<DbPool>) -> Result<Json<serde_json::Value>, S
             .load::<Action>(&mut conn)
             .map_err(|e| e.to_string())?;
 
-        // For each action, load its targets (simple approach)
         let mut arr = Vec::new();
         for a in rows {
             let trows = targets_dsl::action_targets.filter(targets_dsl::action_id.eq(&a.id)).load::<ActionTarget>(&mut conn).unwrap_or_default();
@@ -629,10 +599,8 @@ async fn cancel_action(pool: &State<DbPool>, action_id: &str) -> Result<Json<ser
         let mut conn = pool.get().map_err(|e| e.to_string())?;
 
         if let Ok(act) = actions_dsl::actions.filter(actions_dsl::id.eq(&action_id)).first::<Action>(&mut conn) {
-            // mark action canceled
             let _ = diesel::update(actions_dsl::actions.filter(actions_dsl::id.eq(&action_id))).set(actions_dsl::canceled.eq(true)).execute(&mut conn);
 
-            // mark targets as canceled where pending/running
             let _ = diesel::update(targets_dsl::action_targets.filter(targets_dsl::action_id.eq(&action_id)).filter(targets_dsl::status.eq("pending")))
                 .set((targets_dsl::status.eq("canceled"), targets_dsl::last_update.eq(Utc::now().naive_utc())))
                 .execute(&mut conn);
@@ -738,7 +706,7 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            uuid TEXT NOT NULL UNIQUE,                 -- Stable device identifier
+            uuid TEXT NOT NULL UNIQUE,
             device_name TEXT NOT NULL,
             hostname TEXT NOT NULL,
             os_name TEXT NOT NULL,
@@ -771,17 +739,13 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
         );
     "#).execute(conn)?;
 
-    // Ensure uuid column exists (legacy DB support)
-    diesel::sql_query(r#"
-        ALTER TABLE devices ADD COLUMN uuid TEXT;
-    "#).execute(conn).ok();
+    // Backward-compat: add uuid column if missing (ignore errors)
+    diesel::sql_query(r#"ALTER TABLE devices ADD COLUMN uuid TEXT;"#).execute(conn).ok();
 
-    // Ensure unique index on uuid
-    diesel::sql_query(r#"
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_uuid ON devices(uuid);
-    "#).execute(conn)?;
+    // Ensure unique index on uuid (so ON CONFLICT(uuid) works)
+    diesel::sql_query(r#"CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_uuid ON devices(uuid);"#).execute(conn)?;
 
-    // Legacy device-specific actions (retained)
+    // Legacy device_actions kept for compatibility (optional)
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS device_actions (
             id TEXT PRIMARY KEY,
@@ -795,9 +759,9 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
             updated_at TIMESTAMP NOT NULL,
             result TEXT
         );
-    "#).execute(conn)?;
+    "#).execute(conn).ok();
 
-    // High-level action definitions
+    // High-level actions
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS actions (
             id TEXT PRIMARY KEY,
@@ -810,12 +774,12 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
         );
     "#).execute(conn)?;
 
-    // Device targets associated with each action
+    // Action targets: use device_uuid (text) to link to devices.uuid
     diesel::sql_query(r#"
         CREATE TABLE IF NOT EXISTS action_targets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             action_id TEXT NOT NULL,
-            device_id INTEGER NOT NULL,
+            device_uuid TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
             last_update TIMESTAMP NOT NULL,
             response TEXT
@@ -909,7 +873,7 @@ fn rocket() -> _ {
                 register_device,
                 register_or_update_device,
 
-                // device list endpoints (assumed present elsewhere in your codebase)
+                // If these routes live elsewhere, keep them; otherwise you'll get new missing-symbol errors next.
                 get_devices,
                 get_device_details,
                 status,
