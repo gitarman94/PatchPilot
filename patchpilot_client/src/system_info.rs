@@ -7,9 +7,7 @@ use local_ip_address::local_ip;
 use tokio::time::{sleep, timeout};
 use std::process::Stdio;
 use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
-use sysinfo::{System, NetworkExt, CpuExt, DiskExt};
-use futures_util::future::FutureExt;
-
+use sysinfo::{System, ProcessorExt, DiskExt};
 
 /// Intervals (defaults). Server can override refresh interval by sending a config value
 /// in heartbeat response; client can call `set_system_info_refresh_secs(...)`.
@@ -37,7 +35,7 @@ const SCRIPTS_DIR: &str = "C:\\ProgramData\\PatchPilot\\scripts";
 /// Runtime-configurable refresh interval for SystemInfo async cache (seconds).
 static SYSTEM_INFO_REFRESH_SECS: AtomicU64 = AtomicU64::new(10);
 
-/// Public helper to let other modules (heartbeat handler) change the refresh interval.
+/// Public helper to let other modules change the refresh interval.
 pub fn set_system_info_refresh_secs(secs: u64) {
     SYSTEM_INFO_REFRESH_SECS.store(if secs == 0 { 10 } else { secs }, Ordering::SeqCst);
 }
@@ -108,29 +106,26 @@ pub struct SystemInfo {
 
 impl SystemInfo {
     /// Blocking gather (spawn_blocking should be used by async callers).
-    pub fn gather_blocking() -> SystemInfo {
-        let mut sys = sysinfo::System::new_all();
+    pub fn gather_blocking() -> Self {
+        let mut sys = System::new_all();
         sys.refresh_all();
 
-        let hostname = sys.host_name().unwrap_or_else(|| "unknown".to_string());
-        let os_name = sys.name().unwrap_or_else(|| "unknown".to_string());
+        let hostname = sys.host_name().unwrap_or_else(|| "unknown".into());
+        let os_name = sys.name().unwrap_or_else(|| "unknown".into());
         let architecture = std::env::consts::ARCH.to_string();
 
-        // CPU
-        let cpu_count = sys.cpus().len() as i32;
-        let cpu_brand = sys.cpus().get(0).map(|c| c.brand().to_string()).unwrap_or_default();
+        let cpu_count = sys.processors().len() as i32;
+        let cpu_brand = sys.processors().get(0).map(|c| c.brand().to_string()).unwrap_or_default();
         let cpu_usage = if cpu_count == 0 {
             0.0
         } else {
-            let sum: f32 = sys.cpus().iter().map(|c| c.cpu_usage()).sum();
+            let sum: f32 = sys.processors().iter().map(|c| c.cpu_usage()).sum();
             sum / cpu_count as f32
         };
 
-        // Memory
         let ram_total = sys.total_memory() as i64;
         let ram_used = sys.used_memory() as i64;
 
-        // Disks
         let mut disk_total: i64 = 0;
         let mut disk_free: i64 = 0;
         for disk in sys.disks() {
@@ -138,25 +133,9 @@ impl SystemInfo {
             disk_free += disk.available_space() as i64;
         }
 
-        // Network
-        let mut network_throughput: i64 = 0;
-        let network_interfaces: Vec<String> = sys.networks()
-            .iter()
-            .map(|(name, data)| {
-                network_throughput += (data.received() + data.transmitted()) as i64;
-                name.clone()
-            })
-            .collect();
-
-        let network_interfaces = if network_interfaces.is_empty() {
-            None
-        } else {
-            Some(network_interfaces.join(","))
-        };
-
         let ip_address = local_ip().ok().map(|ip| ip.to_string());
 
-        SystemInfo {
+        Self {
             hostname,
             os_name,
             architecture,
@@ -168,18 +147,22 @@ impl SystemInfo {
             disk_total,
             disk_free,
             disk_health: "".into(),
-            network_throughput,
+            network_throughput: 0,
             ping_latency: None,
-            network_interfaces,
+            network_interfaces: None,
             ip_address,
             device_type: "".into(),
             device_model: "".into(),
         }
     }
+
+    /// Synchronous convenience helper
+    pub fn get_system_info() -> Self {
+        Self::gather_blocking()
+    }
 }
 
-/// Simple async service that provides a rate-limited cached SystemInfo snapshot.
-/// Use `let svc = SystemInfoService::default(); svc.get_system_info_async().await`.
+/// Async service providing a cached SystemInfo snapshot
 #[derive(Clone)]
 pub struct SystemInfoService {
     cache: Arc<tokio::sync::RwLock<Option<SystemInfo>>>,
@@ -196,11 +179,10 @@ impl Default for SystemInfoService {
 }
 
 impl SystemInfoService {
-    /// Async, rate-limited getter. Uses spawn_blocking to perform the actual gather.
     pub async fn get_system_info_async(&self) -> Result<SystemInfo> {
         let refresh_secs = get_system_info_refresh_secs();
 
-        // Fast path: read cached value
+        // Fast path
         {
             let last = self.last.read().await;
             let cache = self.cache.read().await;
@@ -211,82 +193,32 @@ impl SystemInfoService {
             }
         }
 
-        // Upgrade to write lock and double-check
-        {
-            let mut last = self.last.write().await;
-            let mut cache = self.cache.write().await;
+        // Upgrade to write lock
+        let mut last = self.last.write().await;
+        let mut cache = self.cache.write().await;
 
-            if let (Some(ts), Some(si)) = (*last, &*cache) {
-                if ts.elapsed() < Duration::from_secs(refresh_secs) {
-                    return Ok(si.clone());
-                }
+        if let (Some(ts), Some(si)) = (*last, &*cache) {
+            if ts.elapsed() < Duration::from_secs(refresh_secs) {
+                return Ok(si.clone());
             }
-
-            // Do blocking gather on separate thread
-            let info = tokio::task::spawn_blocking(move || SystemInfo::gather_blocking())
-                .await
-                .context("spawn_blocking failed")?;
-
-            *cache = Some(info.clone());
-            *last = Some(std::time::Instant::now());
-            return Ok(info);
         }
+
+        let info = tokio::task::spawn_blocking(move || SystemInfo::gather_blocking())
+            .await
+            .context("spawn_blocking failed")?;
+
+        *cache = Some(info.clone());
+        *last = Some(std::time::Instant::now());
+        Ok(info)
     }
 }
 
-    //Client / agent logic (unchanged intent; fixed types & clones)
-
-pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
-    use flexi_logger::{Age, Cleanup, Criterion, FileSpec, Logger, Naming, WriteMode};
-
-    let base_dir = crate::get_base_dir();
-    let log_dir = format!("{}/logs", base_dir);
-    let _ = std::fs::create_dir_all(&log_dir);
-
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = std::fs::metadata(&log_dir) {
-            let mut perms = meta.permissions();
-            perms.set_mode(0o770);
-            if std::fs::set_permissions(&log_dir, perms.clone()).is_err() {
-                let mut fallback = perms;
-                fallback.set_mode(0o777);
-                let _ = std::fs::set_permissions(&log_dir, fallback);
-            }
-            if nix::unistd::Uid::effective().is_root() {
-                let _ = std::process::Command::new("chown")
-                    .arg("-R")
-                    .arg("patchpilot:patchpilot")
-                    .arg(&log_dir)
-                    .output();
-            }
-        }
-    }
-
-    let symlink_path = format!("{}/patchpilot_current.log", log_dir);
-
-    let logger = Logger::try_with_str("info")?
-        .log_to_file(FileSpec::default().directory(&log_dir).basename("patchpilot"))
-        .create_symlink(symlink_path)
-        .write_mode(WriteMode::Direct)
-        .duplicate_to_stderr(flexi_logger::Duplicate::None)
-        .rotate(Criterion::Age(Age::Day), Naming::Timestamps, Cleanup::KeepLogFiles(7))
-        .start()?;
-
-    Ok(logger)
+/// Convenience free function
+pub fn get_system_info() -> SystemInfo {
+    SystemInfo::gather_blocking()
 }
 
-async fn read_server_url() -> Result<String> {
-    let url = fs::read_to_string(SERVER_URL_FILE)
-        .with_context(|| format!("Failed to read server URL from {}", SERVER_URL_FILE))?;
-    Ok(url.trim().to_string())
-}
-
-pub fn get_ip_address() -> String {
-    local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "0.0.0.0".into())
-}
-
+/// Local device helpers
 fn get_local_device_id() -> Option<String> {
     fs::read_to_string(DEVICE_ID_FILE).ok().map(|s| s.trim().to_string())
 }
@@ -297,11 +229,10 @@ fn write_local_device_id(device_id: &str) -> Result<()> {
 
 fn get_device_info_basic() -> (String, String) {
     let si = SystemInfo::gather_blocking();
-    let device_type = if si.device_type.trim().is_empty() { "".into() } else { si.device_type };
-    let device_model = if si.device_model.trim().is_empty() { "".into() } else { si.device_model };
+    let device_type = si.device_type.clone();
+    let device_model = si.device_model.clone();
     (device_type, device_model)
 }
-
 
 /// Register device (returns pending_id if created)
 async fn register_device(
