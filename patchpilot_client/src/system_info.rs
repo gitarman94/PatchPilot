@@ -7,7 +7,7 @@ use local_ip_address::local_ip;
 use tokio::time::{sleep, timeout};
 use std::process::Stdio;
 use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
-use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworksExt};
+use sysinfo::{System, Processor, Disk, Network, SystemExt};
 
 /// Intervals (defaults). Server can override refresh interval by sending a config value
 /// in heartbeat response; client can call `set_system_info_refresh_secs(...)`.
@@ -110,15 +110,16 @@ impl SystemInfo {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        let hostname = sys.host_name().unwrap_or_else(|| "unknown".into());
-        let os_name = sys.name().unwrap_or_else(|| "unknown".into());
+        let hostname = sys.host_name().unwrap_or_else(|| "unknown".to_string());
+        let os_name = sys.long_os_version().unwrap_or_else(|| "unknown".to_string());
+        let kernel_version = sys.kernel_version().unwrap_or_else(|| "unknown".to_string());
         let architecture = std::env::consts::ARCH.to_string();
 
-        let cpu_count = sys.processors().len() as i32;
-        let cpu_brand = sys.processors().get(0).map(|c| c.brand().to_string()).unwrap_or_default();
-        let cpu_usage = if cpu_count == 0 {
-            0.0
-        } else {
+        let cpus = sys.cpus();
+        let cpu_count = cpus.len() as i32;
+        let cpu_brand = cpus.get(0).map(|c| c.brand().to_string()).unwrap_or_default();
+        let cpu_usage = if cpu_count == 0 { 0.0 } else { cpus.iter().map(|c| c.cpu_usage()).sum::<f32>() / cpu_count as f32 };
+        else {
             let sum: f32 = sys.processors().iter().map(|c| c.cpu_usage()).sum();
             sum / cpu_count as f32
         };
