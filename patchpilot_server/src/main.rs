@@ -470,7 +470,7 @@ async fn heartbeat(
         "adopted": adopted,
         "actions": actions_json,
         "settings": {
-            "heartbeat_interval_sec": settings_snapshot.client_heartbeat_interval_sec
+            "heartbeat_interval_sec": settings_snapshot.default_action_ttl_seconds
         }
     }))
 }
@@ -812,6 +812,70 @@ async fn history_page() -> Option<NamedFile> {
     NamedFile::open("/opt/patchpilot_server/templates/history.html")
         .await
         .ok()
+}
+
+// --- MISSING ROUTES ---
+#[get("/devices")]
+async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, String> {
+    use crate::schema::devices::dsl::*;
+    let pool = pool.inner().clone();
+
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|e| e.to_string())?;
+        let all_devices = devices.load::<Device>(&mut conn).map_err(|e| e.to_string())?;
+        Ok(Json(all_devices))
+    })
+    .await
+    .map_err(|e| format!("Join error: {}", e))?
+}
+
+#[get("/device_detail/<device_uuid>")]
+async fn get_device_details(pool: &State<DbPool>, device_uuid: &str) -> Result<Json<Device>, String> {
+    use crate::schema::devices::dsl::*;
+    let pool = pool.inner().clone();
+    let device_uuid = device_uuid.to_string();
+
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|e| e.to_string())?;
+        let dev = devices.filter(uuid.eq(&device_uuid)).first::<Device>(&mut conn).map_err(|e| e.to_string())?;
+        Ok(Json(dev))
+    })
+    .await
+    .map_err(|e| format!("Join error: {}", e))?
+}
+
+#[post("/approve/<device_uuid>")]
+async fn approve_device(pool: &State<DbPool>, device_uuid: &str) -> Result<Json<serde_json::Value>, String> {
+    use crate::schema::devices::dsl::*;
+    let pool = pool.inner().clone();
+    let device_uuid = device_uuid.to_string();
+
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|e| e.to_string())?;
+        diesel::update(devices.filter(uuid.eq(&device_uuid)))
+            .set(approved.eq(true))
+            .execute(&mut conn)
+            .map_err(|e| e.to_string())?;
+
+        Ok(Json(json!({ "status": "approved", "device_uuid": device_uuid })))
+    })
+    .await
+    .map_err(|e| format!("Join error: {}", e))?
+}
+
+#[post("/submit_action", format="json", data="<action>")]
+async fn submit_action(pool: &State<DbPool>, action: Json<NewAction>) -> Result<Json<serde_json::Value>, String> {
+    use crate::schema::actions::dsl::*;
+    let pool = pool.inner().clone();
+    let action = action.into_inner();
+
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|e| e.to_string())?;
+        diesel::insert_into(actions_table).values(&action).execute(&mut conn).map_err(|e| e.to_string())?;
+        Ok(Json(json!({ "status": "submitted", "action_id": action.id })))
+    })
+    .await
+    .map_err(|e| format!("Join error: {}", e))?
 }
 
 #[launch]
