@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::models::{
     Device, NewDevice, DeviceInfo, SystemInfo,
     Action, NewAction, ActionTarget, NewActionTarget,
-    AuditRecord, NewAuditRecord,
+    HistoryRecord, NewHistoryRecord,
 };
 use sysinfo::System;
 
@@ -27,7 +27,7 @@ mod schema;
 mod models;
 
 use diesel::sqlite::SqliteConnection;
-use crate::schema::{devices, actions as actions_table, action_targets, audit_log};
+use crate::schema::{devices, actions as actions_table, action_targets, history_log};
 
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
@@ -81,7 +81,7 @@ pub fn spawn_action_ttl_sweeper(pool: DbPool) {
                 use diesel::prelude::*;
                 use crate::schema::actions::dsl as top_actions_dsl;
                 use crate::schema::action_targets::dsl as targets_dsl;
-                use crate::schema::audit_log::dsl as audit_dsl;
+                use crate::schema::history_log::dsl as history_dsl;
 
                 let mut conn = match pool.get() {
                     Ok(c) => c,
@@ -101,8 +101,8 @@ pub fn spawn_action_ttl_sweeper(pool: DbPool) {
                             "reason": "expired"
                         }).to_string();
 
-                        let audit = NewAuditRecord::new(Some(act.id.clone()), None, Some(act.author.clone().unwrap_or_else(|| "system".into())), "expired".into(), Some(details));
-                        let _ = diesel::insert_into(audit_log::table).values(&audit).execute(&mut conn);
+                        let history = NewHistoryRecord::new(Some(act.id.clone()), None, Some(act.author.clone().unwrap_or_else(|| "system".into())), "expired".into(), Some(details));
+                        let _ = diesel::insert_into(history_log::table).values(&history).execute(&mut conn);
 
                         // mark action canceled/expired
                         let _ = diesel::update(top_actions_dsl::actions.filter(top_actions_dsl::id.eq(act.id.clone())))
@@ -511,8 +511,8 @@ async fn report_action_result(pool: &State<DbPool>, action_id: &str, payload: Js
             "response": response_text,
             "status": status_str
         }).to_string();
-        let audit = NewAuditRecord::new(Some(action_id.clone()), Some(device_id.clone()), reported_by.clone(), "completed".into(), Some(details));
-        let _ = diesel::insert_into(audit_log::table).values(&audit).execute(&mut conn);
+        let history = NewHistoryRecord::new(Some(action_id.clone()), Some(device_id.clone()), reported_by.clone(), "completed".into(), Some(details));
+        let _ = diesel::insert_into(history_log::table).values(&history).execute(&mut conn);
 
         Ok(Json(json!({ "status": "recorded" })))
     })
@@ -565,7 +565,7 @@ async fn list_actions(pool: &State<DbPool>) -> Result<Json<serde_json::Value>, S
     .map_err(|e| format!("Join error: {}", e))?
 }
 
-/// ADMIN: cancel a top-level action (mark canceled + audit, mark targets canceled)
+/// ADMIN: cancel a top-level action (mark canceled + history, mark targets canceled)
 #[post("/actions/<action_id>/cancel")]
 async fn cancel_action(pool: &State<DbPool>, action_id: &str) -> Result<Json<serde_json::Value>, String> {
     use diesel::prelude::*;
@@ -591,8 +591,8 @@ async fn cancel_action(pool: &State<DbPool>, action_id: &str) -> Result<Json<ser
                 "reason": "cancelled_by_admin"
             }).to_string();
 
-            let audit = NewAuditRecord::new(Some(action_id.clone()), None, Some("admin".into()), "cancelled".into(), Some(details));
-            let _ = diesel::insert_into(audit_log::table).values(&audit).execute(&mut conn);
+            let history = NewHistoryRecord::new(Some(action_id.clone()), None, Some("admin".into()), "cancelled".into(), Some(details));
+            let _ = diesel::insert_into(history_log::table).values(&history).execute(&mut conn);
 
             Ok(Json(json!({ "status": "cancelled" })))
         } else {
@@ -648,19 +648,19 @@ fn set_auto_refresh_interval(state: &State<AppState>, seconds: u64) -> Json<serd
     }))
 }
 
-/// Audit listing endpoint (used by UI history/audit page)
-#[get("/audit")]
-async fn get_audit(pool: &State<DbPool>) -> Result<Json<serde_json::Value>, String> {
+/// history listing endpoint (used by UI history/history page)
+#[get("/history")]
+async fn get_history(pool: &State<DbPool>) -> Result<Json<serde_json::Value>, String> {
     use diesel::prelude::*;
-    use crate::schema::audit_log::dsl::*;
+    use crate::schema::history_log::dsl::*;
 
     let pool = pool.inner().clone();
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|e| e.to_string())?;
-        let rows = audit_log
+        let rows = history_log
             .order(created_at.desc())
             .limit(500)
-            .load::<AuditRecord>(&mut conn)
+            .load::<HistoryRecord>(&mut conn)
             .map_err(|e| e.to_string())?;
 
         let arr: Vec<serde_json::Value> = rows.into_iter().map(|r| {
@@ -675,7 +675,7 @@ async fn get_audit(pool: &State<DbPool>) -> Result<Json<serde_json::Value>, Stri
             })
         }).collect();
 
-        Ok(Json(json!({ "audit": arr })))
+        Ok(Json(json!({ "history": arr })))
     })
     .await
     .map_err(|e| format!("Join error: {}", e))?
@@ -766,9 +766,9 @@ fn initialize_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Erro
         );
     "#).execute(conn)?;
 
-    // Audit log
+    // history log
     diesel::sql_query(r#"
-        CREATE TABLE IF NOT EXISTS audit_log (
+        CREATE TABLE IF NOT EXISTS history_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             action_id TEXT,
             device_name TEXT,
@@ -800,9 +800,9 @@ async fn actions_page() -> Option<NamedFile> {
         .ok()
 }
 
-#[get("/audit_log.html")]
-async fn audit_page() -> Option<NamedFile> {
-    NamedFile::open("/opt/patchpilot_server/templates/audit_log.html")
+#[get("/history_log.html")]
+async fn history_page() -> Option<NamedFile> {
+    NamedFile::open("/opt/patchpilot_server/templates/history_log.html")
         .await
         .ok()
 }
@@ -949,9 +949,9 @@ fn rocket() -> _ {
                 report_action_result,
                 list_actions,
                 cancel_action,
-                get_audit
+                get_history
             ],
         )
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
-        .mount("/", routes![dashboard, device_detail, favicon, actions_page, audit_page, history_page])
+        .mount("/", routes![dashboard, device_detail, favicon, actions_page, history_page, history_page])
 }

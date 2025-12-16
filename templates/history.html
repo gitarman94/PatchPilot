@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Audit History</title>
+  <title>history History</title>
   <link rel="stylesheet" href="/static/bootstrap.min.css">
   <link rel="stylesheet" href="/static/navbar.css">
   <script src="/static/bootstrap.bundle.min.js"></script>
@@ -17,8 +17,8 @@
   {{ include "navbar.html" }}
 
   <main class="p-3">
-    <h2>Audit History</h2>
-    <table class="table table-striped" id="auditTable">
+    <h2>History</h2>
+    <table class="table table-striped" id="historyTable">
       <thead>
         <tr>
           <th>Time</th>
@@ -33,13 +33,13 @@
   </main>
 
   <script>
-    async function loadAudit() {
-      const resp = await fetch('/api/audit');
+    async function loadhistory() {
+      const resp = await fetch('/api/history');
       const data = await resp.json();
-      const tbody = document.querySelector('#auditTable tbody');
+      const tbody = document.querySelector('#historyTable tbody');
       tbody.innerHTML = '';
 
-      data.audit.forEach(record => {
+      data.history.forEach(record => {
         const row = document.createElement('tr');
         row.innerHTML = `
           <td>${new Date(record.created_at).toLocaleString()}</td>
@@ -52,8 +52,8 @@
       });
     }
 
-    loadAudit();
-    setInterval(loadAudit, 10000); // refresh every 10s
+    loadhistory();
+    setInterval(loadhistory, 10000); // refresh every 10s
   </script>
 </body>
 </html>

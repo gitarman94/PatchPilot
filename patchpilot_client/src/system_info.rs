@@ -116,7 +116,7 @@ impl SystemInfo {
         let os_name = System::os_version().unwrap_or_else(|| "unknown".to_string());
         let architecture = std::env::consts::ARCH.to_string();
 
-        // CPU info (methods on System)
+        // CPU info
         let cpus = sys.cpus();
         let cpu_count = cpus.len() as i32;
         let cpu_brand = cpus
@@ -130,14 +130,16 @@ impl SystemInfo {
             cpus.iter().map(|c| c.cpu_usage()).sum::<f32>() / cpu_count as f32
         };
 
-        // RAM (methods on System)
+        // RAM
         let ram_total = sys.total_memory() as i64;
         let ram_used = sys.used_memory() as i64;
 
-        // Disk (associated function in 0.37)
+        // Disk (sysinfo 0.37+ API)
         let mut disk_total: i64 = 0;
         let mut disk_free: i64 = 0;
-        for disk in System::disks() {
+
+        let disks = sysinfo::Disks::new_with_refreshed_list();
+        for disk in disks.iter() {
             disk_total += disk.total_space() as i64;
             disk_free += disk.available_space() as i64;
         }
