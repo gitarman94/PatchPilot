@@ -43,7 +43,7 @@ fn rocket() -> _ {
 
     rocket::build()
         .manage(pool)
-        .manage((*app_state).clone())
+        .manage(app_state)
         .mount("/api", routes::api_routes())
         .mount("/", routes::page_routes())
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))

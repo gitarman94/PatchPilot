@@ -20,7 +20,6 @@ pub fn api_routes() -> Vec<Route> {
         actions::list_actions,
         actions::cancel_action,
 
-        history::get_history,
         history::api_history,
 
         settings::set_auto_approve,

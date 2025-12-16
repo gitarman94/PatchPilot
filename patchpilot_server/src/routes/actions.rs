@@ -63,7 +63,7 @@ pub async fn report_action_result(
     )
     .set((
         action_targets::status.eq(&result.status),
-        action_targets::completed_at.eq(chrono::Utc::now().naive_utc()),
+        action_targets::last_update.eq(chrono::Utc::now().naive_utc()),
     ))
     .execute(&mut conn)
     .map_err(|_| Status::InternalServerError)?;
