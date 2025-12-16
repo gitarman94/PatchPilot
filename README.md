@@ -24,31 +24,68 @@ PatchPilot is a cross-platform patch client designed to manage and report softwa
 
 PatchPilot/
 │
-├───patchpilot_server                # Rust-based backend server
-│   │   Cargo.toml                   # Rust configuration file, managing dependencies and project settings.
+├── patchpilot_server/                 # Rust-based backend server
+│   ├── Cargo.toml                     # Server dependencies & config
 │   │
-│   └───src                          # Source directory for Rust code.
-│           main.rs                   # Entry point for the Rust server application.
-│           models.rs                 # Defines data models and structures used by the server.
-│           schema.rs                 # Defines the database schema for the server.
+│   └── src/
+│       ├── main.rs                    # Rocket entry point
+│       │
+│       ├── state.rs                   # AppState (system, pending devices, settings)
+│       ├── settings.rs                # ServerSettings load/save
+│       │
+│       ├── models.rs                  # Diesel models (Device, Action, AuditLog, etc.)
+│       ├── schema.rs                  # Diesel schema (devices, actions, audit_log)
+│       │
+│       ├── routes/                    # HTTP routes (API + pages)
+│       │   ├── mod.rs                 # api_routes() + page_routes()
+│       │   │
+│       │   ├── devices.rs             # Device registration, heartbeat, listing
+│       │   ├── actions.rs             # Action creation, completion
+│       │   ├── settings.rs            # Server settings API
+│       │   └── history.rs             # Audit / history API
+│       │
+│       ├── tasks/                     # Background jobs
+│       │   ├── mod.rs
+│       │   ├── action_ttl.rs           # Expire old actions
+│       │   └── pending_cleanup.rs      # Cleanup pending devices
+│       │
+│       ├── db/                        # Database plumbing
+│       │   ├── mod.rs
+│       │   ├── pool.rs                # DbPool + init_pool()
+│       │   ├── init.rs                # initialize_db()
+│       │   └── logger.rs              # Diesel / app logging
+│       │
+│       └── errors.rs                  # (optional) shared error helpers
 │
-├───patchpilot_client                # Rust client code (shared across Windows & Linux) for handling communication and updates.
-│   │   Cargo.toml                   # Rust configuration file, managing dependencies and project settings.
+├── patchpilot_client/                 # Rust client (Windows & Linux)
+│   ├── Cargo.toml
 │   │
-│   └───src                          # Source directory for Rust code.
-│           commands.rs               # Rust file responsible for parsing and handling commands sent from the server (e.g., installing updates).
-│           main.rs                   # Entry point for the Rust client application.
-│           patchpilot_updater.rs     # Code for the update logic in the Rust client, managing patch installations and updates.
-│           self_update.rs            # Logic for updating the Rust client itself (self-updating mechanism).
-│           service.rs                # Provides the core service for the PatchPilot client, including running in the background and maintaining client health.
-│           system_info.rs            # Collects system information (e.g., CPU, RAM, OS version) to send back to the server.
+│   └── src/
+│       ├── main.rs                    # Client entry point
+│       ├── service.rs                 # Windows service / Unix daemon glue
+│       │
+│       ├── system_info.rs             # CPU, RAM, disk, OS, network
+│       ├── device.rs                  # Register, adopt, heartbeat
+│       │
+│       ├── action.rs                  # CommandSpec, ServerCommand, CommandResult
+│       ├── command.rs                 # Polling, retries, result posting
+│       ├── remote_cmd.rs              # Shell / PowerShell execution
+│       │
+│       ├── self_update.rs             # Client self-update logic
+│       └── patchpilot_updater.rs      # Apply updates + restart
 │
-├───templates                         # HTML templates used by the Rust server for the web UI.
-│       client_detail.html            # Template for showing detailed information about a specific client (e.g., status, updates, system info).
-│       dashboard.html                # Main dashboard template that aggregates information about all clients and allows admin actions.
+├── templates/                         # Rocket HTML templates
+│   ├── navbar.html                    # Sidebar navigation
+│   ├── dashboard.html                 # Main dashboard
+│   ├── client_detail.html             # Single device view
+│   └── history.html                   # Audit / history page
+│
+└── static/                            # Static web assets
+    ├── bootstrap.min.css
+    ├── bootstrap.bundle.min.js
+    ├── navbar.css
+    └── favicon.ico
 
-└───static                            # HTML resource location
-│   │   favicon.ico                   # Decorative favorite icon used around the site
 ````
 
 ---
