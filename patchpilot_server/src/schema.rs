@@ -57,7 +57,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    audit_log (id) {
+    history_log (id) {
         id -> Integer,
         action_id -> Nullable<Text>,
         device_name -> Nullable<Text>,

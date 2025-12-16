@@ -2,7 +2,7 @@ use diesel::prelude::*;
 use chrono::{NaiveDateTime, Utc, Duration};
 use rocket::serde::{Serialize, Deserialize};
 
-use crate::schema::{devices, actions, action_targets, audit_log};
+use crate::schema::{devices, actions, action_targets, history_log};
 
 #[derive(Queryable, Serialize, Deserialize, Debug)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
@@ -304,7 +304,7 @@ impl NewDevice {
     }
 }
 
-// ACTIONS / TARGETS / AUDIT (Action = what you called "instruction")
+// ACTIONS / TARGETS / History (Action = what you called "instruction")
 #[derive(Queryable, Serialize, Deserialize, Debug)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Action {
@@ -380,7 +380,7 @@ impl NewActionTarget {
 
 #[derive(Queryable, Serialize, Deserialize, Debug)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct AuditRecord {
+pub struct HistoryRecord {
     pub id: i32,
     pub action_id: Option<String>,
     pub device_name: Option<String>,
@@ -391,8 +391,8 @@ pub struct AuditRecord {
 }
 
 #[derive(Insertable, Serialize, Deserialize, Debug)]
-#[diesel(table_name = audit_log)]
-pub struct NewAuditRecord {
+#[diesel(table_name = history_log)]
+pub struct NewHistoryRecord {
     pub action_id: Option<String>,
     pub device_name: Option<String>,
     pub actor: Option<String>,
@@ -401,7 +401,7 @@ pub struct NewAuditRecord {
     pub created_at: NaiveDateTime,
 }
 
-impl NewAuditRecord {
+impl NewHistoryRecord {
     pub fn new(action_id: Option<String>, device_name: Option<String>, actor: Option<String>, action_type: String, details: Option<String>) -> Self {
         Self {
             action_id,

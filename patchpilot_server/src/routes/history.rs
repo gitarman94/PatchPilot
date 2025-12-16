@@ -1,23 +1,28 @@
-use diesel::prelude::*;
-use rocket::{get, State};
+use rocket::{get, State, http::Status};
 use rocket::serde::json::Json;
-use rocket::http::Status;
+
+use diesel::prelude::*;
 
 use crate::db::pool::DbPool;
-use crate::models::HistoryRecord;
+use crate::models::HistoryLog;
 use crate::schema::history_log::dsl::*;
 
-#[get("/api/history")]
-pub async fn api_history(pool: &State<DbPool>) -> Result<Json<serde_json::Value>, Status> {
-    let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+/// API: GET /api/history
+#[get("/history")]
+pub async fn api_history(
+    pool: &State<DbPool>,
+) -> Result<Json<Vec<HistoryLog>>, Status> {
+    let pool = pool.inner().clone();
 
-    let rows = history_log
-        .order(created_at.desc())
-        .limit(500)
-        .load::<HistoryRecord>(&mut conn)
-        .map_err(|_| Status::InternalServerError)?;
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
-    Ok(Json(serde_json::json!({
-        "history": rows
-    })))
+        history_log
+            .order(created_at.desc())
+            .load::<HistoryLog>(&mut conn)
+            .map(Json)
+            .map_err(|_| Status::InternalServerError)
+    })
+    .await
+    .map_err(|_| Status::InternalServerError)?
 }

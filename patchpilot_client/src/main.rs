@@ -1,6 +1,12 @@
+mod action;
+mod command;
+mod device;
+mod remote_cmd;
+mod self_update;
+mod patchpilot_updater;
 mod system_info;
 mod service;
-mod action;
+
 
 use std::{fs, path::Path};
 use crate::service::init_logging;
@@ -8,7 +14,6 @@ use nix::unistd::Uid;
 
 use lazy_static::lazy_static;
 use std::sync::Mutex;
-pub mod command;
 
 lazy_static! {
     static ref LOGGER_HANDLE: Mutex<Option<flexi_logger::LoggerHandle>> = Mutex::new(None);

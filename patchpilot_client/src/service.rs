@@ -2,7 +2,6 @@ use anyhow::Result;
 use reqwest::Client;
 use std::sync::{Arc, atomic::AtomicBool};
 
-pub mod command; // new module for commands, heartbeat, updates
 use command::*;
 
 pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
