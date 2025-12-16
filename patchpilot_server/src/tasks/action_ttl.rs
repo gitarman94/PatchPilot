@@ -4,8 +4,8 @@ use rocket::tokio;
 use std::time::Duration;
 
 use crate::db::pool::DbPool;
-use crate::models::{Action, NewHistoryRecord};
-use crate::schema::{actions, action_targets, history_log};
+use crate::models::Action;
+use crate::schema::{actions, action_targets};
 
 pub fn spawn_action_ttl_sweeper(pool: DbPool) {
     tokio::spawn(async move {
@@ -23,18 +23,6 @@ pub fn spawn_action_ttl_sweeper(pool: DbPool) {
                     .ok()?;
 
                 for act in expired {
-                    let history = NewHistoryRecord::new(
-                        Some(act.id.clone()),
-                        None,
-                        act.author.clone(),
-                        "expired".into(),
-                        None,
-                    );
-
-                    let _ = diesel::insert_into(history_log::table)
-                        .values(&history)
-                        .execute(&mut conn);
-
                     let _ = diesel::update(actions::table.filter(actions::id.eq(&act.id)))
                         .set(actions::canceled.eq(true))
                         .execute(&mut conn);

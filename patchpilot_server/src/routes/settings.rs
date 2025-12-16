@@ -1,6 +1,6 @@
 use rocket::{post, State};
 use rocket::http::Status;
-use rocket::serde::json::Json;
+use rocket::serde::{Deserialize, json::Json};
 
 use crate::state::AppState;
 
