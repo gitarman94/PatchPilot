@@ -5,8 +5,9 @@ use sysinfo::System;
 use crate::models::DeviceInfo;
 use crate::settings::ServerSettings;
 
+#[derive(Clone)]
 pub struct AppState {
-    pub system: Mutex<System>,
+    pub system: Arc<Mutex<System>>,
     pub pending_devices: Arc<RwLock<HashMap<String, DeviceInfo>>>,
     pub settings: Arc<RwLock<ServerSettings>>,
 }

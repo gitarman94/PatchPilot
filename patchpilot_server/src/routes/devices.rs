@@ -3,7 +3,7 @@ use rocket::{get, post, State};
 use rocket::serde::json::Json;
 use rocket::http::Status;
 
-use crate::DbPool;
+use crate::db::pool::DbPool;
 use crate::models::{Device, DeviceInfo};
 use crate::schema::devices::dsl::*;
 

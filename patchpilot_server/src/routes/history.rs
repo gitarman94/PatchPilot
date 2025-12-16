@@ -3,7 +3,7 @@ use rocket::{get, State};
 use rocket::serde::json::Json;
 use rocket::http::Status;
 
-use crate::DbPool;
+use crate::db::pool::DbPool;
 use crate::models::HistoryRecord;
 use crate::schema::history_log::dsl::*;
 

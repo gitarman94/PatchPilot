@@ -32,7 +32,7 @@ fn rocket() -> _ {
     spawn_action_ttl_sweeper(pool.clone());
 
     let app_state = Arc::new(AppState {
-        system: Mutex::new(System::new_all()),
+        system: Arc::new(Mutex::new(System::new_all())),
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
         settings: Arc::new(RwLock::new(settings::ServerSettings::load())),
     });
