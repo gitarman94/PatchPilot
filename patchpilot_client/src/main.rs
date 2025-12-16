@@ -8,6 +8,7 @@ use nix::unistd::Uid;
 
 use lazy_static::lazy_static;
 use std::sync::Mutex;
+pub mod command;
 
 lazy_static! {
     static ref LOGGER_HANDLE: Mutex<Option<flexi_logger::LoggerHandle>> = Mutex::new(None);

@@ -1,10 +1,9 @@
 use anyhow::Result;
 use reqwest::Client;
 use serde_json::{Value, json};
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use tokio::time::{timeout, Duration, sleep};
 use tokio::task;
-use crate::system_info::SystemInfo;
 
 /// Command polling configuration
 pub const COMMAND_LONGPOLL_TIMEOUT_SECS: u64 = 60;
@@ -19,20 +18,40 @@ pub async fn execute_command_and_post_result(
 ) {
     let cmd_id = match cmd_item.get("id").and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
-        None => { log::warn!("Received command without id"); return; }
+        None => {
+            log::warn!("Received command without id");
+            return;
+        }
     };
 
-    let kind = cmd_item.get("kind").and_then(|v| v.as_str()).unwrap_or("exec");
-    let maybe_cmd_string = cmd_item.get("exec")
+    let kind = cmd_item
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("exec");
+
+    let maybe_cmd_string = cmd_item
+        .get("exec")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .or_else(|| cmd_item.get("script").and_then(|v| v.as_str()).map(|s| s.to_string()));
+        .or_else(|| {
+            cmd_item
+                .get("script")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
 
     if maybe_cmd_string.is_none() {
-        let _ = post_command_result(&client, &server_url, &device_id, &cmd_id, json!({
-            "status": "error",
-            "reason": "missing exec/script field"
-        })).await;
+        let _ = post_command_result(
+            &client,
+            &server_url,
+            &device_id,
+            &cmd_id,
+            json!({
+                "status": "error",
+                "reason": "missing exec/script field"
+            }),
+        )
+        .await;
         return;
     }
 
@@ -40,18 +59,38 @@ pub async fn execute_command_and_post_result(
 
     let run = task::spawn_blocking(move || {
         #[cfg(windows)]
-        let out = { use std::process::Command; Command::new("cmd").args(&["/C", &cmd_string]).output() };
+        let out = {
+            use std::process::Command;
+            Command::new("cmd")
+                .args(&["/C", &cmd_string])
+                .output()
+        };
+
         #[cfg(not(windows))]
-        let out = { use std::process::Command; Command::new("sh").arg("-c").arg(&cmd_string).output() };
+        let out = {
+            use std::process::Command;
+            Command::new("sh")
+                .arg("-c")
+                .arg(&cmd_string)
+                .output()
+        };
 
         match out {
-            Ok(o) => (true,
-                      String::from_utf8_lossy(&o.stdout).to_string(),
-                      String::from_utf8_lossy(&o.stderr).to_string(),
-                      o.status.code().unwrap_or(-1)),
-            Err(e) => (false, "".into(), format!("Failed to start process: {}", e), -1),
+            Ok(o) => (
+                true,
+                String::from_utf8_lossy(&o.stdout).to_string(),
+                String::from_utf8_lossy(&o.stderr).to_string(),
+                o.status.code().unwrap_or(-1),
+            ),
+            Err(e) => (
+                false,
+                String::new(),
+                format!("Failed to start process: {}", e),
+                -1,
+            ),
         }
-    }).await;
+    })
+    .await;
 
     match run {
         Ok((ok, stdout, stderr, exit_code)) => {
@@ -62,14 +101,29 @@ pub async fn execute_command_and_post_result(
                 "stderr": stderr,
                 "exit_code": exit_code
             });
-            let _ = post_command_result(&client, &server_url, &device_id, &cmd_id, payload).await;
+
+            let _ = post_command_result(
+                &client,
+                &server_url,
+                &device_id,
+                &cmd_id,
+                payload,
+            )
+            .await;
         }
         Err(e) => {
             log::error!("Command thread panicked: {}", e);
-            let _ = post_command_result(&client, &server_url, &device_id, &cmd_id, json!({
-                "status": "error",
-                "reason": format!("panic: {}", e)
-            })).await;
+            let _ = post_command_result(
+                &client,
+                &server_url,
+                &device_id,
+                &cmd_id,
+                json!({
+                    "status": "error",
+                    "reason": format!("panic: {}", e)
+                }),
+            )
+            .await;
         }
     }
 }
@@ -82,10 +136,23 @@ pub async fn post_command_result(
     cmd_id: &str,
     payload: Value,
 ) -> Result<()> {
-    let url = format!("{}/api/devices/{}/commands/{}/result", server_url, device_id, cmd_id);
+    let url = format!(
+        "{}/api/devices/{}/commands/{}/result",
+        server_url, device_id, cmd_id
+    );
+
     let resp = client.post(&url).json(&payload).send().await?;
-    if !resp.status().is_success() { log::warn!("Server rejected command result {}: {}", cmd_id, resp.status()); }
-    else { log::info!("Posted result for command {}", cmd_id); }
+
+    if !resp.status().is_success() {
+        log::warn!(
+            "Server rejected command result {}: {}",
+            cmd_id,
+            resp.status()
+        );
+    } else {
+        log::info!("Posted result for command {}", cmd_id);
+    }
+
     Ok(())
 }
 
@@ -97,25 +164,55 @@ pub async fn command_poll_loop(
     running_flag: Option<Arc<AtomicBool>>,
 ) {
     loop {
-        if let Some(flag) = &running_flag { if !flag.load(std::sync::atomic::Ordering::SeqCst) { break; } }
+        if let Some(flag) = &running_flag {
+            if !flag.load(Ordering::SeqCst) {
+                break;
+            }
+        }
 
-        let req = client.get(format!("{}/api/devices/{}/commands/poll", server_url, device_id)).send();
+        let req = client
+            .get(format!(
+                "{}/api/devices/{}/commands/poll",
+                server_url, device_id
+            ))
+            .send();
+
         match timeout(Duration::from_secs(COMMAND_LONGPOLL_TIMEOUT_SECS), req).await {
             Ok(Ok(resp)) => {
-                if !resp.status().is_success() { sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await; continue; }
-                if let Ok(val) = resp.json::<Value>().await {
-                    if let Some(arr) = val.as_array() {
-                        for cmd_item in arr {
-                            let client_c = client.clone();
-                            let srv_c = server_url.clone();
-                            let dev_c = device_id.clone();
-                            let ci = cmd_item.clone();
-                            tokio::spawn(async move { execute_command_and_post_result(client_c, srv_c, dev_c, ci).await });
+                if !resp.status().is_success() {
+                    sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
+                    continue;
+                }
+
+                match resp.json::<Value>().await {
+                    Ok(val) => {
+                        if let Some(arr) = val.as_array() {
+                            for cmd_item in arr {
+                                let client_c = client.clone();
+                                let srv_c = server_url.clone();
+                                let dev_c = device_id.clone();
+                                let ci = cmd_item.clone();
+
+                                tokio::spawn(async move {
+                                    execute_command_and_post_result(
+                                        client_c,
+                                        srv_c,
+                                        dev_c,
+                                        ci,
+                                    )
+                                    .await;
+                                });
+                            }
                         }
                     }
-                } else { sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await; }
+                    Err(_) => {
+                        sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
+                    }
+                }
             }
-            _ => sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await,
+            _ => {
+                sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
+            }
         }
     }
 }
