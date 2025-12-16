@@ -863,19 +863,31 @@ async fn approve_device(pool: &State<DbPool>, device_uuid: &str) -> Result<Json<
     .map_err(|e| format!("Join error: {}", e))?
 }
 
-#[post("/submit_action", format="json", data="<action>")]
-async fn submit_action(pool: &State<DbPool>, action: Json<NewAction>) -> Result<Json<serde_json::Value>, String> {
-    use crate::schema::actions::dsl::actions as actions_dsl;
+#[post("/submit_action", format = "json", data = "<action>")]
+async fn submit_action(
+    pool: &State<DbPool>,
+    action: Json<NewAction>,
+) -> Result<Json<serde_json::Value>, String> {
+    use crate::schema::actions::dsl::actions;
+
     let pool = pool.inner().clone();
     let action = action.into_inner();
 
     rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool.get().map_err(|e: diesel::result::Error| e.to_string())?;
-        diesel::insert_into(actions_dsl)
+        // r2d2::Error — NOT diesel::Error
+        let mut conn = pool
+            .get()
+            .map_err(|e: r2d2::Error| e.to_string())?;
+
+        diesel::insert_into(actions)
             .values(&action)
             .execute(&mut conn)
             .map_err(|e: diesel::result::Error| e.to_string())?;
-        Ok(Json(json!({ "status": "submitted", "action_id": action.id })))
+
+        Ok(Json(json!({
+            "status": "submitted",
+            "action_id": action.id
+        })))
     })
     .await
     .map_err(|e| format!("Join error: {}", e))?
