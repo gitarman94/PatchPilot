@@ -109,28 +109,32 @@ pub struct SystemInfo {
 impl SystemInfo {
     pub fn gather_blocking() -> Self {
         let mut sys = System::new_all();
-        System::refresh_all();
+        sys.refresh_all();
 
-        // Hostname / OS
+        // Hostname / OS (associated functions in 0.37)
         let hostname = System::name().unwrap_or_else(|| "unknown".to_string());
         let os_name = System::os_version().unwrap_or_else(|| "unknown".to_string());
         let architecture = std::env::consts::ARCH.to_string();
 
-        // CPU info
-        let cpus = System::cpus();
+        // CPU info (methods on System)
+        let cpus = sys.cpus();
         let cpu_count = cpus.len() as i32;
-        let cpu_brand = cpus.get(0).map(|c| c.brand().to_string()).unwrap_or_default();
+        let cpu_brand = cpus
+            .get(0)
+            .map(|c| c.brand().to_string())
+            .unwrap_or_default();
+
         let cpu_usage = if cpu_count == 0 {
             0.0
         } else {
             cpus.iter().map(|c| c.cpu_usage()).sum::<f32>() / cpu_count as f32
         };
 
-        // RAM
-        let ram_total = System::total_memory() as i64;
-        let ram_used = System::used_memory() as i64;
+        // RAM (methods on System)
+        let ram_total = sys.total_memory() as i64;
+        let ram_used = sys.used_memory() as i64;
 
-        // Disk
+        // Disk (associated function in 0.37)
         let mut disk_total: i64 = 0;
         let mut disk_free: i64 = 0;
         for disk in System::disks() {
