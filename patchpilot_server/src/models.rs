@@ -159,7 +159,7 @@ impl DeviceInfo {
         }
     }
 
-    pub fn to_device(&self, device_id: &str, device_id: &str) -> Device {
+    pub fn to_device(&self, device_id: &str) -> Device {
         let s = &self.system_info;
 
         Device {
@@ -212,14 +212,13 @@ impl Device {
         self
     }
 
-    pub fn from_info(device_id: &str, device_id: &str, info: &DeviceInfo) -> Self {
-        info.to_device(device_id, device_id)
+    pub fn from_info(device_id: &str, info: &DeviceInfo) -> Self {
+        info.to_device(device_id)
     }
 }
 
 impl NewDevice {
     pub fn from_device_info(
-        device_id: &str,
         device_id: &str,
         info: &DeviceInfo,
         existing: Option<&Device>,
@@ -306,116 +305,6 @@ impl NewDevice {
             updates_available: old.updates_available,
             network_interfaces: pick_option(si.network_interfaces.clone(), old.network_interfaces.clone()),
             ip_address: pick_option(si.ip_address.clone(), old.ip_address.clone()),
-        }
-    }
-}
-
-// ACTIONS / TARGETS / History
-#[derive(Queryable, Serialize, Deserialize, Debug)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct Action {
-    pub id: String,
-    pub action_type: String,
-    pub parameters: Option<String>,
-    pub author: Option<String>,
-    pub created_at: NaiveDateTime,
-    pub expires_at: NaiveDateTime,
-    pub canceled: bool,
-}
-
-#[derive(Insertable, Serialize, Deserialize, Debug)]
-#[diesel(table_name = actions)]
-pub struct NewAction {
-    pub id: String,
-    pub action_type: String,
-    pub parameters: Option<String>,
-    pub author: Option<String>,
-    pub created_at: NaiveDateTime,
-    pub expires_at: NaiveDateTime,
-    pub canceled: bool,
-}
-
-impl NewAction {
-    pub fn new_pending(id: String, action_type: String, parameters: Option<String>, author: Option<String>, ttl_seconds: i64) -> Self {
-        let created = Utc::now().naive_utc();
-        let expires = created + Duration::seconds(ttl_seconds);
-        Self {
-            id,
-            action_type,
-            parameters,
-            author,
-            created_at: created,
-            expires_at: expires,
-            canceled: false,
-        }
-    }
-}
-
-#[derive(Queryable, Serialize, Deserialize, Debug)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct ActionTarget {
-    pub id: i32,
-    pub action_id: String,
-    pub device_id: String,
-    pub status: String,
-    pub last_update: NaiveDateTime,
-    pub response: Option<String>,
-}
-
-#[derive(Insertable, Serialize, Deserialize, Debug)]
-#[diesel(table_name = action_targets)]
-pub struct NewActionTarget {
-    pub action_id: String,
-    pub device_id: String,
-    pub status: String,
-    pub last_update: NaiveDateTime,
-    pub response: Option<String>,
-}
-
-impl NewActionTarget {
-    pub fn new(action_id: String, device_id: String) -> Self {
-        Self {
-            action_id,
-            device_id,
-            status: "pending".into(),
-            last_update: Utc::now().naive_utc(),
-            response: None,
-        }
-    }
-}
-
-#[derive(Queryable, Serialize, Deserialize, Debug)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct HistoryLog {
-    pub id: i32,
-    pub action_id: Option<String>,
-    pub device_name: Option<String>,
-    pub actor: Option<String>,
-    pub action_type: String,
-    pub details: Option<String>,
-    pub created_at: NaiveDateTime,
-}
-
-#[derive(Insertable, Serialize, Deserialize, Debug)]
-#[diesel(table_name = history_log)]
-pub struct NewHistoryLog {
-    pub action_id: Option<String>,
-    pub device_name: Option<String>,
-    pub actor: Option<String>,
-    pub action_type: String,
-    pub details: Option<String>,
-    pub created_at: NaiveDateTime,
-}
-
-impl NewHistoryLog {
-    pub fn new(action_id: Option<String>, device_name: Option<String>, actor: Option<String>, action_type: String, details: Option<String>) -> Self {
-        Self {
-            action_id,
-            device_name,
-            actor,
-            action_type,
-            details,
-            created_at: Utc::now().naive_utc(),
         }
     }
 }
