@@ -60,7 +60,6 @@ pub async fn register_device(
     let new_device = NewDevice::from_device_info(
         &info.device_id,
         &info,
-        None,       // no existing device to merge
     );
 
     diesel::insert_into(devices)
