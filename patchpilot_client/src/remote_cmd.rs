@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use base64::{engine::general_purpose, Engine as _};

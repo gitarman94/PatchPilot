@@ -4,6 +4,7 @@ use std::{fs, time::Duration};
 use local_ip_address::local_ip;
 use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 use sysinfo::System;
+use std::path::PathBuf;
 
 // Intervals (defaults)
 const ADOPTION_CHECK_INTERVAL: u64 = 10;
@@ -194,6 +195,14 @@ pub fn get_local_device_id() -> Option<String> {
 pub fn write_local_device_id(device_id: &str) -> Result<()> {
     fs::write(DEVICE_ID_FILE, device_id).context("Failed to write local device_id")
 }
+
+pub async fn read_server_url() -> Result<String> {
+    let base_dir = crate::get_base_dir();
+    let url_file = base_dir.join("server_url.txt");
+    let url = fs::read_to_string(url_file)?;
+    Ok(url.trim().to_string())
+}
+
 
 pub fn get_device_info_basic() -> (String, String) {
     let si = get_system_info();

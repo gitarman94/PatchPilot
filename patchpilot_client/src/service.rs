@@ -1,15 +1,16 @@
 use anyhow::Result;
 use reqwest::Client;
-use std::sync::{Arc, atomic::AtomicBool};
-
+use crate::device::run_adoption_and_update_loop;
 use crate::command::*;
+use std::path::PathBuf;
 
 pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
     use flexi_logger::{
         Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming,
     };
 
-    let log_dir = crate::get_base_dir().join("logs");
+    let log_dir: PathBuf = crate::get_base_dir().into();
+    let log_dir = log_dir.join("logs");
 
     std::fs::create_dir_all(&log_dir)?;
 
