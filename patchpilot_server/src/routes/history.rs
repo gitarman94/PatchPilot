@@ -1,8 +1,6 @@
 use rocket::{get, State, http::Status};
 use rocket::serde::json::Json;
-
 use diesel::prelude::*;
-
 use crate::db::pool::DbPool;
 use crate::models::HistoryLog;
 use crate::schema::history_log::dsl::*;
@@ -19,7 +17,7 @@ pub async fn api_history(
 
         history_log
             .order(created_at.desc())
-            .load::<HistoryLog>(&mut conn)
+            .load::<HistoryLog>(&mut conn) // type annotation fixes type inference
             .map(Json)
             .map_err(|_| Status::InternalServerError)
     })

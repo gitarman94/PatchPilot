@@ -8,7 +8,6 @@ use crate::db::pool::DbPool;
 use crate::models::{Device, DeviceInfo, NewDevice};
 use crate::schema::devices::dsl::{devices, device_id, approved, last_checkin};
 
-
 /// Get all devices
 #[get("/devices")]
 pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Status> {
@@ -27,13 +26,13 @@ pub async fn get_device_details(
 ) -> Result<Json<Device>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
     let device = devices
-        .filter(device_id.eq(device_id_param)) // Diesel column
+        .filter(device_id.eq(device_id_param))
         .first::<Device>(&mut conn)
         .map_err(|_| Status::NotFound)?;
     Ok(Json(device))
 }
 
-// Approve a device
+/// Approve a device
 #[post("/approve/<device_id_param>")]
 pub async fn approve_device(
     pool: &State<DbPool>,
@@ -47,8 +46,6 @@ pub async fn approve_device(
     Ok(Status::Ok)
 }
 
-
-
 /// Register a new device (client / API)
 #[post("/register", data = "<info>")]
 pub async fn register_device(
@@ -60,6 +57,7 @@ pub async fn register_device(
     let new_device = NewDevice::from_device_info(
         &info.device_id,
         &info,
+        None, // <--- fix: provide missing third argument
     );
 
     diesel::insert_into(devices)

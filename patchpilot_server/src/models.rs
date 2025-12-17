@@ -1,9 +1,10 @@
 use diesel::prelude::*;
-use chrono::{NaiveDateTime, Utc, Duration};
+use chrono::{NaiveDateTime, Utc};
 use rocket::serde::{Serialize, Deserialize};
 use crate::schema::{devices, actions, action_targets, history_log};
 
-#[derive(Queryable, Serialize, Deserialize, Debug)]
+#[derive(Queryable, Identifiable, Serialize, Deserialize, Debug)]
+#[diesel(table_name = devices)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Device {
     pub id: i32,
@@ -38,7 +39,7 @@ pub struct Device {
     pub ip_address: Option<String>,
 }
 
-#[derive(Insertable, Queryable, AsChangeset)]
+#[derive(Insertable, AsChangeset)]
 #[diesel(table_name = devices)]
 pub struct NewDevice {
     pub device_id: String,
@@ -103,6 +104,44 @@ pub struct DeviceInfo {
     pub device_model: Option<String>,
 }
 
+#[derive(Debug, Queryable, Identifiable)]
+#[diesel(table_name = actions)]
+pub struct Action {
+    pub id: i32,
+    pub device_id: String,
+    pub action_type: String,
+    pub status: String,
+    pub created_at: NaiveDateTime,
+    pub expires_at: Option<NaiveDateTime>,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = actions)]
+pub struct NewAction {
+    pub device_id: String,
+    pub action_type: String,
+    pub status: String,
+    pub expires_at: Option<NaiveDateTime>,
+}
+
+#[derive(Debug, Queryable, Identifiable, Associations)]
+#[diesel(belongs_to(Action, foreign_key = action_id))]
+#[diesel(table_name = action_targets)]
+pub struct ActionTarget {
+    pub id: i32,
+    pub action_id: i32,
+    pub target: String,
+}
+
+#[derive(Debug, Queryable, Identifiable)]
+#[diesel(table_name = history_log)]
+pub struct HistoryLog {
+    pub id: i32,
+    pub device_id: String,
+    pub message: String,
+    pub created_at: NaiveDateTime,
+}
+
 impl DeviceInfo {
     pub fn merge_with(&mut self, other: &DeviceInfo) {
         let s = &mut self.system_info;
@@ -114,15 +153,11 @@ impl DeviceInfo {
         if !o.disk_health.is_empty()        { s.disk_health = o.disk_health.clone(); }
 
         if let Some(ip) = &o.ip_address {
-            if !ip.is_empty() {
-                s.ip_address = Some(ip.clone());
-            }
+            if !ip.is_empty() { s.ip_address = Some(ip.clone()); }
         }
 
         if let Some(nics) = &o.network_interfaces {
-            if !nics.is_empty() {
-                s.network_interfaces = Some(nics.clone());
-            }
+            if !nics.is_empty() { s.network_interfaces = Some(nics.clone()); }
         }
 
         s.cpu_usage = o.cpu_usage;
@@ -138,15 +173,11 @@ impl DeviceInfo {
         s.ping_latency = o.ping_latency;
 
         if let Some(t) = &other.device_type {
-            if !t.is_empty() {
-                self.device_type = Some(t.clone());
-            }
+            if !t.is_empty() { self.device_type = Some(t.clone()); }
         }
 
         if let Some(m) = &other.device_model {
-            if !m.is_empty() {
-                self.device_model = Some(m.clone());
-            }
+            if !m.is_empty() { self.device_model = Some(m.clone()); }
         }
 
         if !other.device_id.is_empty() {
@@ -218,52 +249,40 @@ impl NewDevice {
         info: &DeviceInfo,
         existing: Option<&Device>,
     ) -> Self {
-        fn pick_string(new: String, old: &str) -> String {
-            if new.trim().is_empty() { old.to_string() } else { new }
-        }
-        fn pick_i64(new: i64, old: i64) -> i64 {
-            if new == 0 { old } else { new }
-        }
-        fn pick_f32(new: f32, old: f32) -> f32 {
-            if new == 0.0 { old } else { new }
-        }
-        fn pick_option<T: Clone>(new: Option<T>, old: Option<T>) -> Option<T> {
-            if new.is_none() { old } else { new }
-        }
+        fn pick_string(new: String, old: &str) -> String { if new.trim().is_empty() { old.to_string() } else { new } }
+        fn pick_i64(new: i64, old: i64) -> i64 { if new == 0 { old } else { new } }
+        fn pick_f32(new: f32, old: f32) -> f32 { if new == 0.0 { old } else { new } }
+        fn pick_option<T: Clone>(new: Option<T>, old: Option<T>) -> Option<T> { if new.is_none() { old } else { new } }
 
         let si = &info.system_info;
-
         let (old, approved) = match existing {
             Some(dev) => (dev, dev.approved),
-            None => (
-                &Device {
-                    id: 0,
-                    device_id: device_id.to_string(),
-                    device_name: device_id.to_string(),
-                    hostname: device_id.to_string(),
-                    os_name: "".into(),
-                    architecture: "".into(),
-                    last_checkin: Utc::now().naive_utc(),
-                    approved: false,
-                    cpu_usage: 0.0,
-                    cpu_count: 0,
-                    cpu_brand: "".into(),
-                    ram_total: 0,
-                    ram_used: 0,
-                    disk_total: 0,
-                    disk_free: 0,
-                    disk_health: "".into(),
-                    network_throughput: 0,
-                    ping_latency: None,
-                    device_type: "".into(),
-                    device_model: "".into(),
-                    uptime: Some("0h 0m".into()),
-                    updates_available: false,
-                    network_interfaces: None,
-                    ip_address: None,
-                },
-                false,
-            ),
+            None => (&Device {
+                id: 0,
+                device_id: device_id.to_string(),
+                device_name: device_id.to_string(),
+                hostname: device_id.to_string(),
+                os_name: "".into(),
+                architecture: "".into(),
+                last_checkin: Utc::now().naive_utc(),
+                approved: false,
+                cpu_usage: 0.0,
+                cpu_count: 0,
+                cpu_brand: "".into(),
+                ram_total: 0,
+                ram_used: 0,
+                disk_total: 0,
+                disk_free: 0,
+                disk_health: "".into(),
+                network_throughput: 0,
+                ping_latency: None,
+                device_type: "".into(),
+                device_model: "".into(),
+                uptime: Some("0h 0m".into()),
+                updates_available: false,
+                network_interfaces: None,
+                ip_address: None,
+            }, false),
         };
 
         Self {

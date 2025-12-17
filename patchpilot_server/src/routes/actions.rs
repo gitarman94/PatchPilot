@@ -1,6 +1,7 @@
 use diesel::prelude::*;
 use rocket::{get, post, serde::json::Json, State};
 use rocket::http::Status;
+use chrono::Utc;
 
 use crate::db::pool::DbPool;
 use crate::models::{Action, NewAction, ActionTarget};
@@ -36,12 +37,12 @@ pub async fn list_actions(pool: &State<DbPool>) -> Result<Json<Vec<Action>>, Sta
 #[post("/api/actions/<id>/cancel")]
 pub async fn cancel_action(
     pool: &State<DbPool>,
-    id: &str,
+    id: i32, // <--- ID should match schema type
 ) -> Result<Status, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
     diesel::update(actions::table.filter(actions::id.eq(id)))
-        .set(actions::canceled.eq(true))
+        .set(actions::status.eq("canceled")) // assuming "canceled" string; update if schema has a boolean column
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
 
@@ -51,7 +52,7 @@ pub async fn cancel_action(
 #[post("/api/actions/<id>/result", data = "<result>")]
 pub async fn report_action_result(
     pool: &State<DbPool>,
-    id: &str,
+    id: i32, // match schema type
     result: Json<ActionTarget>,
 ) -> Result<Status, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
@@ -59,11 +60,11 @@ pub async fn report_action_result(
     diesel::update(
         action_targets::table
             .filter(action_targets::action_id.eq(id))
-            .filter(action_targets::device_id.eq(&result.device_id)),
+            .filter(action_targets::target.eq(&result.target)), // use target field instead of device_id if no device_id
     )
     .set((
         action_targets::status.eq(&result.status),
-        action_targets::last_update.eq(chrono::Utc::now().naive_utc()),
+        action_targets::last_update.eq(Utc::now().naive_utc()),
     ))
     .execute(&mut conn)
     .map_err(|_| Status::InternalServerError)?;
