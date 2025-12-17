@@ -6,16 +6,9 @@ use chrono::Utc;
 use crate::db::pool::DbPool;
 use crate::models::{Action, NewAction, ActionTarget};
 
-// Explicitly alias columns to avoid ambiguity
-use crate::schema::actions::dsl::{actions, id as action_id_col, created_at, canceled};
-use crate::schema::action_targets::dsl::{
-    action_targets,
-    action_id as at_action_id,
-    device_id as at_device_id,
-    status as at_status,
-    last_update as at_last_update,
-    response as at_response
-};
+// Explicitly import columns to avoid ambiguity
+use crate::schema::actions::{self, id as action_id_col, created_at, canceled};
+use crate::schema::action_targets::{self, action_id as at_action_id, device_id as at_device_id, status, last_update, response};
 
 /// Submit a new action
 #[post("/api/actions", data = "<action>")]
@@ -26,15 +19,16 @@ pub async fn submit_action(
     let pool = pool.inner().clone();
     let action_data = action.into_inner();
 
+    // Spawn blocking Diesel query
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        diesel::insert_into(actions)
+        diesel::insert_into(actions::table)
             .values(&action_data)
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)
     })
     .await
-    .map_err(|_| Status::InternalServerError)?; 
+    .map_err(|_| Status::InternalServerError)??;
 
     Ok(Status::Created)
 }
@@ -46,7 +40,7 @@ pub async fn list_actions(pool: &State<DbPool>) -> Result<Json<Vec<Action>>, Sta
 
     let result = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        actions
+        actions::table
             .order(created_at.desc())
             .load::<Action>(&mut conn)
             .map_err(|_| Status::InternalServerError)
@@ -68,13 +62,13 @@ pub async fn cancel_action(
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        diesel::update(actions.filter(action_id_col.eq(&action_id)))
+        diesel::update(actions::table.filter(action_id_col.eq(&action_id)))
             .set(canceled.eq(true))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)
     })
     .await
-    .map_err(|_| Status::InternalServerError)?; 
+    .map_err(|_| Status::InternalServerError)??;
 
     Ok(Status::Ok)
 }
@@ -92,20 +86,20 @@ pub async fn report_action_result(
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         diesel::update(
-            action_targets
+            action_targets::table
                 .filter(at_action_id.eq(&result.action_id))
                 .filter(at_device_id.eq(&result.device_id)),
         )
         .set((
-            at_status.eq(&result.status),
-            at_last_update.eq(Utc::now().naive_utc()),
-            at_response.eq(&result.response),
+            status.eq(&result.status),
+            last_update.eq(Utc::now().naive_utc()),
+            response.eq(&result.response),
         ))
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)
     })
     .await
-    .map_err(|_| Status::InternalServerError)?; 
+    .map_err(|_| Status::InternalServerError)??;
 
     Ok(Status::Ok)
 }
