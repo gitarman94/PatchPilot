@@ -38,7 +38,7 @@ pub struct Device {
     pub ip_address: Option<String>,
 }
 
-#[derive(Insertable, Queryable)]
+#[derive(Insertable, Queryable, AsChangeset)]
 #[diesel(table_name = devices)]
 pub struct NewDevice {
     pub device_id: String,
@@ -97,13 +97,8 @@ pub struct SystemInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
-    /// Device device_id (required for update/heartbeat)
     pub device_id: String,
-
-    /// System metrics
     pub system_info: SystemInfo,
-
-    /// Optional type/model from client
     pub device_type: Option<String>,
     pub device_model: Option<String>,
 }
@@ -238,7 +233,6 @@ impl NewDevice {
 
         let si = &info.system_info;
 
-        // Determine existing values or defaults
         let (old, approved) = match existing {
             Some(dev) => (dev, dev.approved),
             None => (
