@@ -18,7 +18,7 @@ pub fn api_routes() -> Vec<Route> {
 
         // Actions
         actions::submit_action,
-        actions::report_action_result,
+        actions::report_action_result, // <- matches pub fn in actions.rs
         actions::list_actions,
         actions::cancel_action,
 
