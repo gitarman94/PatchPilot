@@ -198,7 +198,7 @@ pub fn write_local_device_id(device_id: &str) -> Result<()> {
 
 pub async fn read_server_url() -> Result<String> {
     let base_dir = crate::get_base_dir();
-    let url_file = base_dir.join("server_url.txt");
+    let url_file = PathBuf::from(base_dir).join("server_url.txt");
     let url = fs::read_to_string(url_file)?;
     Ok(url.trim().to_string())
 }

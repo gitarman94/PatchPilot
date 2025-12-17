@@ -1,7 +1,6 @@
 use anyhow::Result;
 use reqwest::Client;
 use crate::device::run_adoption_and_update_loop;
-use crate::command::*;
 use std::path::PathBuf;
 
 pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
@@ -37,7 +36,19 @@ pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
 pub async fn run_unix_service() -> Result<()> {
     let client = Client::new();
     let server_url = crate::system_info::read_server_url().await?;
-    run_adoption_and_update_loop(&client, &server_url, None).await
+
+    // Run adoption/update loop and capture the device_id
+    let device_id = run_adoption_and_update_loop(&client, &server_url, None).await?;
+
+    // Start command polling for this device
+    crate::action::command_poll_loop(
+        client.clone(),
+        server_url.to_string(),
+        device_id.clone(),
+        None,
+    ).await;
+
+    Ok(())
 }
 
 /// Windows service entrypoint
@@ -53,7 +64,23 @@ pub async fn run_service() -> Result<()> {
     fn service_main(flag: Arc<AtomicBool>) -> Result<()> {
         let client = Client::new();
         let server_url = futures::executor::block_on(crate::system_info::read_server_url())?;
-        futures::executor::block_on(run_adoption_and_update_loop(&client, &server_url, Some(flag)))
+
+        // Register & get device ID
+        let device_id = futures::executor::block_on(
+            run_adoption_and_update_loop(&client, &server_url, Some(flag.clone()))
+        )?;
+
+        // Start polling for commands
+        futures::executor::block_on(
+            crate::action::command_poll_loop(
+                client.clone(),
+                server_url.clone(),
+                device_id.clone(),
+                Some(flag),
+            )
+        );
+
+        Ok(())
     }
 
     let flag_for_handler = running_flag.clone();
