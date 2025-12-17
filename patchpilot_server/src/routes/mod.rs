@@ -1,30 +1,34 @@
-pub mod devices;
-pub mod actions;
-pub mod history;
-pub mod settings;
-pub mod pages;
-
 use rocket::Route;
+
+mod devices;
+mod actions;
+mod settings;
+mod history;
+mod pages;
 
 pub fn api_routes() -> Vec<Route> {
     routes![
-        devices::register_device,
-        devices::register_or_update_device,
+        // Devices
         devices::get_devices,
         devices::get_device_details,
         devices::approve_device,
+        devices::register_device,
+        devices::register_or_update_device,
         devices::heartbeat,
 
+        // Actions
         actions::submit_action,
         actions::report_action_result,
         actions::list_actions,
         actions::cancel_action,
 
+        // History
         history::api_history,
 
+        // Settings
         settings::set_auto_approve,
         settings::set_auto_refresh,
-        settings::set_auto_refresh_interval,
+        settings::set_auto_refresh_interval
     ]
 }
 
