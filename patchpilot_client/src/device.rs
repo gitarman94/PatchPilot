@@ -22,9 +22,9 @@ pub async fn register_device(
     let device_uuid = match get_local_device_id() {
         Some(id) => id,
         None => {
-            let new_id = uuid::Uuid::new_v4().to_string();
-            write_local_device_id(&new_id)?;
-            new_id
+            let device_id = response.device_id.clone();
+            write_device_id(&device_id)?;
+            return Ok(device_id);
         }
     };
 
@@ -134,8 +134,15 @@ pub async fn run_adoption_and_update_loop(
     let (device_type, device_model) = get_device_info_basic();
     let mut device_id = get_local_device_id();
 
+    // Register device if we don't already have an ID
     if device_id.is_none() {
         loop {
+            if let Some(flag) = &running_flag {
+                if !flag.load(Ordering::SeqCst) {
+                    return Err(anyhow!("Service stopping during device registration"));
+                }
+            }
+
             match register_device(client, server_url, &device_type, &device_model).await {
                 Ok(id) => {
                     device_id = Some(id.clone());
@@ -149,19 +156,34 @@ pub async fn run_adoption_and_update_loop(
         }
     }
 
-    let device_id = device_id.unwrap();
+    let device_id = device_id.expect("device_id must be present after registration");
 
+    // Wait until server reports device is adopted
     loop {
+        if let Some(flag) = &running_flag {
+            if !flag.load(Ordering::SeqCst) {
+                return Err(anyhow!("Service stopping during adoption wait"));
+            }
+        }
+
         match send_heartbeat(client, server_url, &device_id, &device_type, &device_model).await {
             Ok(v) => {
-                let adopted = v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
+                let adopted =
+                    v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
                     || v.get("status").and_then(|x| x.as_str()) == Some("adopted");
-                if adopted { break; }
+
+                if adopted {
+                    break;
+                }
             }
-            Err(e) => log::warn!("Heartbeat failed: {}", e),
+            Err(e) => {
+                log::warn!("Heartbeat failed: {}", e);
+            }
         }
+
         sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
     }
 
     Ok(device_id)
 }
+
