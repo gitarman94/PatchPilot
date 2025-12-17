@@ -75,7 +75,9 @@ PatchPilot/
 ├── templates/                         # Rocket HTML templates
 │   ├── navbar.html                    # Sidebar navigation
 │   ├── dashboard.html                 # Main dashboard
-│   ├── client_detail.html             # Single device view
+│   ├── device_detail.html             # Single device view
+│   ├── settings.html                  # server and client policy Settings
+│   ├── devices.html                   # Table of all devices and basic information about each
 │   └── history.html                   # Audit / history page
 │
 └── static/                            # Static web assets
