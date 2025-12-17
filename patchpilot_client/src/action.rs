@@ -56,24 +56,29 @@ pub struct CommandResult {
 pub async fn poll_for_commands_once(
     client: &Client,
     server_url: &str,
-    device_id: &str,
-) -> Result<Vec<ServerCommand>> {
-    let url = format!("{}/api/devices/{}/commands/poll", server_url, device_id);
-
+    device_id: &str,  // <-- use it
+) -> Result<()> {
     let resp = client
-        .get(&url)
+        .get(format!("{}/api/devices/{}/commands/poll", server_url, device_id))
         .send()
-        .await
-        .context("Failed to poll commands")?;
+        .await?;
 
     if !resp.status().is_success() {
-        anyhow::bail!("Command poll failed: {}", resp.status());
+        log::warn!("Command poll rejected: {}", resp.status());
+        return Ok(());
     }
 
-    let commands: Vec<ServerCommand> =
-        resp.json().await.context("Invalid command JSON")?;
+    let commands: Vec<serde_json::Value> = resp.json().await?;
+    for cmd_item in commands {
+        crate::command::execute_command_and_post_result(
+            client.clone(),
+            server_url.to_string(),
+            device_id.to_string(),  // <-- pass the device_id
+            cmd_item,
+        ).await;
+    }
 
-    Ok(commands)
+    Ok(())
 }
 
 pub async fn execute_command_and_collect_result(cmd: &ServerCommand) -> CommandResult {
