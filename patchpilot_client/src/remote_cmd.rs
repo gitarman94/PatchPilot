@@ -78,11 +78,10 @@ pub async fn execute_remote_command(
 ) -> anyhow::Result<()> {
     use chrono::Utc;
 
-    // canonical_payload should be the same bytes server signed (choose canonicalization!)
+    // canonical_payload should be the same bytes server signed
     // For simplicity assume server used serde_json::to_string(&cmd_without_signature)
     // Client must reconstruct same canonical payload for verification.
     let mut cmd_for_sig = cmd.clone();
-    let sig = cmd_for_sig.signature.clone();
     cmd_for_sig.signature = "".to_string(); // remove signature field
     let canonical = serde_json::to_string(&cmd_for_sig)?;
 
