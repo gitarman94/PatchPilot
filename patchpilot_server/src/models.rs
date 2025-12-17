@@ -380,7 +380,7 @@ impl NewActionTarget {
 
 #[derive(Queryable, Serialize, Deserialize, Debug)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct HistoryRecord {
+pub struct HistoryLog {
     pub id: i32,
     pub action_id: Option<String>,
     pub device_name: Option<String>,
@@ -392,7 +392,7 @@ pub struct HistoryRecord {
 
 #[derive(Insertable, Serialize, Deserialize, Debug)]
 #[diesel(table_name = history_log)]
-pub struct NewHistoryRecord {
+pub struct NewHistoryLog {
     pub action_id: Option<String>,
     pub device_name: Option<String>,
     pub actor: Option<String>,
@@ -401,7 +401,7 @@ pub struct NewHistoryRecord {
     pub created_at: NaiveDateTime,
 }
 
-impl NewHistoryRecord {
+impl NewHistoryLog {
     pub fn new(action_id: Option<String>, device_name: Option<String>, actor: Option<String>, action_type: String, details: Option<String>) -> Self {
         Self {
             action_id,

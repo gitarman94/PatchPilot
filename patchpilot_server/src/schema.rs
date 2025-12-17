@@ -72,5 +72,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     devices,
     actions,
     action_targets,
-    audit_log,
+    history_log,
 );
