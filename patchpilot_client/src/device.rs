@@ -13,7 +13,6 @@ use crate::system_info::{
 };
 
 pub const ADOPTION_CHECK_INTERVAL: u64 = 10;
-pub const SYSTEM_UPDATE_INTERVAL: u64 = 600;
 
 // Register the device with the server
 pub async fn register_device(
@@ -24,22 +23,17 @@ pub async fn register_device(
 ) -> Result<String> {
     let sys_info: SystemInfo = get_system_info();
 
-    // Load persistent device ID if available
-    let device_uuid = match get_local_device_id() {
-        Some(id) => id,
-        None => String::new(), // no UUID generation; server will assign
-    };
+    // Read stored ID if available
+    let device_uuid = get_local_device_id().unwrap_or_default();
 
-    // Payload MUST match server DeviceInfo exactly
     let payload = json!({
-        "uuid": device_uuid,
+        "device_uuid": device_uuid,
         "system_info": sys_info,
         "device_type": device_type,
         "device_model": device_model
     });
 
     let url = format!("{}/api/register", server_url);
-
     let response = client
         .post(&url)
         .json(&payload)
@@ -63,36 +57,6 @@ pub async fn register_device(
     }
 
     anyhow::bail!("Server did not return device_id");
-}
-
-// Send a system update to the server
-pub async fn send_system_update(
-    client: &Client,
-    server_url: &str,
-    device_id: &str,
-    device_type: &str,
-    device_model: &str,
-) -> Result<()> {
-    let sys_info: SystemInfo = get_system_info();
-
-    let payload = json!({
-        "system_info": sys_info,
-        "device_type": device_type,
-        "device_model": device_model
-    });
-
-    let resp = client
-        .post(format!("{}/api/devices/{}", server_url, device_id))
-        .json(&payload)
-        .send()
-        .await
-        .context("Update request failed")?;
-
-    if !resp.status().is_success() {
-        anyhow::bail!("Server update rejected: {}", resp.status());
-    }
-
-    Ok(())
 }
 
 // Send a heartbeat to the server and return JSON
@@ -136,7 +100,7 @@ pub async fn run_adoption_and_update_loop(
     let (device_type, device_model) = get_device_info_basic();
     let mut device_id = get_local_device_id();
 
-    // Register device if we don't already have an ID
+    // Register device if none
     if device_id.is_none() {
         loop {
             if let Some(flag) = &running_flag {
@@ -151,16 +115,16 @@ pub async fn run_adoption_and_update_loop(
                     break;
                 }
                 Err(e) => {
-                    log::warn!("No device_id yet, retrying...: {}", e);
+                    log::warn!("Registration retry: {}", e);
                     sleep(Duration::from_secs(ADOPTION_CHECK_INTERVAL)).await;
                 }
             }
         }
     }
 
-    let device_id = device_id.expect("device_id must be present after registration");
+    let device_id = device_id.expect("device_id missing after registration");
 
-    // Wait until server reports device is adopted
+    // Heartbeat until adopted
     loop {
         if let Some(flag) = &running_flag {
             if !flag.load(Ordering::SeqCst) {
@@ -170,10 +134,7 @@ pub async fn run_adoption_and_update_loop(
 
         match send_heartbeat(client, server_url, &device_id, &device_type, &device_model).await {
             Ok(v) => {
-                let adopted =
-                    v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false)
-                    || v.get("status").and_then(|x| x.as_str()) == Some("adopted");
-
+                let adopted = v.get("adopted").and_then(|x| x.as_bool()).unwrap_or(false);
                 if adopted {
                     break;
                 }

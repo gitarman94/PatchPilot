@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{fs, time::Duration};
 use local_ip_address::local_ip;
 use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
-use sysinfo::System;
+use sysinfo::{System, SystemExt, CpuExt, DiskExt};
 use std::path::PathBuf;
 
 // Intervals (defaults)
@@ -19,7 +19,6 @@ const DEVICE_ID_FILE: &str = "C:\\ProgramData\\PatchPilot\\device_id.txt";
 // Refresh interval
 static SYSTEM_INFO_REFRESH_SECS: AtomicU64 = AtomicU64::new(10);
 
-/// Set the refresh interval for cached system info
 pub fn set_system_info_refresh_secs(secs: u64) {
     SYSTEM_INFO_REFRESH_SECS.store(if secs == 0 { 10 } else { secs }, Ordering::SeqCst);
 }
@@ -83,12 +82,8 @@ impl SystemInfo {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        let hostname =
-            sysinfo::System::host_name().unwrap_or_else(|| "unknown".to_string());
-
-        let os_name =
-            sysinfo::System::long_os_version().unwrap_or_else(|| "unknown".to_string());
-
+        let hostname = sys.host_name().unwrap_or_else(|| "unknown".to_string());
+        let os_name = sys.long_os_version().unwrap_or_else(|| "unknown".to_string());
         let architecture = std::env::consts::ARCH.to_string();
 
         let cpus = sys.cpus();
@@ -105,8 +100,7 @@ impl SystemInfo {
 
         let mut disk_total: i64 = 0;
         let mut disk_free: i64 = 0;
-        let disks = sysinfo::Disks::new_with_refreshed_list();
-        for disk in disks.iter() {
+        for disk in sys.disks() {
             disk_total += disk.total_space() as i64;
             disk_free += disk.available_space() as i64;
         }
@@ -153,6 +147,7 @@ impl Default for SystemInfoService {
 impl SystemInfoService {
     pub async fn get_system_info_async(&self) -> Result<SystemInfo> {
         let refresh_secs = get_system_info_refresh_secs();
+
         {
             let last = self.last.read().await;
             let cache = self.cache.read().await;
@@ -163,21 +158,16 @@ impl SystemInfoService {
             }
         }
 
-        let mut last = self.last.write().await;
-        let mut cache = self.cache.write().await;
-
-        if let (Some(ts), Some(si)) = (*last, &*cache) {
-            if ts.elapsed() < Duration::from_secs(refresh_secs) {
-                return Ok(si.clone());
-            }
-        }
-
-        let info = tokio::task::spawn_blocking(move || SystemInfo::gather_blocking())
+        let info = tokio::task::spawn_blocking(|| SystemInfo::gather_blocking())
             .await
             .context("spawn_blocking failed")?;
 
+        let mut last = self.last.write().await;
+        let mut cache = self.cache.write().await;
+
         *cache = Some(info.clone());
         *last = Some(std::time::Instant::now());
+
         Ok(info)
     }
 }
@@ -195,14 +185,6 @@ pub fn get_local_device_id() -> Option<String> {
 pub fn write_local_device_id(device_id: &str) -> Result<()> {
     fs::write(DEVICE_ID_FILE, device_id).context("Failed to write local device_id")
 }
-
-pub async fn read_server_url() -> Result<String> {
-    let base_dir = crate::get_base_dir();
-    let url_file = PathBuf::from(base_dir).join("server_url.txt");
-    let url = fs::read_to_string(url_file)?;
-    Ok(url.trim().to_string())
-}
-
 
 pub fn get_device_info_basic() -> (String, String) {
     let si = get_system_info();
