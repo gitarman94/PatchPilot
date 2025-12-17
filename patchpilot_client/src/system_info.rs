@@ -1,13 +1,9 @@
 use anyhow::{Context, Result};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::{fs, time::Duration};
 use local_ip_address::local_ip;
-use tokio::time::sleep;
 use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 use sysinfo::System;
-use crate::action::*;
 
 // Intervals (defaults)
 const ADOPTION_CHECK_INTERVAL: u64 = 10;
@@ -86,21 +82,30 @@ impl SystemInfo {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        let hostname = sys.host_name().unwrap_or_else(|| "unknown".into());
-        let os_name = sys.long_os_version().unwrap_or_else(|| "unknown".into());
+        let hostname =
+            sysinfo::System::host_name().unwrap_or_else(|| "unknown".to_string());
+
+        let os_name =
+            sysinfo::System::long_os_version().unwrap_or_else(|| "unknown".to_string());
+
         let architecture = std::env::consts::ARCH.to_string();
 
         let cpus = sys.cpus();
         let cpu_count = cpus.len() as i32;
-        let cpu_brand = cpus.get(0).map(|c| c.brand().to_string()).unwrap_or_default();
-        let cpu_usage = if cpu_count == 0 { 0.0 } else { cpus.iter().map(|c| c.cpu_usage()).sum::<f32>() / cpu_count as f32 };
+        let cpu_brand = cpus.first().map(|c| c.brand().to_string()).unwrap_or_default();
+        let cpu_usage = if cpu_count == 0 {
+            0.0
+        } else {
+            cpus.iter().map(|c| c.cpu_usage()).sum::<f32>() / cpu_count as f32
+        };
 
         let ram_total = sys.total_memory() as i64;
         let ram_used = sys.used_memory() as i64;
 
-        let mut disk_total = 0i64;
-        let mut disk_free = 0i64;
-        for disk in sys.disks() {
+        let mut disk_total: i64 = 0;
+        let mut disk_free: i64 = 0;
+        let disks = sysinfo::Disks::new_with_refreshed_list();
+        for disk in disks.iter() {
             disk_total += disk.total_space() as i64;
             disk_free += disk.available_space() as i64;
         }
@@ -118,13 +123,13 @@ impl SystemInfo {
             ram_used,
             disk_total,
             disk_free,
-            disk_health: "".into(),
+            disk_health: String::new(),
             network_throughput: 0,
             ping_latency: None,
             network_interfaces: None,
             ip_address,
-            device_type: "".into(),
-            device_model: "".into(),
+            device_type: String::new(),
+            device_model: String::new(),
         }
     }
 }

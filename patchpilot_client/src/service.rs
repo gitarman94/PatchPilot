@@ -2,10 +2,33 @@ use anyhow::Result;
 use reqwest::Client;
 use std::sync::{Arc, atomic::AtomicBool};
 
-use command::*;
+use crate::command::*;
 
 pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
-    // ... your existing init_logging function stays as-is ...
+    use flexi_logger::{
+        Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming,
+    };
+
+    let log_dir = crate::get_base_dir().join("logs");
+
+    std::fs::create_dir_all(&log_dir)?;
+
+    let handle = Logger::try_with_str("info")?
+        .log_to_file(
+            FileSpec::default()
+                .directory(log_dir)
+                .basename("patchpilot_client")
+                .suffix("log"),
+        )
+        .rotate(
+            Criterion::Size(5_000_000), // 5 MB
+            Naming::Numbers,
+            Cleanup::KeepLogFiles(10),
+        )
+        .duplicate_to_stderr(Duplicate::Info)
+        .start()?;
+
+    Ok(handle)
 }
 
 /// Unix service entrypoint
