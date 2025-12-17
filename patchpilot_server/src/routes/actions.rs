@@ -5,8 +5,17 @@ use chrono::Utc;
 
 use crate::db::pool::DbPool;
 use crate::models::{Action, NewAction, ActionTarget};
-use crate::schema::actions::dsl::*;        // actions table + columns
-use crate::schema::action_targets::dsl::*; // action_targets table + columns
+
+// Explicitly alias columns to avoid ambiguity
+use crate::schema::actions::dsl::{actions, id as action_id_col, created_at, canceled};
+use crate::schema::action_targets::dsl::{
+    action_targets,
+    action_id as at_action_id,
+    device_id as at_device_id,
+    status as at_status,
+    last_update as at_last_update,
+    response as at_response
+};
 
 /// Submit a new action
 #[post("/api/actions", data = "<action>")]
@@ -25,7 +34,7 @@ pub async fn submit_action(
             .map_err(|_| Status::InternalServerError)
     })
     .await
-    .map_err(|_| Status::InternalServerError)?;
+    .map_err(|_| Status::InternalServerError)?; 
 
     Ok(Status::Created)
 }
@@ -59,13 +68,13 @@ pub async fn cancel_action(
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        diesel::update(actions.filter(id.eq(&action_id)))
+        diesel::update(actions.filter(action_id_col.eq(&action_id)))
             .set(canceled.eq(true))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)
     })
     .await
-    .map_err(|_| Status::InternalServerError)?;
+    .map_err(|_| Status::InternalServerError)?; 
 
     Ok(Status::Ok)
 }
@@ -84,19 +93,19 @@ pub async fn report_action_result(
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         diesel::update(
             action_targets
-                .filter(action_id.eq(&result.action_id))
-                .filter(target.eq(&result.target)),
+                .filter(at_action_id.eq(&result.action_id))
+                .filter(at_device_id.eq(&result.device_id)),
         )
         .set((
-            status.eq(&result.status),
-            last_update.eq(Utc::now().naive_utc()),
-            response.eq(&result.response),
+            at_status.eq(&result.status),
+            at_last_update.eq(Utc::now().naive_utc()),
+            at_response.eq(&result.response),
         ))
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)
     })
     .await
-    .map_err(|_| Status::InternalServerError)?;
+    .map_err(|_| Status::InternalServerError)?; 
 
     Ok(Status::Ok)
 }
