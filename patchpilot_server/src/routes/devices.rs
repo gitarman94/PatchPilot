@@ -23,7 +23,7 @@ pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Stat
 pub async fn get_device_details(pool: &State<DbPool>, device_uuid: &str) -> Result<Json<Device>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
     let device = devices
-        .filter(uuid.eq(device_uuid))
+        .filter(device_uuid.eq(device_uuid))
         .first::<Device>(&mut conn)
         .map_err(|_| Status::NotFound)?;
     Ok(Json(device))

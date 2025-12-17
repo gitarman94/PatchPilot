@@ -8,7 +8,7 @@ use crate::schema::{devices, actions, action_targets, history_log};
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Device {
     pub id: i32,
-    pub uuid: String,
+    pub device_uuid: String,
     pub device_name: String,
     pub hostname: String,
     pub os_name: String,
@@ -42,7 +42,7 @@ pub struct Device {
 #[derive(Insertable, AsChangeset)]
 #[diesel(table_name = devices)]
 pub struct NewDevice {
-    pub uuid: String,
+    pub device_uuid: String,
     pub device_name: String,
     pub hostname: String,
     pub os_name: String,
@@ -99,7 +99,7 @@ pub struct SystemInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
     /// Device UUID (required for update/heartbeat)
-    pub uuid: String,
+    pub device_uuid: String,
 
     /// System metrics
     pub system_info: SystemInfo,
@@ -108,7 +108,6 @@ pub struct DeviceInfo {
     pub device_type: Option<String>,
     pub device_model: Option<String>,
 }
-
 
 impl DeviceInfo {
     pub fn merge_with(&mut self, other: &DeviceInfo) {
@@ -156,17 +155,17 @@ impl DeviceInfo {
             }
         }
 
-        if !other.uuid.is_empty() {
-            self.uuid = other.uuid.clone();
+        if !other.device_uuid.is_empty() {
+            self.device_uuid = other.device_uuid.clone();
         }
     }
 
-    pub fn to_device(&self, uuid: &str, device_id: &str) -> Device {
+    pub fn to_device(&self, device_uuid: &str, device_id: &str) -> Device {
         let s = &self.system_info;
 
         Device {
             id: 0,
-            uuid: uuid.to_string(),
+            device_uuid: device_uuid.to_string(),
             device_name: device_id.to_string(),
             hostname: device_id.to_string(),
 
@@ -214,13 +213,13 @@ impl Device {
         self
     }
 
-    pub fn from_info(uuid: &str, device_id: &str, info: &DeviceInfo) -> Self {
-        info.to_device(uuid, device_id)
+    pub fn from_info(device_uuid: &str, device_id: &str, info: &DeviceInfo) -> Self {
+        info.to_device(device_uuid, device_id)
     }
 }
 
 impl NewDevice {
-    pub fn from_device_info(uuid: &str, device_id: &str, info: &DeviceInfo, existing: Option<&Device>) -> Self {
+    pub fn from_device_info(device_uuid: &str, device_id: &str, info: &DeviceInfo, existing: Option<&Device>) -> Self {
         fn pick_string(new: String, old: &str) -> String {
             if new.trim().is_empty() { old.to_string() } else { new }
         }
@@ -241,7 +240,7 @@ impl NewDevice {
             None => (
                 &Device {
                     id: 0,
-                    uuid: uuid.to_string(),
+                    device_uuid: device_uuid.to_string(),
                     device_name: device_id.to_string(),
                     hostname: device_id.to_string(),
                     os_name: "".into(),
@@ -270,7 +269,7 @@ impl NewDevice {
         };
 
         Self {
-            uuid: uuid.to_string(),
+            device_uuid: device_uuid.to_string(),
             device_name: device_id.to_string(),
             hostname: device_id.to_string(),
 
@@ -306,7 +305,7 @@ impl NewDevice {
     }
 }
 
-// ACTIONS / TARGETS / History (Action = what you called "instruction")
+// ACTIONS / TARGETS / History
 #[derive(Queryable, Serialize, Deserialize, Debug)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Action {
@@ -352,7 +351,7 @@ impl NewAction {
 pub struct ActionTarget {
     pub id: i32,
     pub action_id: String,
-    pub uuid: String,
+    pub device_uuid: String,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
@@ -362,17 +361,17 @@ pub struct ActionTarget {
 #[diesel(table_name = action_targets)]
 pub struct NewActionTarget {
     pub action_id: String,
-    pub uuid: String,
+    pub device_uuid: String,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
 }
 
 impl NewActionTarget {
-    pub fn new(action_id: String, uuid: String) -> Self {
+    pub fn new(action_id: String, device_uuid: String) -> Self {
         Self {
             action_id,
-            uuid,
+            device_uuid,
             status: "pending".into(),
             last_update: Utc::now().naive_utc(),
             response: None,
