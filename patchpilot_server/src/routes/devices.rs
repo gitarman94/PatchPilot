@@ -5,14 +5,16 @@ use diesel::prelude::*;
 use chrono::Utc;
 
 use crate::db::pool::DbPool;
-use crate::models::{Device, DeviceInfo};
+use crate::models::{Device, DeviceInfo, NewDevice};
 use crate::schema::devices::dsl::*;
 
 /// Get all devices
 #[get("/devices")]
 pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-    let result = devices.load::<Device>(&mut conn).map_err(|_| Status::InternalServerError)?;
+    let result = devices
+        .load::<Device>(&mut conn)
+        .map_err(|_| Status::InternalServerError)?;
     Ok(Json(result))
 }
 
@@ -20,7 +22,8 @@ pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Stat
 #[get("/device/<device_uuid>")]
 pub async fn get_device_details(pool: &State<DbPool>, device_uuid: &str) -> Result<Json<Device>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-    let device = devices.filter(uuid.eq(device_uuid))
+    let device = devices
+        .filter(uuid.eq(device_uuid))
         .first::<Device>(&mut conn)
         .map_err(|_| Status::NotFound)?;
     Ok(Json(device))
@@ -44,12 +47,20 @@ pub async fn register_device(
     info: Json<DeviceInfo>,
 ) -> Result<Json<serde_json::Value>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-    let new_device = diesel::insert_into(devices)
-        .values(&*info)
-        .get_result::<Device>(&mut conn)
+
+    let new_device = NewDevice::from_device_info(
+        &info.uuid,
+        &info.uuid, // device_name default to uuid
+        &info,
+        None,       // no existing device to merge
+    );
+
+    diesel::insert_into(devices)
+        .values(&new_device)
+        .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
-    
-    Ok(Json(serde_json::json!({ "device_id": new_device.uuid })))
+
+    Ok(Json(serde_json::json!({ "device_id": info.uuid.clone() })))
 }
 
 /// Register or update an existing device
@@ -59,23 +70,30 @@ pub async fn register_or_update_device(
     info: Json<DeviceInfo>,
 ) -> Result<Json<serde_json::Value>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+
+    // Load existing device if any
+    let existing = devices
+        .filter(uuid.eq(&info.uuid))
+        .first::<Device>(&mut conn)
+        .optional()
+        .map_err(|_| Status::InternalServerError)?;
+
+    let updated = NewDevice::from_device_info(
+        &info.uuid,
+        &info.uuid,
+        &info,
+        existing.as_ref(),
+    );
+
     diesel::insert_into(devices)
-        .values(&*info)
+        .values(&updated)
         .on_conflict(uuid)
         .do_update()
-        .set((
-            hostname.eq(&info.hostname),
-            approved.eq(info.approved),
-            last_checkin.eq(Utc::now().naive_utc()),
-        ))
+        .set(&updated)
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
-    
-    let dev = devices.filter(uuid.eq(&info.uuid))
-        .first::<Device>(&mut conn)
-        .map_err(|_| Status::InternalServerError)?;
-    
-    Ok(Json(serde_json::json!({ "device_id": dev.uuid })))
+
+    Ok(Json(serde_json::json!({ "device_id": info.uuid.clone() })))
 }
 
 /// Heartbeat endpoint
@@ -89,6 +107,6 @@ pub async fn heartbeat(
         .set(last_checkin.eq(Utc::now().naive_utc()))
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
-    
+
     Ok(Json(serde_json::json!({ "adopted": true })))
 }
