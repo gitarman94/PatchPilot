@@ -42,7 +42,6 @@ pub struct Device {
 #[diesel(table_name = devices)]
 pub struct NewDevice {
     pub device_uuid: String,
-    pub device_uuid: String,
     pub device_name: String,
     pub hostname: String,
     pub os_name: String,
@@ -219,7 +218,12 @@ impl Device {
 }
 
 impl NewDevice {
-    pub fn from_device_info(device_uuid: &str, device_id: &str, info: &DeviceInfo, existing: Option<&Device>) -> Self {
+    pub fn from_device_info(
+        device_uuid: &str,
+        device_id: &str,
+        info: &DeviceInfo,
+        existing: Option<&Device>,
+    ) -> Self {
         fn pick_string(new: String, old: &str) -> String {
             if new.trim().is_empty() { old.to_string() } else { new }
         }
@@ -235,6 +239,7 @@ impl NewDevice {
 
         let si = &info.system_info;
 
+        // Determine existing values or defaults
         let (old, approved) = match existing {
             Some(dev) => (dev, dev.approved),
             None => (
@@ -291,7 +296,7 @@ impl NewDevice {
             disk_health: pick_string(si.disk_health.clone(), &old.disk_health),
 
             network_throughput: pick_i64(si.network_throughput, old.network_throughput),
-            ping_latency: pick_option(si.ping_latency, old.ping_latency),
+            ping_latency: pick_option(si.ping_latency, old.ping_latency.clone()),
 
             device_type: pick_string(info.device_type.clone().unwrap_or_default(), &old.device_type),
             device_model: pick_string(info.device_model.clone().unwrap_or_default(), &old.device_model),

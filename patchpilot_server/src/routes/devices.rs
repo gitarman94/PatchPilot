@@ -6,7 +6,8 @@ use chrono::Utc;
 
 use crate::db::pool::DbPool;
 use crate::models::{Device, DeviceInfo, NewDevice};
-use crate::schema::devices::dsl::*;
+use crate::schema::devices::dsl::{devices, device_uuid, approved, last_checkin};
+
 
 /// Get all devices
 #[get("/devices")]
@@ -20,10 +21,10 @@ pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Stat
 
 /// Get details for a specific device
 #[get("/device/<device_uuid>")]
-pub async fn get_device_details(pool: &State<DbPool>, device_uuid_param: &str) -> Result<Json<Device>, Status> {
+pub async fn get_device_details(pool: &State<DbPool>, device_uuid: &str) -> Result<Json<Device>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
     let device = devices
-        .filter(device_uuid.eq(device_uuid_param))
+        .filter(device_uuid.eq(device_uuid)) // column = parameter
         .first::<Device>(&mut conn)
         .map_err(|_| Status::NotFound)?;
     Ok(Json(device))
@@ -31,9 +32,9 @@ pub async fn get_device_details(pool: &State<DbPool>, device_uuid_param: &str) -
 
 /// Approve a device
 #[post("/approve/<device_uuid>")]
-pub async fn approve_device(pool: &State<DbPool>, device_uuid_param: &str) -> Result<Status, Status> {
+pub async fn approve_device(pool: &State<DbPool>, device_uuid: &str) -> Result<Status, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-    diesel::update(devices.filter(device_uuid.eq(device_uuid_param)))
+    diesel::update(devices.filter(device_uuid.eq(device_uuid)))
         .set(approved.eq(true))
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
