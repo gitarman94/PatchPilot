@@ -37,7 +37,7 @@ pub async fn approve_device(pool: &State<DbPool>, device_uuid: &str) -> Result<S
     Ok(Status::Ok)
 }
 
-/// Register a new device (from client)
+/// Register a new device (client / API)
 #[post("/register", data = "<info>")]
 pub async fn register_device(
     pool: &State<DbPool>,
@@ -66,6 +66,7 @@ pub async fn register_or_update_device(
         .set((
             hostname.eq(&info.hostname),
             approved.eq(info.approved),
+            last_seen.eq(Utc::now().naive_utc()),
         ))
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
@@ -85,7 +86,7 @@ pub async fn heartbeat(
 ) -> Result<Json<serde_json::Value>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
     diesel::update(devices.filter(uuid.eq(&info.uuid)))
-        .set(last_seen.eq(Utc::now().naive_utc()))
+        .set(last_checkin.eq(Utc::now().naive_utc()))
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
     

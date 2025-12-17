@@ -98,13 +98,17 @@ pub struct SystemInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
-    // optional stable uuid devices may send
-    pub device_uuid: Option<String>,
+    /// Device UUID (required for update/heartbeat)
+    pub uuid: String,
 
+    /// System metrics
     pub system_info: SystemInfo,
+
+    /// Optional type/model from client
     pub device_type: Option<String>,
     pub device_model: Option<String>,
 }
+
 
 impl DeviceInfo {
     pub fn merge_with(&mut self, other: &DeviceInfo) {
