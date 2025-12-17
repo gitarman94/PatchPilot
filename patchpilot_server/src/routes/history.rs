@@ -6,7 +6,7 @@ use crate::models::HistoryLog;
 use crate::schema::history_log::dsl::*;
 
 /// API: GET /api/history
-#[get("/history")]
+#[get("/api/history")]
 pub async fn api_history(
     pool: &State<DbPool>,
 ) -> Result<Json<Vec<HistoryLog>>, Status> {
@@ -14,10 +14,9 @@ pub async fn api_history(
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-
         history_log
             .order(created_at.desc())
-            .load::<HistoryLog>(&mut conn) // type annotation fixes type inference
+            .load::<HistoryLog>(&mut conn)
             .map(Json)
             .map_err(|_| Status::InternalServerError)
     })

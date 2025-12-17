@@ -106,44 +106,45 @@ pub struct DeviceInfo {
 
 #[derive(Debug, Queryable, Serialize, Deserialize)]
 pub struct Action {
-    pub id: i32,
-    pub device_id: String,
+    pub id: String,
     pub action_type: String,
-    pub status: String,
-    pub payload: Option<String>,
-    pub result: Option<String>,
+    pub parameters: Option<String>,
+    pub author: Option<String>,
     pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
-    pub completed: bool,
+    pub expires_at: NaiveDateTime,
+    pub canceled: bool,
 }
 
 #[derive(Debug, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = actions)]
 pub struct NewAction {
-    pub device_id: String,
+    pub id: String,
     pub action_type: String,
-    pub status: String,
-    pub payload: Option<String>,
+    pub parameters: Option<String>,
+    pub author: Option<String>,
+    pub expires_at: NaiveDateTime,
+    pub canceled: bool,
 }
 
-#[derive(Debug, Queryable, Serialize, Deserialize, Insertable)]
-#[diesel(table_name = action_targets)]
+#[derive(Debug, Queryable, Serialize, Deserialize)]
 pub struct ActionTarget {
     pub id: i32,
-    pub action_id: i32,
-    pub target: String,
+    pub action_id: String,
+    pub device_id: String,
     pub status: String,
+    pub last_update: NaiveDateTime,
+    pub response: Option<String>,
 }
 
 #[derive(Debug, Queryable, Serialize, Deserialize)]
 pub struct HistoryLog {
     pub id: i32,
-    pub action_id: Option<i32>,
-    pub device_id: Option<String>,
-    pub action_type: Option<String>,
-    pub status: String,
-    pub result: Option<String>,
-    pub timestamp: NaiveDateTime,
+    pub action_id: Option<String>,
+    pub device_name: Option<String>,
+    pub actor: Option<String>,
+    pub action_type: String,
+    pub details: Option<String>,
+    pub created_at: NaiveDateTime,
 }
 
 impl DeviceInfo {
