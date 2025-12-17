@@ -156,19 +156,17 @@ impl DeviceInfo {
             }
         }
 
-        if let Some(u) = &other.device_uuid {
-            if !u.is_empty() {
-                self.device_uuid = Some(u.clone());
-            }
+        if !other.uuid.is_empty() {
+            self.uuid = other.uuid.clone();
         }
     }
 
-    pub fn to_device(&self, device_uuid: &str, device_id: &str) -> Device {
+    pub fn to_device(&self, uuid: &str, device_id: &str) -> Device {
         let s = &self.system_info;
 
         Device {
             id: 0,
-            uuid: device_uuid.to_string(),
+            uuid: uuid.to_string(),
             device_name: device_id.to_string(),
             hostname: device_id.to_string(),
 
@@ -216,13 +214,13 @@ impl Device {
         self
     }
 
-    pub fn from_info(device_uuid: &str, device_id: &str, info: &DeviceInfo) -> Self {
-        info.to_device(device_uuid, device_id)
+    pub fn from_info(uuid: &str, device_id: &str, info: &DeviceInfo) -> Self {
+        info.to_device(uuid, device_id)
     }
 }
 
 impl NewDevice {
-    pub fn from_device_info(device_uuid: &str, device_id: &str, info: &DeviceInfo, existing: Option<&Device>) -> Self {
+    pub fn from_device_info(uuid: &str, device_id: &str, info: &DeviceInfo, existing: Option<&Device>) -> Self {
         fn pick_string(new: String, old: &str) -> String {
             if new.trim().is_empty() { old.to_string() } else { new }
         }
@@ -243,7 +241,7 @@ impl NewDevice {
             None => (
                 &Device {
                     id: 0,
-                    uuid: device_uuid.to_string(),
+                    uuid: uuid.to_string(),
                     device_name: device_id.to_string(),
                     hostname: device_id.to_string(),
                     os_name: "".into(),
@@ -272,7 +270,7 @@ impl NewDevice {
         };
 
         Self {
-            uuid: device_uuid.to_string(),
+            uuid: uuid.to_string(),
             device_name: device_id.to_string(),
             hostname: device_id.to_string(),
 
@@ -354,7 +352,7 @@ impl NewAction {
 pub struct ActionTarget {
     pub id: i32,
     pub action_id: String,
-    pub device_uuid: String,
+    pub uuid: String,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
@@ -364,17 +362,17 @@ pub struct ActionTarget {
 #[diesel(table_name = action_targets)]
 pub struct NewActionTarget {
     pub action_id: String,
-    pub device_uuid: String,
+    pub uuid: String,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
 }
 
 impl NewActionTarget {
-    pub fn new(action_id: String, device_uuid: String) -> Self {
+    pub fn new(action_id: String, uuid: String) -> Self {
         Self {
             action_id,
-            device_uuid,
+            uuid,
             status: "pending".into(),
             last_update: Utc::now().naive_utc(),
             response: None,

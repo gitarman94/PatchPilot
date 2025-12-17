@@ -1,4 +1,3 @@
-use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 
 pub fn initialize_db(conn: &mut SqliteConnection)
