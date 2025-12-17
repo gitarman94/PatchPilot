@@ -7,7 +7,7 @@ use crate::schema::{devices, actions, action_targets, history_log};
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Device {
     pub id: i32,
-    pub device_uuid: String,
+    pub device_id: String,
     pub device_name: String,
     pub hostname: String,
     pub os_name: String,
@@ -41,7 +41,7 @@ pub struct Device {
 #[derive(Insertable, Queryable)]
 #[diesel(table_name = devices)]
 pub struct NewDevice {
-    pub device_uuid: String,
+    pub device_id: String,
     pub device_name: String,
     pub hostname: String,
     pub os_name: String,
@@ -97,8 +97,8 @@ pub struct SystemInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
-    /// Device device_uuid (required for update/heartbeat)
-    pub device_uuid: String,
+    /// Device device_id (required for update/heartbeat)
+    pub device_id: String,
 
     /// System metrics
     pub system_info: SystemInfo,
@@ -154,17 +154,17 @@ impl DeviceInfo {
             }
         }
 
-        if !other.device_uuid.is_empty() {
-            self.device_uuid = other.device_uuid.clone();
+        if !other.device_id.is_empty() {
+            self.device_id = other.device_id.clone();
         }
     }
 
-    pub fn to_device(&self, device_uuid: &str, device_id: &str) -> Device {
+    pub fn to_device(&self, device_id: &str, device_id: &str) -> Device {
         let s = &self.system_info;
 
         Device {
             id: 0,
-            device_uuid: device_uuid.to_string(),
+            device_id: device_id.to_string(),
             device_name: device_id.to_string(),
             hostname: device_id.to_string(),
 
@@ -212,14 +212,14 @@ impl Device {
         self
     }
 
-    pub fn from_info(device_uuid: &str, device_id: &str, info: &DeviceInfo) -> Self {
-        info.to_device(device_uuid, device_id)
+    pub fn from_info(device_id: &str, device_id: &str, info: &DeviceInfo) -> Self {
+        info.to_device(device_id, device_id)
     }
 }
 
 impl NewDevice {
     pub fn from_device_info(
-        device_uuid: &str,
+        device_id: &str,
         device_id: &str,
         info: &DeviceInfo,
         existing: Option<&Device>,
@@ -245,7 +245,7 @@ impl NewDevice {
             None => (
                 &Device {
                     id: 0,
-                    device_uuid: device_uuid.to_string(),
+                    device_id: device_id.to_string(),
                     device_name: device_id.to_string(),
                     hostname: device_id.to_string(),
                     os_name: "".into(),
@@ -274,7 +274,7 @@ impl NewDevice {
         };
 
         Self {
-            device_uuid: device_uuid.to_string(),
+            device_id: device_id.to_string(),
             device_name: device_id.to_string(),
             hostname: device_id.to_string(),
 
@@ -356,7 +356,7 @@ impl NewAction {
 pub struct ActionTarget {
     pub id: i32,
     pub action_id: String,
-    pub device_uuid: String,
+    pub device_id: String,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
@@ -366,17 +366,17 @@ pub struct ActionTarget {
 #[diesel(table_name = action_targets)]
 pub struct NewActionTarget {
     pub action_id: String,
-    pub device_uuid: String,
+    pub device_id: String,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
 }
 
 impl NewActionTarget {
-    pub fn new(action_id: String, device_uuid: String) -> Self {
+    pub fn new(action_id: String, device_id: String) -> Self {
         Self {
             action_id,
-            device_uuid,
+            device_id,
             status: "pending".into(),
             last_update: Utc::now().naive_utc(),
             response: None,

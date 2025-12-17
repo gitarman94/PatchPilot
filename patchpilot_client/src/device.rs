@@ -24,10 +24,10 @@ pub async fn register_device(
     let sys_info: SystemInfo = get_system_info();
 
     // Read stored ID if available
-    let device_uuid = get_local_device_id().unwrap_or_default();
+    let device_id = get_local_device_id().unwrap_or_default();
 
     let payload = json!({
-        "device_uuid": device_uuid,
+        "device_id": device_id,
         "system_info": sys_info,
         "device_type": device_type,
         "device_model": device_model

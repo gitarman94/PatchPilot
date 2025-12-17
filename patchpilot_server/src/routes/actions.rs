@@ -59,7 +59,7 @@ pub async fn report_action_result(
     diesel::update(
         action_targets::table
             .filter(action_targets::action_id.eq(id))
-            .filter(action_targets::device_uuid.eq(&result.device_uuid)),
+            .filter(action_targets::device_id.eq(&result.device_id)),
     )
     .set((
         action_targets::status.eq(&result.status),
