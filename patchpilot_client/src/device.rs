@@ -1,10 +1,16 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use reqwest::Client;
 use serde_json::{json, Value};
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use tokio::time::sleep;
 use std::time::Duration;
-use crate::system_info::{SystemInfo, get_system_info, get_local_device_id, write_local_device_id, get_device_info_basic};
+use crate::system_info::{
+    SystemInfo,
+    get_system_info,
+    get_local_device_id,
+    write_local_device_id,
+    get_device_info_basic,
+};
 
 pub const ADOPTION_CHECK_INTERVAL: u64 = 10;
 pub const SYSTEM_UPDATE_INTERVAL: u64 = 600;
@@ -18,14 +24,10 @@ pub async fn register_device(
 ) -> Result<String> {
     let sys_info: SystemInfo = get_system_info();
 
-    // Load or generate a persistent device UUID
+    // Load persistent device ID if available
     let device_uuid = match get_local_device_id() {
         Some(id) => id,
-        None => {
-            let device_id = response.device_id.clone();
-            write_device_id(&device_id)?;
-            return Ok(device_id);
-        }
+        None => String::new(), // no UUID generation; server will assign
     };
 
     // Payload MUST match server DeviceInfo exactly
@@ -186,4 +188,3 @@ pub async fn run_adoption_and_update_loop(
 
     Ok(device_id)
 }
-
