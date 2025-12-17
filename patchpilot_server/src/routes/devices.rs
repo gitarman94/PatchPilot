@@ -66,7 +66,7 @@ pub async fn register_or_update_device(
         .set((
             hostname.eq(&info.hostname),
             approved.eq(info.approved),
-            last_seen.eq(Utc::now().naive_utc()),
+            last_checkin.eq(Utc::now().naive_utc()),
         ))
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
