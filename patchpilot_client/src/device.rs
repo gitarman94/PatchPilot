@@ -9,7 +9,7 @@ use crate::system_info::{SystemInfo, get_system_info, get_local_device_id, write
 pub const ADOPTION_CHECK_INTERVAL: u64 = 10;
 pub const SYSTEM_UPDATE_INTERVAL: u64 = 600;
 
-/// Register the device with the server
+// Register the device with the server
 pub async fn register_device(
     client: &Client,
     server_url: &str,
@@ -18,7 +18,19 @@ pub async fn register_device(
 ) -> Result<String> {
     let sys_info: SystemInfo = get_system_info();
 
+    // Load or generate a persistent device UUID
+    let device_uuid = match get_local_device_id() {
+        Some(id) => id,
+        None => {
+            let new_id = uuid::Uuid::new_v4().to_string();
+            write_local_device_id(&new_id)?;
+            new_id
+        }
+    };
+
+    // Payload MUST match server DeviceInfo exactly
     let payload = json!({
+        "uuid": device_uuid,
         "system_info": sys_info,
         "device_type": device_type,
         "device_model": device_model
@@ -40,21 +52,18 @@ pub async fn register_device(
         anyhow::bail!("Registration failed {}: {}", status, body);
     }
 
-    let parsed: Value = serde_json::from_str(&body).context("Server returned invalid JSON")?;
+    let parsed: Value =
+        serde_json::from_str(&body).context("Server returned invalid JSON")?;
 
-    if let Some(pid) = parsed.get("pending_id").and_then(|v| v.as_str()) {
-        write_local_device_id(pid)?;
-        return Ok(pid.to_string());
-    }
     if let Some(did) = parsed.get("device_id").and_then(|v| v.as_str()) {
         write_local_device_id(did)?;
         return Ok(did.to_string());
     }
 
-    anyhow::bail!("Server did not return pending_id or device_id");
+    anyhow::bail!("Server did not return device_id");
 }
 
-/// Send a system update to the server
+// Send a system update to the server
 pub async fn send_system_update(
     client: &Client,
     server_url: &str,
@@ -84,7 +93,7 @@ pub async fn send_system_update(
     Ok(())
 }
 
-/// Send a heartbeat to the server and return JSON
+// Send a heartbeat to the server and return JSON
 pub async fn send_heartbeat(
     client: &Client,
     server_url: &str,
@@ -116,7 +125,7 @@ pub async fn send_heartbeat(
     Ok(v)
 }
 
-/// Run full adoption & update loop
+// Run full adoption & update loop
 pub async fn run_adoption_and_update_loop(
     client: &Client,
     server_url: &str,
