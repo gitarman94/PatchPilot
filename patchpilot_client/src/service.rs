@@ -2,6 +2,7 @@ use anyhow::Result;
 use reqwest::Client;
 use crate::device::run_adoption_and_update_loop;
 use std::path::PathBuf;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
     use flexi_logger::{
@@ -10,7 +11,6 @@ pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
 
     let log_dir: PathBuf = crate::get_base_dir().into();
     let log_dir = log_dir.join("logs");
-
     std::fs::create_dir_all(&log_dir)?;
 
     let handle = Logger::try_with_str("info")?
@@ -35,15 +35,17 @@ pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
 #[cfg(any(unix, target_os = "macos"))]
 pub async fn run_unix_service() -> Result<()> {
     let client = Client::new();
-    let server_url = crate::system_info::read_server_url().await?;
+
+    // read_server_url now returns String
+    let server_url: String = crate::system_info::read_server_url().await?;
 
     // Run adoption/update loop and capture the device_id
-    let device_id = run_adoption_and_update_loop(&client, &server_url, None).await?;
+    let device_id = crate::device::run_adoption_and_update_loop(&client, &server_url, None).await?;
 
     // Start command polling for this device
     crate::action::command_poll_loop(
         client.clone(),
-        server_url.to_string(),
+        server_url.clone(),
         device_id.clone(),
         None,
     ).await;
@@ -58,6 +60,7 @@ pub async fn run_service() -> Result<()> {
         service::{ServiceControl, ServiceControlHandlerResult},
         service_control_handler,
     };
+
     let running_flag = Arc::new(AtomicBool::new(true));
     let running_flag_clone = running_flag.clone();
 
@@ -87,7 +90,7 @@ pub async fn run_service() -> Result<()> {
     let _status = service_control_handler::register("PatchPilot", move |control| {
         match control {
             ServiceControl::Stop => {
-                flag_for_handler.store(false, std::sync::atomic::Ordering::SeqCst);
+                flag_for_handler.store(false, Ordering::SeqCst);
                 ServiceControlHandlerResult::NoError
             }
             _ => ServiceControlHandlerResult::NotImplemented,

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{fs, time::Duration};
 use local_ip_address::local_ip;
 use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
-use sysinfo::{System, SystemExt, CpuExt, DiskExt};
+use sysinfo::{System, Cpu, Disk, SystemExt, CpuExt, DiskExt};
 use std::path::PathBuf;
 
 // Intervals (defaults)
@@ -82,8 +82,8 @@ impl SystemInfo {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        let hostname = sys.host_name().unwrap_or_else(|| "unknown".to_string());
-        let os_name = sys.long_os_version().unwrap_or_else(|| "unknown".to_string());
+        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "unknown".to_string());
+        let os_name = sysinfo::System::long_os_version().unwrap_or_else(|| "unknown".to_string());
         let architecture = std::env::consts::ARCH.to_string();
 
         let cpus = sys.cpus();
