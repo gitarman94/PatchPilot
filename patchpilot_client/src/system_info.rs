@@ -2,8 +2,11 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{fs, time::Duration};
 use local_ip_address::local_ip;
-use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
-use sysinfo::{System, Cpu, Disk, SystemExt, CpuExt, DiskExt};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+use sysinfo::{System, Disks};
 use std::path::PathBuf;
 
 // Intervals (defaults)
@@ -15,6 +18,12 @@ const DEFAULT_SYSTEM_UPDATE_INTERVAL: u64 = 600;
 const DEVICE_ID_FILE: &str = "/opt/patchpilot_client/device_id.txt";
 #[cfg(windows)]
 const DEVICE_ID_FILE: &str = "C:\\ProgramData\\PatchPilot\\device_id.txt";
+
+// Server URL file (written by setup_or_update_client.sh)
+#[cfg(any(unix, target_os = "macos"))]
+const SERVER_URL_FILE: &str = "/opt/patchpilot_client/server_url.txt";
+#[cfg(windows)]
+const SERVER_URL_FILE: &str = "C:\\ProgramData\\PatchPilot\\server_url.txt";
 
 // Refresh interval
 static SYSTEM_INFO_REFRESH_SECS: AtomicU64 = AtomicU64::new(10);
@@ -79,32 +88,46 @@ pub struct SystemInfo {
 // Blocking gather
 impl SystemInfo {
     pub fn gather_blocking() -> Self {
-        let mut sys = System::new_all();
-        sys.refresh_all();
+        // --- System ---
+        let mut sys = System::new();
+        sys.refresh_cpu_all();
+        sys.refresh_memory();
 
-        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "unknown".to_string());
-        let os_name = sysinfo::System::long_os_version().unwrap_or_else(|| "unknown".to_string());
+        let hostname =
+            System::host_name().unwrap_or_else(|| "unknown".to_string());
+        let os_name =
+            System::long_os_version().unwrap_or_else(|| "unknown".to_string());
         let architecture = std::env::consts::ARCH.to_string();
 
+        // --- CPU ---
         let cpus = sys.cpus();
         let cpu_count = cpus.len() as i32;
-        let cpu_brand = cpus.first().map(|c| c.brand().to_string()).unwrap_or_default();
+        let cpu_brand = cpus
+            .first()
+            .map(|c| c.brand().to_string())
+            .unwrap_or_default();
+
         let cpu_usage = if cpu_count == 0 {
             0.0
         } else {
             cpus.iter().map(|c| c.cpu_usage()).sum::<f32>() / cpu_count as f32
         };
 
+        // --- Memory ---
         let ram_total = sys.total_memory() as i64;
         let ram_used = sys.used_memory() as i64;
 
+        // --- Disks (new API) ---
+        let disks = Disks::new_with_refreshed_list();
         let mut disk_total: i64 = 0;
         let mut disk_free: i64 = 0;
-        for disk in sys.disks() {
+
+        for disk in disks.iter() {
             disk_total += disk.total_space() as i64;
             disk_free += disk.available_space() as i64;
         }
 
+        // --- Network ---
         let ip_address = local_ip().ok().map(|ip| ip.to_string());
 
         SystemInfo {
@@ -158,7 +181,7 @@ impl SystemInfoService {
             }
         }
 
-        let info = tokio::task::spawn_blocking(|| SystemInfo::gather_blocking())
+        let info = tokio::task::spawn_blocking(SystemInfo::gather_blocking)
             .await
             .context("spawn_blocking failed")?;
 
@@ -177,13 +200,27 @@ pub fn get_system_info() -> SystemInfo {
     SystemInfo::gather_blocking()
 }
 
-// Local device helpers
+// ---- Server URL (used by service.rs) ----
+pub async fn read_server_url() -> Result<String> {
+    let path = PathBuf::from(SERVER_URL_FILE);
+
+    let raw = tokio::fs::read_to_string(&path)
+        .await
+        .with_context(|| format!("Failed to read server URL from {:?}", path))?;
+
+    Ok(raw.trim().to_string())
+}
+
+// ---- Local device helpers ----
 pub fn get_local_device_id() -> Option<String> {
-    fs::read_to_string(DEVICE_ID_FILE).ok().map(|s| s.trim().to_string())
+    fs::read_to_string(DEVICE_ID_FILE)
+        .ok()
+        .map(|s| s.trim().to_string())
 }
 
 pub fn write_local_device_id(device_id: &str) -> Result<()> {
-    fs::write(DEVICE_ID_FILE, device_id).context("Failed to write local device_id")
+    fs::write(DEVICE_ID_FILE, device_id)
+        .context("Failed to write local device_id")
 }
 
 pub fn get_device_info_basic() -> (String, String) {
