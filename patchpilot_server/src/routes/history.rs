@@ -17,9 +17,10 @@ pub async fn api_history(
         history_log
             .order(created_at.desc())
             .load::<HistoryLog>(&mut conn)
-            .map(Json)
             .map_err(|_| Status::InternalServerError)
     })
     .await
     .map_err(|_| Status::InternalServerError)?
+    .map(Json)
 }
+

@@ -136,7 +136,7 @@ pub struct ActionTarget {
     pub response: Option<String>,
 }
 
-#[derive(Debug, Queryable, Serialize, Deserialize)]
+#[derive(Debug, Queryable, Serialize)]
 pub struct HistoryLog {
     pub id: i32,
     pub action_id: Option<String>,
@@ -146,6 +146,7 @@ pub struct HistoryLog {
     pub details: Option<String>,
     pub created_at: NaiveDateTime,
 }
+
 
 impl DeviceInfo {
     pub fn merge_with(&mut self, other: &DeviceInfo) {

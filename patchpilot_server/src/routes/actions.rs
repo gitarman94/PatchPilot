@@ -9,14 +9,14 @@ use crate::schema::actions::dsl::*;
 use crate::schema::action_targets::dsl::*;
 
 /// Submit a new action
-#[post("/api/actions", data = "<new_action>")]
+#[post("/api/actions", data = "<action>")]
 pub async fn submit_action(
     pool: &State<DbPool>,
-    new_action: Json<NewAction>,
+    action: Json<NewAction>,
 ) -> Result<Status, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-    diesel::insert_into(actions)
-        .values(&*new_action)
+    diesel::insert_into(actions::table)
+        .values(&*action)
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
     Ok(Status::Created)
@@ -26,28 +26,24 @@ pub async fn submit_action(
 #[get("/api/actions")]
 pub async fn list_actions(pool: &State<DbPool>) -> Result<Json<Vec<Action>>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-
-    let result = actions
-        .order(created_at.desc())
+    let result = actions::table
+        .order(actions::created_at.desc())
         .load::<Action>(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
-
     Ok(Json(result))
 }
 
 /// Cancel an action by ID
-#[post("/api/actions/<action_id_param>/cancel")]
+#[post("/api/actions/<action_id>")]
 pub async fn cancel_action(
     pool: &State<DbPool>,
-    action_id_param: &str,
+    action_id: &str,
 ) -> Result<Status, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-
-    diesel::update(actions.filter(id.eq(action_id_param.to_string())))
-        .set(canceled.eq(true))
+    diesel::update(actions::table.filter(actions::id.eq(action_id)))
+        .set(actions::canceled.eq(true))
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
-
     Ok(Status::Ok)
 }
 
@@ -55,20 +51,20 @@ pub async fn cancel_action(
 #[post("/api/actions/<_>/result", data = "<result>")]
 pub async fn report_action_result(
     pool: &State<DbPool>,
-    _ : &str,
+    _: &str,
     result: Json<ActionTarget>,
 ) -> Result<Status, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
     diesel::update(
-        action_targets
-            .filter(action_id.eq(&result.action_id))
-            .filter(device_id.eq(&result.device_id)),
+        action_targets::table
+            .filter(action_targets::action_id.eq(&result.action_id))
+            .filter(action_targets::target.eq(&result.target)),
     )
     .set((
-        status.eq(&result.status),
-        last_update.eq(Utc::now().naive_utc()),
-        response.eq(&result.response),
+        action_targets::status.eq(&result.status),
+        action_targets::last_update.eq(chrono::Utc::now().naive_utc()),
+        action_targets::response.eq(&result.response),
     ))
     .execute(&mut conn)
     .map_err(|_| Status::InternalServerError)?;
