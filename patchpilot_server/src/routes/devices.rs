@@ -20,10 +20,10 @@ pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Stat
 
 /// Get details for a specific device
 #[get("/device/<device_uuid>")]
-pub async fn get_device_details(pool: &State<DbPool>, device_uuid: &str) -> Result<Json<Device>, Status> {
+pub async fn get_device_details(pool: &State<DbPool>, device_uuid_param: &str) -> Result<Json<Device>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
     let device = devices
-        .filter(device_uuid.eq(device_uuid))
+        .filter(device_uuid.eq(device_uuid_param))
         .first::<Device>(&mut conn)
         .map_err(|_| Status::NotFound)?;
     Ok(Json(device))
@@ -31,9 +31,9 @@ pub async fn get_device_details(pool: &State<DbPool>, device_uuid: &str) -> Resu
 
 /// Approve a device
 #[post("/approve/<device_uuid>")]
-pub async fn approve_device(pool: &State<DbPool>, device_uuid: &str) -> Result<Status, Status> {
+pub async fn approve_device(pool: &State<DbPool>, device_uuid_param: &str) -> Result<Status, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-    diesel::update(devices.filter(uuid.eq(device_uuid)))
+    diesel::update(devices.filter(device_uuid.eq(device_uuid_param)))
         .set(approved.eq(true))
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
@@ -49,8 +49,7 @@ pub async fn register_device(
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
     let new_device = NewDevice::from_device_info(
-        &info.uuid,
-        &info.uuid, // device_name default to uuid
+        &info.device_uuid,
         &info,
         None,       // no existing device to merge
     );
@@ -60,7 +59,7 @@ pub async fn register_device(
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
 
-    Ok(Json(serde_json::json!({ "device_id": info.uuid.clone() })))
+    Ok(Json(serde_json::json!({ "device_id": info.device_uuid.clone() })))
 }
 
 /// Register or update an existing device
@@ -73,27 +72,26 @@ pub async fn register_or_update_device(
 
     // Load existing device if any
     let existing = devices
-        .filter(uuid.eq(&info.uuid))
+        .filter(device_uuid.eq(&info.device_uuid))
         .first::<Device>(&mut conn)
         .optional()
         .map_err(|_| Status::InternalServerError)?;
 
     let updated = NewDevice::from_device_info(
-        &info.uuid,
-        &info.uuid,
+        &info.device_uuid,
         &info,
         existing.as_ref(),
     );
 
     diesel::insert_into(devices)
         .values(&updated)
-        .on_conflict(uuid)
+        .on_conflict(device_uuid)
         .do_update()
         .set(&updated)
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
 
-    Ok(Json(serde_json::json!({ "device_id": info.uuid.clone() })))
+    Ok(Json(serde_json::json!({ "device_id": info.device_uuid.clone() })))
 }
 
 /// Heartbeat endpoint
@@ -103,7 +101,7 @@ pub async fn heartbeat(
     info: Json<DeviceInfo>,
 ) -> Result<Json<serde_json::Value>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-    diesel::update(devices.filter(uuid.eq(&info.uuid)))
+    diesel::update(devices.filter(device_uuid.eq(&info.device_uuid)))
         .set(last_checkin.eq(Utc::now().naive_utc()))
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;

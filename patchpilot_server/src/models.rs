@@ -1,7 +1,6 @@
 use diesel::prelude::*;
 use chrono::{NaiveDateTime, Utc, Duration};
 use rocket::serde::{Serialize, Deserialize};
-
 use crate::schema::{devices, actions, action_targets, history_log};
 
 #[derive(Queryable, Serialize, Deserialize, Debug)]
@@ -39,9 +38,10 @@ pub struct Device {
     pub ip_address: Option<String>,
 }
 
-#[derive(Insertable, AsChangeset)]
+#[derive(Insertable, Queryable)]
 #[diesel(table_name = devices)]
 pub struct NewDevice {
+    pub device_uuid: String,
     pub device_uuid: String,
     pub device_name: String,
     pub hostname: String,
@@ -98,7 +98,7 @@ pub struct SystemInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
-    /// Device UUID (required for update/heartbeat)
+    /// Device device_uuid (required for update/heartbeat)
     pub device_uuid: String,
 
     /// System metrics
