@@ -38,10 +38,10 @@ PatchPilot/
 │       │
 │       ├── routes/                    # HTTP routes (API + pages)
 │       │   ├── mod.rs                 # api_routes() + page_routes()
-│       │   │
 │       │   ├── devices.rs             # Device registration, heartbeat, listing
 │       │   ├── actions.rs             # Action creation, completion
 │       │   ├── settings.rs            # Server settings API
+│       │   ├── pages.rs               # HTML page api handlers
 │       │   └── history.rs             # Audit / history API
 │       │
 │       ├── tasks/                     # Background jobs
@@ -53,9 +53,7 @@ PatchPilot/
 │       │   ├── mod.rs
 │       │   ├── pool.rs                # DbPool + init_pool()
 │       │   ├── init.rs                # initialize_db()
-│       │   └── logger.rs              # Diesel / app logging
-│       │
-│       └── errors.rs                  # (optional) shared error helpers
+│       └── └── logger.rs              # Diesel / app logging
 │
 ├── patchpilot_client/                 # Rust client (Windows & Linux)
 │   ├── Cargo.toml
