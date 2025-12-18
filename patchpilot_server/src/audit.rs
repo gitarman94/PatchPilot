@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 use serde::{Serialize, Deserialize};
 
 #[derive(Queryable, Insertable, Serialize, Deserialize, Debug, Clone)]
-#[diesel(table_name = crate::schema::audit_log)]
+#[diesel(table_name = crate::schema::audit)]
 pub struct AuditLog {
     pub id: i32,
     pub actor: String,

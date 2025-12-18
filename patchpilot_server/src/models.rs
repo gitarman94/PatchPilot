@@ -148,7 +148,7 @@ pub struct HistoryLog {
 }
 
 #[derive(Debug, Queryable, Insertable, Serialize, Deserialize)]
-#[diesel(table_name = crate::schema::audit_log)]
+#[diesel(table_name = crate::schema::audit)]
 pub struct AuditLog {
     pub id: i32,
     pub actor: String,

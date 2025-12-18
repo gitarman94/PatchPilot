@@ -7,7 +7,7 @@ use chrono::Utc;
 use crate::db::pool::DbPool;
 use crate::models::{HistoryLog, AuditLog};
 use crate::schema::history_log::dsl::{history_log, created_at as history_created_at};
-use crate::schema::audit_log::dsl::{audit_log, created_at as audit_created_at};
+use crate::schema::audit::dsl::{audit, created_at as audit_created_at};
 
 /// API: GET /api/history
 #[get("/api/history")]
@@ -35,7 +35,7 @@ pub async fn api_audit(pool: &State<DbPool>) -> Result<Json<Vec<AuditLog>>, Stat
 
     let result: Vec<AuditLog> = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let logs = audit_log
+        let logs = audit
             .order(audit_created_at.desc())
             .load::<AuditLog>(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
@@ -64,7 +64,7 @@ pub fn log_audit(
         created_at: Utc::now().naive_utc(),
     };
 
-    diesel::insert_into(audit_log)
+    diesel::insert_into(audit)
         .values(&entry)
         .execute(conn)?;
 

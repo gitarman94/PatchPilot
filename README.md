@@ -34,7 +34,7 @@ PatchPilot/
 │       ├── settings.rs                # ServerSettings load/save
 │       │
 │       ├── models.rs                  # Diesel models (Device, Action, AuditLog, etc.)
-│       ├── schema.rs                  # Diesel schema (devices, actions, audit_log)
+│       ├── schema.rs                  # Diesel schema (devices, actions, audit)
 │       │
 │       ├── routes/                    # HTTP routes (API + pages)
 │       │   ├── mod.rs                 # api_routes() + page_routes()

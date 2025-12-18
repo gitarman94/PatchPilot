@@ -81,14 +81,14 @@ pub fn log_audit(
     target: Option<&str>,
     details: Option<&str>,
 ) {
-    use crate::schema::audit_log;
-    diesel::insert_into(audit_log::table)
+    use crate::schema::audit;
+    diesel::insert_into(audit::table)
         .values((
-            audit_log::actor.eq(actor),
-            audit_log::action_type.eq(action_type),
-            audit_log::target.eq(target),
-            audit_log::details.eq(details),
-            audit_log::created_at.eq(Utc::now().naive_utc())
+            audit::actor.eq(actor),
+            audit::action_type.eq(action_type),
+            audit::target.eq(target),
+            audit::details.eq(details),
+            audit::created_at.eq(Utc::now().naive_utc())
         ))
         .execute(conn)
         .unwrap();

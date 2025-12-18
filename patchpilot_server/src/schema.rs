@@ -69,7 +69,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    audit_log (id) {
+    audit (id) {
         id -> Integer,
         actor -> Text,               
         action_type -> Text,         
@@ -130,7 +130,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     actions,
     action_targets,
     history_log,
-    audit_log,
+    audit,
     users,
     roles,
     user_roles,
