@@ -1,21 +1,14 @@
 use std::path::PathBuf;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::time::Duration;
-
 use anyhow::Result;
 use reqwest::Client;
 use tokio::time::sleep;
+use tokio::signal::ctrl_c;
 
 use crate::action::start_command_polling;
 use crate::device::run_adoption_and_update_loop;
-use crate::system_info::{
-    get_system_info_refresh_secs,
-    read_server_url,
-    SystemInfoService,
-};
+use crate::system_info::{get_system_info_refresh_secs, read_server_url, SystemInfoService};
 
 /// Initialize logging for both Unix and Windows
 pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
@@ -55,7 +48,7 @@ pub async fn run_unix_service() -> Result<()> {
     {
         let flag = running_flag.clone();
         tokio::spawn(async move {
-            let _ = tokio::signal::ctrl_c().await;
+            let _ = ctrl_c().await;
             flag.store(false, Ordering::SeqCst);
         });
     }
