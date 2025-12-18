@@ -5,7 +5,11 @@ mod actions;
 mod settings;
 mod history;
 mod pages;
+mod auth;
+mod users_groups;
+mod roles;
 
+/// API routes
 pub fn api_routes() -> Vec<Route> {
     routes![
         // Devices
@@ -32,6 +36,7 @@ pub fn api_routes() -> Vec<Route> {
     ]
 }
 
+/// Page routes
 pub fn page_routes() -> Vec<Route> {
     routes![
         pages::dashboard,
@@ -43,3 +48,31 @@ pub fn page_routes() -> Vec<Route> {
     ]
 }
 
+/// Auth routes (login/logout)
+pub fn auth_routes() -> Vec<Route> {
+    routes![
+        auth::login_page,
+        auth::login,
+        auth::logout
+    ]
+}
+
+/// Users & Groups routes
+pub fn users_groups_routes() -> Vec<Route> {
+    routes![
+        users_groups::list_users_groups,
+        users_groups::add_user,
+        users_groups::delete_user,
+        users_groups::add_group,
+        users_groups::delete_group
+    ]
+}
+
+/// Roles routes
+pub fn roles_routes() -> Vec<Route> {
+    routes![
+        roles::list_roles,
+        roles::add_role,
+        roles::delete_role
+    ]
+}

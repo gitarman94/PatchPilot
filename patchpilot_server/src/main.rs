@@ -50,6 +50,8 @@ fn rocket() -> _ {
         .manage(app_state)      // AppState with settings + system + pending devices
         .mount("/api", routes::api_routes())
         .mount("/", routes::page_routes())
-        .mount("/auth", routes::auth_routes()) // new: login/logout routes
+        .mount("/auth", routes::auth_routes())              // login/logout
+        .mount("/users-groups", routes::users_groups_routes()) // users & groups CRUD
+        .mount("/roles", routes::roles_routes())            // roles CRUD
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }

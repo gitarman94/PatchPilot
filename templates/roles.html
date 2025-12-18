@@ -1,0 +1,33 @@
+{{#*inline "page"}}
+<div class="container mt-4">
+    <h3>Roles</h3>
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Role Name</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#each this}}
+            <tr>
+                <td>{{this.1}}</td>
+                <td>
+                    <form method="POST" action="/roles/{{this.0}}" onsubmit="return confirm('Delete this role?');">
+                        <input type="hidden" name="_method" value="DELETE">
+                        <button class="btn btn-sm btn-danger">Delete Role</button>
+                    </form>
+                </td>
+            </tr>
+            {{/each}}
+        </tbody>
+    </table>
+
+    <h5 class="mt-3">Add Role</h5>
+    <form method="POST" action="/roles/add">
+        <input type="text" name="name" placeholder="Role Name" required>
+        <button class="btn btn-primary">Add Role</button>
+    </form>
+</div>
+{{/inline}}
+{{> (lookup . "layout") }}

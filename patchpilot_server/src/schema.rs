@@ -35,8 +35,8 @@ diesel::table! {
 
 diesel::table! {
     actions (id) {
-        id -> Text,                 // device_id
-        action_type -> Text,        // command | reboot | shutdown | force_update
+        id -> Text,                 
+        action_type -> Text,        
         parameters -> Nullable<Text>,
         author -> Nullable<Text>,
         created_at -> Timestamp,
@@ -48,11 +48,11 @@ diesel::table! {
 diesel::table! {
     action_targets (id) {
         id -> Integer,
-        action_id -> Text,          // FK to actions.id
-        device_id -> Text,        // device_id - store as text for simplicity
-        status -> Text,             // pending | running | completed | failed | expired | canceled
+        action_id -> Text,          
+        device_id -> Text,        
+        status -> Text,             
         last_update -> Timestamp,
-        response -> Nullable<Text>, // stdout/stderr or structured JSON
+        response -> Nullable<Text>, 
     }
 }
 
@@ -71,13 +71,59 @@ diesel::table! {
 diesel::table! {
     audit_log (id) {
         id -> Integer,
-        actor -> Text,               // who did it
-        action_type -> Text,         // what they did (e.g., set_auto_refresh)
-        target -> Nullable<Text>,    // optional: setting name, device_id, etc.
-        details -> Nullable<Text>,   // optional: extra info
+        actor -> Text,               
+        action_type -> Text,         
+        target -> Nullable<Text>,    
+        details -> Nullable<Text>,   
         created_at -> Timestamp,
     }
 }
+
+// --- New tables for RBAC and multi-user ---
+diesel::table! {
+    users (id) {
+        id -> Integer,
+        username -> Text,
+        password_hash -> Text,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    roles (id) {
+        id -> Integer,
+        name -> Text,
+    }
+}
+
+diesel::table! {
+    user_roles (id) {
+        id -> Integer,
+        user_id -> Integer,
+        role_id -> Integer,
+    }
+}
+
+diesel::table! {
+    groups (id) {
+        id -> Integer,
+        name -> Text,
+        description -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    user_groups (id) {
+        id -> Integer,
+        user_id -> Integer,
+        group_id -> Integer,
+    }
+}
+
+diesel::joinable!(user_roles -> roles (role_id));
+diesel::joinable!(user_roles -> users (user_id));
+diesel::joinable!(user_groups -> users (user_id));
+diesel::joinable!(user_groups -> groups (group_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     devices,
@@ -85,4 +131,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     action_targets,
     history_log,
     audit_log,
+    users,
+    roles,
+    user_roles,
+    groups,
+    user_groups,
 );

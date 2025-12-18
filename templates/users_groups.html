@@ -1,0 +1,64 @@
+{{#*inline "page"}}
+<div class="container mt-4">
+    <h3>Groups & Users</h3>
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Group</th>
+                <th>Description</th>
+                <th>Users</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#each groups}}
+            <tr>
+                <td>{{this.1}}</td>
+                <td>{{this.2}}</td>
+                <td>
+                    {{#with (lookup ../group_users this.0)}}
+                    <ul>
+                        {{#each this}}
+                        <li>{{this.1}} 
+                            <form method="POST" action="/users/{{this.0}}" style="display:inline" onsubmit="return confirm('Delete this user?');">
+                                <input type="hidden" name="_method" value="DELETE">
+                                <button class="btn btn-sm btn-danger">Delete</button>
+                            </form>
+                        </li>
+                        {{/each}}
+                    </ul>
+                    {{/with}}
+                </td>
+                <td>
+                    <form method="POST" action="/groups/{{this.0}}" onsubmit="return confirm('Delete this group?');">
+                        <input type="hidden" name="_method" value="DELETE">
+                        <button class="btn btn-sm btn-danger">Delete Group</button>
+                    </form>
+                </td>
+            </tr>
+            {{/each}}
+        </tbody>
+    </table>
+
+    <h5>Add Group</h5>
+    <form method="POST" action="/groups/add">
+        <input type="text" name="name" placeholder="Group Name" required>
+        <input type="text" name="description" placeholder="Description">
+        <button class="btn btn-primary">Add Group</button>
+    </form>
+
+    <h5 class="mt-4">Add User</h5>
+    <form method="POST" action="/users/add">
+        <input type="text" name="username" placeholder="Username" required>
+        <input type="password" name="password" placeholder="Password" required>
+        <select name="group_id">
+            <option value="">--No group--</option>
+            {{#each groups}}
+            <option value="{{this.0}}">{{this.1}}</option>
+            {{/each}}
+        </select>
+        <button class="btn btn-primary">Add User</button>
+    </form>
+</div>
+{{/inline}}
+{{> (lookup . "layout") }}

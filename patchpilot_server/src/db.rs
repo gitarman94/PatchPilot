@@ -4,6 +4,7 @@ use diesel::prelude::*;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use std::env;
+use chrono::Utc;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 
@@ -72,3 +73,23 @@ pub fn create_default_admin(conn: &mut SqliteConnection) -> Result<(), diesel::r
     Ok(())
 }
 
+/// Log audit events
+pub fn log_audit(
+    conn: &mut SqliteConnection,
+    actor: &str,
+    action_type: &str,
+    target: Option<&str>,
+    details: Option<&str>,
+) {
+    use crate::schema::audit_log;
+    diesel::insert_into(audit_log::table)
+        .values((
+            audit_log::actor.eq(actor),
+            audit_log::action_type.eq(action_type),
+            audit_log::target.eq(target),
+            audit_log::details.eq(details),
+            audit_log::created_at.eq(Utc::now().naive_utc())
+        ))
+        .execute(conn)
+        .unwrap();
+}
