@@ -21,6 +21,7 @@ nix = { version = "0.30.1", default-features = false, features = ["user"] }
 hmac = "0.12"
 sha2 = "0.10"
 base64 = "0.22"
+libc = "0.2.178"
 
 [features]
 default = []

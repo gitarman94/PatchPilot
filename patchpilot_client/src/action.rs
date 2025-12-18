@@ -7,6 +7,9 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::time::Duration;
 use tokio::time::timeout;
 
+#[cfg(unix)]
+use libc;
+
 #[cfg(any(unix, target_os = "macos"))]
 const SCRIPTS_DIR: &str = "/opt/patchpilot_client/scripts";
 #[cfg(windows)]
