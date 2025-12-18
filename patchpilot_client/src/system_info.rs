@@ -64,7 +64,7 @@ pub struct SystemInfo {
 impl SystemInfo {
     /// Blocking system probe (safe to call inside spawn_blocking)
     pub fn gather_blocking() -> Self {
-        let mut sys = System::new_all();
+        let sys = System::new_all();
 
         // ---- Host / OS ----
         let hostname =

@@ -9,8 +9,8 @@ mod schema;
 mod settings;
 mod auth; // RBAC + AuthUser
 
-use crate::db::{initialize, get_conn, DbPool, create_default_admin};
-use crate::state::AppState;
+use crate::db::{initialize, get_conn, create_default_admin};
+use crate::state::{AppState, SystemState};
 use crate::tasks::{spawn_action_ttl_sweeper, spawn_pending_cleanup};
 
 use rocket::fs::FileServer;
@@ -21,21 +21,26 @@ use log::info;
 
 #[launch]
 fn rocket() -> _ {
-    // 1. Initialize DB + logger (no migrations)
-    let pool: DbPool = initialize();
+    // 1. Initialize DB + logger
+    let pool = initialize();
 
-    // 2. Create default admin user at DB initialization
+    // 2. Create default admin user
     {
         let mut conn = get_conn(&pool);
-        create_default_admin(&mut conn); // no .expect() needed, already panics internally if fails
+        create_default_admin(&mut conn); // panics internally if fails
     }
 
     // 3. Spawn background tasks
     spawn_action_ttl_sweeper(pool.clone());
 
-    let app_state = Arc::new(AppState {
+    // 4. Build AppState
+    let system_state = SystemState {
         db_pool: pool.clone(),
         system: Arc::new(Mutex::new(System::new_all())),
+    };
+
+    let app_state = Arc::new(AppState {
+        system: Arc::new(system_state),
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
         settings: Arc::new(RwLock::new(settings::ServerSettings::load())),
     });
@@ -44,7 +49,7 @@ fn rocket() -> _ {
 
     info!("Server ready");
 
-    // 4. Rocket build
+    // 5. Rocket build
     rocket::build()
         .manage(pool)           // DB pool
         .manage(app_state)      // AppState with settings + system + pending devices

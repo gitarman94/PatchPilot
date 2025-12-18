@@ -253,9 +253,14 @@
         device_id: String,
         running_flag: Option<Arc<AtomicBool>>,
     ) -> Result<()> {
-        log::info!("Starting command polling for device {} at {}", device_id, server_url);
+        // Clone device_id for logging before moving
+        log::info!(
+            "Starting command polling for device {} at {}",
+            device_id.clone(),
+            server_url
+        );
 
-        // Kick off the long‑poll loop
+        // Kick off the long‑poll loop, moving device_id
         command_poll_loop(client, server_url, device_id, running_flag).await;
 
         Ok(())
