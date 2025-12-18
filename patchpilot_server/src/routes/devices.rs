@@ -9,11 +9,6 @@ use crate::models::{Device, DeviceInfo, NewDevice};
 use crate::schema::devices::dsl::*;
 use crate::db::log_audit;
 
-// Replace this with your actual auth user type
-pub struct AuthUser {
-    pub username: String,
-}
-
 /// Get all devices
 #[get("/devices")]
 pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Status> {
@@ -32,7 +27,7 @@ pub async fn get_device_details(
 ) -> Result<Json<Device>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
     let device = devices
-        .filter(device_id_col.eq(device_id_param))
+        .filter(device_id.eq(device_id_param))
         .first::<Device>(&mut conn)
         .map_err(|_| Status::NotFound)?;
     Ok(Json(device))
@@ -45,13 +40,17 @@ pub async fn approve_device(
     device_id_param: &str,
     user: AuthUser,
 ) -> Result<Status, Status> {
+    if !user.has_role(&UserRole::Admin) {
+        return Err(Status::Unauthorized);
+    }
+
     let username = user.username.clone();
     let device_id_str = device_id_param.to_string();
     let pool = pool.inner().clone();
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        diesel::update(devices.filter(device_id_col.eq(&device_id_str)))
+        diesel::update(devices.filter(device_id.eq(&device_id_str)))
             .set(approved.eq(true))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
@@ -77,6 +76,10 @@ pub async fn register_or_update_device(
     info: Json<DeviceInfo>,
     user: AuthUser,
 ) -> Result<Json<serde_json::Value>, Status> {
+    if !user.has_role(&UserRole::Admin) {
+        return Err(Status::Unauthorized);
+    }
+
     let username = user.username.clone();
     let info = info.into_inner();
     let pool = pool.inner().clone();
@@ -85,7 +88,7 @@ pub async fn register_or_update_device(
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
         let existing = devices
-            .filter(device_id_col.eq(&info.device_id))
+            .filter(device_id.eq(&info.device_id))
             .first::<Device>(&mut conn)
             .optional()
             .map_err(|_| Status::InternalServerError)?;
@@ -98,7 +101,7 @@ pub async fn register_or_update_device(
 
         diesel::insert_into(devices)
             .values(&updated)
-            .on_conflict(device_id_col)
+            .on_conflict(device_id)
             .do_update()
             .set(&updated)
             .execute(&mut conn)
@@ -118,3 +121,4 @@ pub async fn register_or_update_device(
     .map_err(|_| Status::InternalServerError)?
     .map(Json)
 }
+    

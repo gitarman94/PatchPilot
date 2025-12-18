@@ -3,7 +3,9 @@ use rocket::http::Status;
 use rocket::serde::{Deserialize, json::Json};
 
 use crate::state::AppState;
+use crate::auth::AuthUser;
 use crate::routes::history::log_audit;
+use crate::db::DbPool;
 
 #[derive(Deserialize)]
 pub struct BoolSetting {
@@ -22,19 +24,27 @@ pub async fn set_auto_approve(
     user: AuthUser,
 ) -> Status {
     let username = user.username.clone();
+    let value = payload.value;
+
+    // Update in-memory settings
     {
         let mut settings = state.settings.write().unwrap();
-        settings.auto_approve_devices = payload.value;
+        settings.auto_approve_devices = value;
     }
 
-    let mut conn = state.db_pool.get().unwrap();
-    log_audit(
-        &mut conn,
-        &username,
-        "set_auto_approve",
-        None,
-        Some(&format!("auto_approve = {}", payload.value)),
-    ).ok();
+    // Log audit asynchronously
+    let pool = state.db_pool.clone();
+    rocket::tokio::task::spawn_blocking(move || {
+        if let Ok(mut conn) = pool.get() {
+            log_audit(
+                &mut conn,
+                &username,
+                "set_auto_approve",
+                None,
+                Some(&format!("auto_approve = {}", value)),
+            ).ok();
+        }
+    }).await.ok();
 
     Status::Ok
 }
@@ -46,19 +56,25 @@ pub async fn set_auto_refresh(
     user: AuthUser,
 ) -> Status {
     let username = user.username.clone();
+    let value = payload.value;
+
     {
         let mut settings = state.settings.write().unwrap();
-        settings.auto_refresh_enabled = payload.value;
+        settings.auto_refresh_enabled = value;
     }
 
-    let mut conn = state.db_pool.get().unwrap();
-    log_audit(
-        &mut conn,
-        &username,
-        "set_auto_refresh",
-        None,
-        Some(&format!("auto_refresh = {}", payload.value)),
-    ).ok();
+    let pool = state.db_pool.clone();
+    rocket::tokio::task::spawn_blocking(move || {
+        if let Ok(mut conn) = pool.get() {
+            log_audit(
+                &mut conn,
+                &username,
+                "set_auto_refresh",
+                None,
+                Some(&format!("auto_refresh = {}", value)),
+            ).ok();
+        }
+    }).await.ok();
 
     Status::Ok
 }
@@ -70,20 +86,25 @@ pub async fn set_auto_refresh_interval(
     user: AuthUser,
 ) -> Status {
     let username = user.username.clone();
+    let value = payload.value;
+
     {
         let mut settings = state.settings.write().unwrap();
-        settings.auto_refresh_seconds = payload.value;
+        settings.auto_refresh_seconds = value;
     }
 
-    let mut conn = state.db_pool.get().unwrap();
-    log_audit(
-        &mut conn,
-        &username,
-        "set_auto_refresh_interval",
-        None,
-        Some(&format!("auto_refresh_interval = {}", payload.value)),
-    ).ok();
+    let pool = state.db_pool.clone();
+    rocket::tokio::task::spawn_blocking(move || {
+        if let Ok(mut conn) = pool.get() {
+            log_audit(
+                &mut conn,
+                &username,
+                "set_auto_refresh_interval",
+                None,
+                Some(&format!("auto_refresh_interval = {}", value)),
+            ).ok();
+        }
+    }).await.ok();
 
     Status::Ok
 }
-
