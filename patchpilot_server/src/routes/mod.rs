@@ -1,13 +1,13 @@
 use rocket::Route;
 
-mod devices;
-mod actions;
-mod settings;
-mod history;
-mod pages;
-mod auth;
-mod users_groups;
-mod roles;
+pub mod devices;
+pub mod actions;
+pub mod settings;
+pub mod history;
+pub mod pages;
+pub mod auth;
+pub mod users_groups;
+pub mod roles;
 
 /// API routes
 pub fn api_routes() -> Vec<Route> {

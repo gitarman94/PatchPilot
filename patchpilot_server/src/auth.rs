@@ -1,7 +1,9 @@
 use rocket::request::{FromRequest, Outcome, Request};
 use rocket::http::Status;
 use rocket::State;
+
 use diesel::prelude::*;
+
 use crate::db::DbPool;
 use crate::schema::{users, roles, user_roles};
 
@@ -28,52 +30,51 @@ impl<'r> FromRequest<'r> for AuthUser {
 
         let pool = match req.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Failure((Status::InternalServerError, ())),
+            _ => return Outcome::Error((Status::InternalServerError, ())),
         };
 
-        if let Some(cookie) = cookie {
-            if let Ok(user_id) = cookie.value().parse::<i32>() {
-                let mut conn = match pool.get() {
-                    Ok(c) => c,
-                    Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
-                };
+        let user_id = match cookie.and_then(|c| c.value().parse::<i32>().ok()) {
+            Some(id) => id,
+            None => return Outcome::Error((Status::Unauthorized, ())),
+        };
 
-                // Fetch username
-                let username_result = users::table
-                    .filter(users::id.eq(user_id))
-                    .select(users::username)
-                    .first::<String>(&mut conn)
-                    .optional()
-                    .unwrap_or(None);
+        let mut conn = match pool.get() {
+            Ok(c) => c,
+            Err(_) => return Outcome::Error((Status::InternalServerError, ())),
+        };
 
-                if let Some(username) = username_result {
-                    // Fetch roles
-                    let role_names = user_roles::table
-                        .inner_join(roles::table.on(roles::id.eq(user_roles::role_id)))
-                        .filter(user_roles::user_id.eq(user_id))
-                        .select(roles::name)
-                        .load::<String>(&mut conn)
-                        .unwrap_or_else(|_| vec![]);
+        let username = match users::table
+            .filter(users::id.eq(user_id))
+            .select(users::username)
+            .first::<String>(&mut conn)
+            .optional()
+            .unwrap_or(None)
+        {
+            Some(u) => u,
+            None => return Outcome::Error((Status::Unauthorized, ())),
+        };
 
-                    let roles_vec = role_names
-                        .into_iter()
-                        .map(|r| match r.as_str() {
-                            "Admin" => UserRole::Admin,
-                            "Manager" => UserRole::Manager,
-                            _ => UserRole::User,
-                        })
-                        .collect();
+        let role_names = user_roles::table
+            .inner_join(roles::table.on(roles::id.eq(user_roles::role_id)))
+            .filter(user_roles::user_id.eq(user_id))
+            .select(roles::name)
+            .load::<String>(&mut conn)
+            .unwrap_or_default();
 
-                    return Outcome::Success(AuthUser {
-                        id: user_id,
-                        username,
-                        roles: roles_vec,
-                    });
-                }
-            }
-        }
+        let roles_vec = role_names
+            .into_iter()
+            .map(|r| match r.as_str() {
+                "Admin" => UserRole::Admin,
+                "Manager" => UserRole::Manager,
+                _ => UserRole::User,
+            })
+            .collect();
 
-        Outcome::Failure((Status::Unauthorized, ()))
+        Outcome::Success(AuthUser {
+            id: user_id,
+            username,
+            roles: roles_vec,
+        })
     }
 }
 
