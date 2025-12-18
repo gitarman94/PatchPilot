@@ -1,25 +1,17 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>PatchPilot Login</title>
-<link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-<div class="login-container">
-  <h2>Login</h2>
-  <form method="POST" action="/login">
-    <label for="username">Username:</label>
-    <input type="text" name="username" id="username" required>
-    
-    <label for="password">Password:</label>
-    <input type="password" name="password" id="password" required>
-    
-    <button type="submit">Login</button>
-  </form>
-  {% if error %}
-  <p class="error">{{ error }}</p>
-  {% endif %}
+{{#*inline "page"}}
+<div class="container mt-5">
+    <h2>Login</h2>
+    <form action="/login" method="POST">
+      <div class="mb-3">
+        <label>Username</label>
+        <input type="text" name="username" class="form-control" required>
+      </div>
+      <div class="mb-3">
+        <label>Password</label>
+        <input type="password" name="password" class="form-control" required>
+      </div>
+      <button class="btn btn-primary">Login</button>
+    </form>
 </div>
-</body>
-</html>
+{{/inline}}
+{{> (lookup . "layout") }}

@@ -7,9 +7,9 @@ mod tasks;
 mod models;
 mod schema;
 mod settings;
+mod auth; // RBAC + AuthUser
 
-use crate::db::pool::init_pool;
-use crate::db::init::initialize_db;
+use crate::db::{initialize, get_conn, DbPool, create_default_admin};
 use crate::state::AppState;
 use crate::tasks::{spawn_action_ttl_sweeper, spawn_pending_cleanup};
 
@@ -21,17 +21,20 @@ use log::info;
 
 #[launch]
 fn rocket() -> _ {
-    db::logger::init_logger();
+    // 1. Initialize DB + logger + migrations
+    let pool: DbPool = initialize();
 
-    let pool = init_pool();
+    // 2. Create default admin user at DB initialization
     {
-        let mut conn = pool.get().expect("DB connect failed");
-        initialize_db(&mut conn).expect("DB init failed");
+        let mut conn = get_conn(&pool);
+        create_default_admin(&mut conn).expect("Failed to create default admin");
     }
 
+    // 3. Spawn background tasks
     spawn_action_ttl_sweeper(pool.clone());
 
     let app_state = Arc::new(AppState {
+        db_pool: pool.clone(),
         system: Arc::new(Mutex::new(System::new_all())),
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
         settings: Arc::new(RwLock::new(settings::ServerSettings::load())),
@@ -41,10 +44,12 @@ fn rocket() -> _ {
 
     info!("Server ready");
 
+    // 4. Rocket build
     rocket::build()
-        .manage(pool)
-        .manage(app_state)
+        .manage(pool)           // DB pool
+        .manage(app_state)      // AppState with settings + system + pending devices
         .mount("/api", routes::api_routes())
         .mount("/", routes::page_routes())
+        .mount("/auth", routes::auth_routes()) // new: login/logout routes
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
 }
