@@ -3,7 +3,7 @@ use diesel::prelude::*;
 use rocket::tokio;
 use std::time::Duration;
 
-use crate::db::pool::DbPool;
+use crate::db::DbPool;
 use crate::models::Action;
 use crate::schema::{actions, action_targets};
 

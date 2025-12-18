@@ -4,7 +4,7 @@ use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use chrono::Utc;
 
-use crate::db::pool::DbPool;
+use crate::db::DbPool;
 use crate::models::{HistoryLog, AuditLog};
 use crate::schema::history_log::dsl::{history_log, created_at as history_created_at};
 use crate::schema::audit::dsl::{audit, created_at as audit_created_at};

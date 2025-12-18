@@ -1,13 +1,13 @@
 use rocket::serde::json::Json;
-use rocket::State;
-use rocket::http::Status;
+use rocket::{State, http::Status};
 use diesel::prelude::*;
 use chrono::Utc;
 
-use crate::db::pool::DbPool;
+use crate::db::DbPool;
+use crate::auth::{AuthUser, UserRole};
 use crate::models::{Device, DeviceInfo, NewDevice};
-use crate::schema::devices::dsl::{devices, device_id as device_id_col, approved, last_checkin};
-use crate::routes::history::log_audit;
+use crate::schema::devices::dsl::*;
+use crate::db::log_audit;
 
 // Replace this with your actual auth user type
 pub struct AuthUser {

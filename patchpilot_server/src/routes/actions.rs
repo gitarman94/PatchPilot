@@ -4,7 +4,7 @@ use rocket::http::Status;
 use chrono::{Utc, Duration};
 
 use crate::routes::history::log_audit;
-use crate::db::pool::DbPool;
+use crate::db::DbPool;
 use crate::models::{Action, NewAction, ActionTarget};
 
 // Import columns explicitly to avoid ambiguity
