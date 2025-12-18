@@ -53,6 +53,19 @@ pub struct CommandResult {
     pub success: bool,
 }
 
+// Check root/admin privileges
+#[cfg(unix)]
+fn check_root() {
+    if unsafe { libc::geteuid() } != 0 {
+        log::warn!("Not running as root: some commands may fail.");
+    }
+}
+
+#[cfg(windows)]
+fn check_admin() {
+    log::warn!("Windows admin check not implemented; ensure run as Administrator");
+}
+
 /// Poll the server once for new commands
 pub async fn poll_for_commands_once(
     client: &Client,
@@ -87,7 +100,6 @@ pub async fn poll_for_commands_once(
 /// Execute a ServerCommand and return the CommandResult
 pub async fn execute_command_and_collect_result(cmd: &ServerCommand) -> CommandResult {
     let start = std::time::Instant::now();
-
     let timeout_secs = match &cmd.spec {
         CommandSpec::Shell { timeout_secs, .. } => timeout_secs.unwrap_or(COMMAND_EXEC_TIMEOUT_SECS),
         CommandSpec::Script { timeout_secs, .. } => timeout_secs.unwrap_or(COMMAND_EXEC_TIMEOUT_SECS),
@@ -121,17 +133,12 @@ pub async fn execute_command_and_collect_result(cmd: &ServerCommand) -> CommandR
                     c.output().map_err(|e| format!("failed spawn: {}", e))
                 }
             }
-
             CommandSpec::Script { name, args, .. } => {
                 let script_path = {
                     #[cfg(any(unix, target_os = "macos"))]
-                    {
-                        std::path::PathBuf::from(format!("{}/{}", SCRIPTS_DIR, name))
-                    }
+                    { std::path::PathBuf::from(format!("{}/{}", SCRIPTS_DIR, name)) }
                     #[cfg(windows)]
-                    {
-                        std::path::PathBuf::from(format!("{}\\{}", SCRIPTS_DIR, name))
-                    }
+                    { std::path::PathBuf::from(format!("{}\\{}", SCRIPTS_DIR, name)) }
                 };
 
                 if !script_path.exists() {
@@ -144,7 +151,6 @@ pub async fn execute_command_and_collect_result(cmd: &ServerCommand) -> CommandR
                         c.arg(a);
                     }
                 }
-
                 c.stdin(Stdio::null());
                 c.stdout(Stdio::piped());
                 c.stderr(Stdio::piped());
@@ -172,7 +178,6 @@ pub async fn execute_command_and_collect_result(cmd: &ServerCommand) -> CommandR
                     success: os_output.status.success(),
                 }
             }
-
             Ok(Err(err_str)) => CommandResult {
                 id: id_clone,
                 exit_code: -1,
@@ -181,7 +186,6 @@ pub async fn execute_command_and_collect_result(cmd: &ServerCommand) -> CommandR
                 duration_secs: duration.as_secs_f64(),
                 success: false,
             },
-
             Err(join_err) => CommandResult {
                 id: id_clone,
                 exit_code: -1,
@@ -191,7 +195,6 @@ pub async fn execute_command_and_collect_result(cmd: &ServerCommand) -> CommandR
                 success: false,
             },
         },
-
         Err(_) => CommandResult {
             id: id_clone,
             exit_code: -1,
@@ -210,42 +213,11 @@ pub async fn post_command_result(
     result: &CommandResult,
 ) -> Result<()> {
     let url = format!("{}/api/commands/{}/result", server_url, result.id);
-
-    let resp = client
-        .post(&url)
-        .json(result)
-        .send()
-        .await
-        .context("Failed to post command result")?;
-
+    let resp = client.post(&url).json(result).send().await.context("Failed to post command result")?;
     if !resp.status().is_success() {
         anyhow::bail!("Server rejected result: {}", resp.status());
     }
-
     Ok(())
-}
-
-/// Execute a command and post the result
-pub async fn execute_command_and_post_result(
-    client: Client,
-    server_url: String,
-    device_id: String,
-    cmd_json: Value,
-) {
-    let parsed: Result<ServerCommand> = serde_json::from_value(cmd_json).context("Invalid command JSON");
-    let cmd = match parsed {
-        Ok(c) => c,
-        Err(e) => {
-            log::warn!("Failed to parse ServerCommand: {}", e);
-            return;
-        }
-    };
-
-    let result = execute_command_and_collect_result(&cmd).await;
-
-    if let Err(e) = post_command_result(&client, &server_url, &result).await {
-        log::warn!("Failed to post command result: {}", e);
-    }
 }
 
 /// Start the polling loop for commands
@@ -255,15 +227,12 @@ pub async fn start_command_polling(
     device_id: String,
     running_flag: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
-    // Explicitly “use” device_id
+    #[cfg(unix)] check_root();
+    #[cfg(windows)] check_admin();
+
     log::info!("Starting command polling for device {} at {}", device_id, server_url);
-
-    // Poll once before continuous loop
     poll_for_commands_once(&client, &server_url, &device_id).await?;
-
-    // Enter continuous poll loop
     command_poll_loop(client, server_url, device_id, running_flag).await;
-
     Ok(())
 }
 
@@ -284,55 +253,10 @@ pub async fn command_poll_loop(
             }
         }
 
-        let url = format!("{}/api/devices/{}/commands/poll", server_url, device_id);
-        let request_future = client.get(&url).send();
-
-        match timeout(Duration::from_secs(COMMAND_LONGPOLL_TIMEOUT_SECS), request_future).await {
-            Ok(Ok(resp)) => {
-                if !resp.status().is_success() {
-                    log::warn!("Command poll returned non-OK: {}", resp.status());
-                    tokio::time::sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
-                    continue;
-                }
-
-                match resp.json::<Value>().await {
-                    Ok(val) => {
-                        if let Some(arr) = val.as_array() {
-                            if arr.is_empty() {
-                                tokio::time::sleep(Duration::from_secs(COMMAND_POLL_INTERVAL_SECS)).await;
-                                continue;
-                            }
-
-                            for item in arr {
-                                let client_clone = client.clone();
-                                let server_clone = server_url.clone();
-                                let device_clone = device_id.clone();
-                                let cmd_clone = item.clone();
-
-                                tokio::spawn(async move {
-                                    execute_command_and_post_result(client_clone, server_clone, device_clone, cmd_clone).await;
-                                });
-                            }
-                        } else {
-                            log::warn!("Unexpected response to command poll: {:?}", val);
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to parse command poll JSON: {}", e);
-                        tokio::time::sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
-                    }
-                }
-            }
-
-            Ok(Err(e)) => {
-                log::warn!("Command poll HTTP error: {}", e);
-                tokio::time::sleep(Duration::from_secs(COMMAND_RETRY_BACKOFF_SECS)).await;
-            }
-
-            Err(_) => {
-                // Long poll timeout, normal
-                continue;
-            }
+        if let Err(e) = poll_for_commands_once(&client, &server_url, &device_id).await {
+            log::warn!("Error polling commands: {:?}", e);
         }
+
+        tokio::time::sleep(Duration::from_secs(COMMAND_POLL_INTERVAL_SECS)).await;
     }
 }
