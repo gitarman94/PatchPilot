@@ -25,46 +25,51 @@ impl<'r> FromRequest<'r> for AuthUser {
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         let cookie = req.cookies().get_private("user_id");
+
         let pool = match req.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
             _ => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         if let Some(cookie) = cookie {
-            let user_id: i32 = cookie.value().parse().unwrap_or(0);
-            let conn = pool.get().expect("Failed to get DB connection");
+            if let Ok(user_id) = cookie.value().parse::<i32>() {
+                let mut conn = match pool.get() {
+                    Ok(c) => c,
+                    Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
+                };
 
-            // Fetch username
-            let username_result = users::table
-                .filter(users::id.eq(user_id))
-                .select(users::username)
-                .first::<String>(&conn)
-                .optional()
-                .expect("DB query failed");
+                // Fetch username
+                let username_result = users::table
+                    .filter(users::id.eq(user_id))
+                    .select(users::username)
+                    .first::<String>(&mut conn)
+                    .optional()
+                    .unwrap_or(None);
 
-            if let Some(username) = username_result {
-                // Fetch roles
-                let role_names = user_roles::table
-                    .inner_join(roles::table.on(roles::id.eq(user_roles::role_id)))
-                    .filter(user_roles::user_id.eq(user_id))
-                    .select(roles::name)
-                    .load::<String>(&conn)
-                    .map_err(|_| Status::InternalServerError)?;
+                if let Some(username) = username_result {
+                    // Fetch roles
+                    let role_names = user_roles::table
+                        .inner_join(roles::table.on(roles::id.eq(user_roles::role_id)))
+                        .filter(user_roles::user_id.eq(user_id))
+                        .select(roles::name)
+                        .load::<String>(&mut conn)
+                        .unwrap_or_else(|_| vec![]);
 
-                let mut roles_vec = Vec::new();
-                for role_name in role_names {
-                    match role_name.as_str() {
-                        "Admin" => roles_vec.push(UserRole::Admin),
-                        "Manager" => roles_vec.push(UserRole::Manager),
-                        _ => roles_vec.push(UserRole::User),
-                    }
+                    let roles_vec = role_names
+                        .into_iter()
+                        .map(|r| match r.as_str() {
+                            "Admin" => UserRole::Admin,
+                            "Manager" => UserRole::Manager,
+                            _ => UserRole::User,
+                        })
+                        .collect();
+
+                    return Outcome::Success(AuthUser {
+                        id: user_id,
+                        username,
+                        roles: roles_vec,
+                    });
                 }
-
-                return Outcome::Success(AuthUser {
-                    id: user_id,
-                    username,
-                    roles: roles_vec,
-                });
             }
         }
 
