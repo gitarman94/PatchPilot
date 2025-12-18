@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::Result;
 use reqwest::Client;
 use tokio::time::sleep;
-use tokio::signal;
+use tokio::signal::ctrl_c;
 
 use crate::action::start_command_polling;
 use crate::device::run_adoption_and_update_loop;
@@ -48,7 +48,7 @@ pub async fn run_unix_service() -> Result<()> {
     {
         let flag = running_flag.clone();
         tokio::spawn(async move {
-            let _ = signal::ctrl_c().await;
+            let _ = ctrl_c().await;
             println!("CTRL-C received, shutting down...");
             flag.store(false, Ordering::SeqCst);
         });
@@ -147,4 +147,3 @@ pub async fn system_info_loop(
         sleep(interval).await;
     }
 }
-
