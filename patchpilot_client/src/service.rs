@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::Result;
 use reqwest::Client;
 use tokio::time::sleep;
-use tokio::signal::ctrl_c;
+use tokio::signal;
 
 use crate::action::start_command_polling;
 use crate::device::run_adoption_and_update_loop;
@@ -48,7 +48,8 @@ pub async fn run_unix_service() -> Result<()> {
     {
         let flag = running_flag.clone();
         tokio::spawn(async move {
-            let _ = ctrl_c().await;
+            let _ = signal::ctrl_c().await;
+            println!("CTRL-C received, shutting down...");
             flag.store(false, Ordering::SeqCst);
         });
     }
@@ -87,6 +88,7 @@ pub async fn run_service() -> Result<()> {
         service_control_handler::register("PatchPilot", move |control| {
             match control {
                 ServiceControl::Stop => {
+                    println!("Service stop requested, shutting down...");
                     flag_for_handler.store(false, Ordering::SeqCst);
                     ServiceControlHandlerResult::NoError
                 }
@@ -112,13 +114,30 @@ pub async fn run_service() -> Result<()> {
 }
 
 /// Periodic system info collection loop
-pub async fn system_info_loop(service: Arc<SystemInfoService>, running: Arc<AtomicBool>) {
+pub async fn system_info_loop(
+    service: Arc<SystemInfoService>,
+    running: Arc<AtomicBool>,
+    client: Client,
+    server_url: String,
+    device_id: String,
+) {
     let interval = Duration::from_secs(get_system_info_refresh_secs());
 
     while running.load(Ordering::SeqCst) {
         match service.get_system_info_async().await {
             Ok(info) => {
                 println!("Collected system info: {:?}", info);
+
+                // Send to server
+                let url = format!("{}/api/devices/{}/system_info", server_url, device_id);
+                let client_clone = client.clone();
+                let info_clone = info.clone();
+
+                tokio::spawn(async move {
+                    if let Err(e) = client_clone.post(&url).json(&info_clone).send().await {
+                        eprintln!("Failed to send system info: {:?}", e);
+                    }
+                });
             }
             Err(e) => {
                 eprintln!("Failed to collect system info: {:?}", e);
@@ -128,3 +147,4 @@ pub async fn system_info_loop(service: Arc<SystemInfoService>, running: Arc<Atom
         sleep(interval).await;
     }
 }
+

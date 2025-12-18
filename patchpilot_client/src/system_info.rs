@@ -1,13 +1,11 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::{fs, time::Duration};
+use std::{fs, time::Duration, str};
 use local_ip_address::local_ip;
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-};
-use sysinfo::{System, Disks};
+use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
+use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt};
 use std::path::PathBuf;
+use std::process::Command;
 
 // Intervals (defaults)
 const ADOPTION_CHECK_INTERVAL: u64 = 10;
@@ -19,7 +17,6 @@ const DEVICE_ID_FILE: &str = "/opt/patchpilot_client/device_id.txt";
 #[cfg(windows)]
 const DEVICE_ID_FILE: &str = "C:\\ProgramData\\PatchPilot\\device_id.txt";
 
-// Server URL file (written by setup_or_update_client.sh)
 #[cfg(any(unix, target_os = "macos"))]
 const SERVER_URL_FILE: &str = "/opt/patchpilot_client/server_url.txt";
 #[cfg(windows)]
@@ -77,9 +74,9 @@ pub struct SystemInfo {
     pub disk_total: i64,
     pub disk_free: i64,
     pub disk_health: String,
-    pub network_throughput: i64,
-    pub ping_latency: Option<f32>,
-    pub network_interfaces: Option<String>,
+    pub network_throughput: i64,           // bytes sent + received
+    pub ping_latency: Option<f32>,         // ms
+    pub network_interfaces: Vec<String>,   // interface names
     pub ip_address: Option<String>,
     pub device_type: String,
     pub device_model: String,
@@ -89,24 +86,17 @@ pub struct SystemInfo {
 impl SystemInfo {
     pub fn gather_blocking() -> Self {
         // --- System ---
-        let mut sys = System::new();
-        sys.refresh_cpu_all();
-        sys.refresh_memory();
+        let mut sys = System::new_all();
+        sys.refresh_all();
 
-        let hostname =
-            System::host_name().unwrap_or_else(|| "unknown".to_string());
-        let os_name =
-            System::long_os_version().unwrap_or_else(|| "unknown".to_string());
+        let hostname = sys.host_name().unwrap_or_else(|| "unknown".to_string());
+        let os_name = sys.long_os_version().unwrap_or_else(|| "unknown".to_string());
         let architecture = std::env::consts::ARCH.to_string();
 
         // --- CPU ---
         let cpus = sys.cpus();
         let cpu_count = cpus.len() as i32;
-        let cpu_brand = cpus
-            .first()
-            .map(|c| c.brand().to_string())
-            .unwrap_or_default();
-
+        let cpu_brand = cpus.first().map(|c| c.brand().to_string()).unwrap_or_default();
         let cpu_usage = if cpu_count == 0 {
             0.0
         } else {
@@ -117,18 +107,22 @@ impl SystemInfo {
         let ram_total = sys.total_memory() as i64;
         let ram_used = sys.used_memory() as i64;
 
-        // --- Disks (new API) ---
-        let disks = Disks::new_with_refreshed_list();
+        // --- Disks ---
         let mut disk_total: i64 = 0;
         let mut disk_free: i64 = 0;
-
-        for disk in disks.iter() {
+        for disk in sys.disks() {
             disk_total += disk.total_space() as i64;
             disk_free += disk.available_space() as i64;
         }
 
         // --- Network ---
+        let network_interfaces: Vec<String> = sys.networks().keys().cloned().collect();
+        let network_throughput = sys.networks().values()
+            .map(|data| (data.received() + data.transmitted()) as i64)
+            .sum();
+
         let ip_address = local_ip().ok().map(|ip| ip.to_string());
+        let ping_latency = get_ping_latency("8.8.8.8");
 
         SystemInfo {
             hostname,
@@ -142,9 +136,9 @@ impl SystemInfo {
             disk_total,
             disk_free,
             disk_health: String::new(),
-            network_throughput: 0,
-            ping_latency: None,
-            network_interfaces: None,
+            network_throughput,
+            ping_latency,
+            network_interfaces,
             ip_address,
             device_type: String::new(),
             device_model: String::new(),
@@ -152,6 +146,56 @@ impl SystemInfo {
     }
 }
 
+/// Ping the given host once and return latency in ms
+fn get_ping_latency(host: &str) -> Option<f32> {
+    #[cfg(unix)]
+    let output = Command::new("ping")
+        .args(["-c", "1", "-W", "1", host])
+        .output()
+        .ok()?;
+
+    #[cfg(windows)]
+    let output = Command::new("ping")
+        .args(["-n", "1", "-w", "1000", host])
+        .output()
+        .ok()?;
+
+    let stdout = str::from_utf8(&output.stdout).ok()?;
+
+    #[cfg(unix)]
+    {
+        for line in stdout.lines() {
+            if line.contains("rtt") && line.contains("avg") {
+                let parts: Vec<&str> = line.split('=').collect();
+                if parts.len() < 2 { continue; }
+                let stats: Vec<&str> = parts[1].trim().split('/').collect();
+                if stats.len() >= 2 {
+                    if let Ok(avg_ms) = stats[1].parse::<f32>() {
+                        return Some(avg_ms);
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        for line in stdout.lines() {
+            if line.contains("Average =") {
+                if let Some(pos) = line.find("Average =") {
+                    let value = &line[pos + 9..].trim().replace("ms", "");
+                    if let Ok(avg_ms) = value.parse::<f32>() {
+                        return Some(avg_ms);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+// SystemInfoService 
 #[derive(Clone)]
 pub struct SystemInfoService {
     cache: Arc<tokio::sync::RwLock<Option<SystemInfo>>>,
@@ -187,7 +231,6 @@ impl SystemInfoService {
 
         let mut last = self.last.write().await;
         let mut cache = self.cache.write().await;
-
         *cache = Some(info.clone());
         *last = Some(std::time::Instant::now());
 
@@ -200,7 +243,7 @@ pub fn get_system_info() -> SystemInfo {
     SystemInfo::gather_blocking()
 }
 
-// ---- Server URL (used by service.rs) ----
+// Server URL helpers 
 pub async fn read_server_url() -> Result<String> {
     let path = PathBuf::from(SERVER_URL_FILE);
 
@@ -211,16 +254,13 @@ pub async fn read_server_url() -> Result<String> {
     Ok(raw.trim().to_string())
 }
 
-// ---- Local device helpers ----
+// Local device helpers 
 pub fn get_local_device_id() -> Option<String> {
-    fs::read_to_string(DEVICE_ID_FILE)
-        .ok()
-        .map(|s| s.trim().to_string())
+    fs::read_to_string(DEVICE_ID_FILE).ok().map(|s| s.trim().to_string())
 }
 
 pub fn write_local_device_id(device_id: &str) -> Result<()> {
-    fs::write(DEVICE_ID_FILE, device_id)
-        .context("Failed to write local device_id")
+    fs::write(DEVICE_ID_FILE, device_id).context("Failed to write local device_id")
 }
 
 pub fn get_device_info_basic() -> (String, String) {
