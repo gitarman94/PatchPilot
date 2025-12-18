@@ -147,6 +147,16 @@ pub struct HistoryLog {
     pub created_at: NaiveDateTime,
 }
 
+#[derive(Debug, Queryable, Insertable, Serialize, Deserialize)]
+#[diesel(table_name = crate::schema::audit_log)]
+pub struct AuditLog {
+    pub id: i32,
+    pub actor: String,
+    pub action_type: String,
+    pub target: Option<String>,
+    pub details: Option<String>,
+    pub created_at: chrono::NaiveDateTime,
+}
 
 impl DeviceInfo {
     pub fn merge_with(&mut self, other: &DeviceInfo) {
