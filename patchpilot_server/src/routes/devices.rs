@@ -55,13 +55,9 @@ pub async fn approve_device(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        log_audit(
-            &mut conn,
-            &username,
-            "approve_device",
-            Some(&device_id_str),
-            Some("Device approved"),
-        ).map_err(|_| Status::InternalServerError)?;
+        // log_audit now returns Result, so propagate error
+        log_audit(&mut conn, &username, "approve_device", Some(&device_id_str), Some("Device approved"))
+            .map_err(|_| Status::InternalServerError)?;
 
         Ok(Status::Ok)
     })
@@ -84,7 +80,7 @@ pub async fn register_or_update_device(
     let info = info.into_inner();
     let pool = pool.inner().clone();
 
-    rocket::tokio::task::spawn_blocking(move || {
+    let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
         let existing = devices
@@ -93,11 +89,7 @@ pub async fn register_or_update_device(
             .optional()
             .map_err(|_| Status::InternalServerError)?;
 
-        let updated = NewDevice::from_device_info(
-            &info.device_id,
-            &info,
-            existing.as_ref(),
-        );
+        let updated = NewDevice::from_device_info(&info.device_id, &info, existing.as_ref());
 
         diesel::insert_into(devices)
             .values(&updated)
@@ -107,18 +99,13 @@ pub async fn register_or_update_device(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        log_audit(
-            &mut conn,
-            &username,
-            "register_or_update_device",
-            Some(&info.device_id),
-            Some("Device registered or updated"),
-        ).map_err(|_| Status::InternalServerError)?;
+        log_audit(&mut conn, &username, "register_or_update_device", Some(&info.device_id), Some("Device registered or updated"))
+            .map_err(|_| Status::InternalServerError)?;
 
-        Ok::<_, Status>(serde_json::json!({ "device_id": info.device_id }))
+        Ok(serde_json::json!({ "device_id": info.device_id }))
     })
     .await
-    .map_err(|_| Status::InternalServerError)?
-    .map(Json)
+    .map_err(|_| Status::InternalServerError)??;
+
+    Ok(Json(result))
 }
-    

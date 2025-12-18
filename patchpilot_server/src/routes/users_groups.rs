@@ -25,7 +25,7 @@ pub fn list_users_groups(user: AuthUser, pool: &State<DbPool>) -> rocket_dyn_tem
         return rocket_dyn_templates::Template::render("unauthorized", &());
     }
 
-    let mut conn = pool.get().unwrap(); // mutable connection for Diesel
+    let mut conn = pool.get().expect("Failed to get DB connection");
 
     let all_groups = groups::table
         .load::<(i32, String, Option<String>)>(&mut conn)
@@ -54,13 +54,14 @@ pub fn list_users_groups(user: AuthUser, pool: &State<DbPool>) -> rocket_dyn_tem
 pub fn add_group(user: AuthUser, pool: &State<DbPool>, form: Form<GroupForm>) -> Redirect {
     if !user.has_role(&UserRole::Admin) { return Redirect::to("/unauthorized"); }
 
-    let mut conn = pool.get().unwrap();
+    let mut conn = pool.get().expect("Failed to get DB connection");
     diesel::insert_into(groups::table)
         .values((groups::name.eq(&form.name), groups::description.eq(&form.description)))
         .execute(&mut conn)
         .unwrap();
 
-    log_audit(&mut conn, &user.username, "add_group", Some(&form.name), form.description.as_deref());
+    log_audit(&mut conn, &user.username, "add_group", Some(&form.name), form.description.as_deref())
+        .unwrap();
 
     Redirect::to("/users-groups")
 }
@@ -69,22 +70,28 @@ pub fn add_group(user: AuthUser, pool: &State<DbPool>, form: Form<GroupForm>) ->
 pub fn add_user(user: AuthUser, pool: &State<DbPool>, form: Form<UserForm>) -> Redirect {
     if !user.has_role(&UserRole::Admin) { return Redirect::to("/unauthorized"); }
 
-    let mut conn = pool.get().unwrap();
+    let mut conn = pool.get().expect("Failed to get DB connection");
     let pass_hash = bcrypt::hash(&form.password, bcrypt::DEFAULT_COST).unwrap();
 
-    let user_id = diesel::insert_into(users::table)
+    diesel::insert_into(users::table)
         .values((users::username.eq(&form.username), users::password_hash.eq(pass_hash)))
         .execute(&mut conn)
-        .expect("Failed to insert user"); // SQLite does not support .get_result()
+        .expect("Failed to insert user");
 
-    if let Some(group_id) = form.group_id {
+    let user_id = conn.last_insert_rowid() as i32;
+
+    if let Some(group_id_val) = form.group_id {
         diesel::insert_into(user_groups::table)
-            .values((user_groups::user_id.eq(user_id as i32), user_groups::group_id.eq(group_id)))
+            .values((user_groups::user_id.eq(user_id), user_groups::group_id.eq(group_id_val)))
             .execute(&mut conn)
             .unwrap();
     }
 
-    log_audit(&mut conn, &user.username, "add_user", Some(&form.username), form.group_id.map(|id| format!("group_id: {}", id).as_str()));
+    let details = form.group_id.map(|id| format!("group_id: {}", id));
+    let details_ref = details.as_deref();
+
+    log_audit(&mut conn, &user.username, "add_user", Some(&form.username), details_ref)
+        .unwrap();
 
     Redirect::to("/users-groups")
 }
@@ -93,7 +100,7 @@ pub fn add_user(user: AuthUser, pool: &State<DbPool>, form: Form<UserForm>) -> R
 pub fn delete_group(user: AuthUser, pool: &State<DbPool>, group_id: i32) -> Redirect {
     if !user.has_role(&UserRole::Admin) { return Redirect::to("/unauthorized"); }
 
-    let mut conn = pool.get().unwrap();
+    let mut conn = pool.get().expect("Failed to get DB connection");
     let group_name: String = groups::table
         .filter(groups::id.eq(group_id))
         .select(groups::name)
@@ -107,7 +114,8 @@ pub fn delete_group(user: AuthUser, pool: &State<DbPool>, group_id: i32) -> Redi
         .execute(&mut conn)
         .unwrap();
 
-    log_audit(&mut conn, &user.username, "delete_group", Some(&group_name), None);
+    log_audit(&mut conn, &user.username, "delete_group", Some(&group_name), None)
+        .unwrap();
 
     Redirect::to("/users-groups")
 }
@@ -116,7 +124,7 @@ pub fn delete_group(user: AuthUser, pool: &State<DbPool>, group_id: i32) -> Redi
 pub fn delete_user(user: AuthUser, pool: &State<DbPool>, user_id: i32) -> Redirect {
     if !user.has_role(&UserRole::Admin) { return Redirect::to("/unauthorized"); }
 
-    let mut conn = pool.get().unwrap();
+    let mut conn = pool.get().expect("Failed to get DB connection");
     let username_val: String = users::table
         .filter(users::id.eq(user_id))
         .select(users::username)
@@ -130,7 +138,8 @@ pub fn delete_user(user: AuthUser, pool: &State<DbPool>, user_id: i32) -> Redire
         .execute(&mut conn)
         .unwrap();
 
-    log_audit(&mut conn, &user.username, "delete_user", Some(&username_val), None);
+    log_audit(&mut conn, &user.username, "delete_user", Some(&username_val), None)
+        .unwrap();
 
     Redirect::to("/users-groups")
 }

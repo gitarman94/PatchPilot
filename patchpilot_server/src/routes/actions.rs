@@ -3,17 +3,22 @@ use rocket::{get, post, serde::json::Json, State};
 use rocket::http::Status;
 use chrono::{Utc, Duration};
 
-use crate::routes::history::log_audit;
-use crate::db::DbPool;
+use crate::db::{DbPool, log_audit};
 use crate::models::{Action, NewAction, ActionTarget};
 
 // Import columns explicitly to avoid ambiguity
 use crate::schema::actions::{self, id as action_id_col, created_at, canceled};
 use crate::schema::action_targets::{self, action_id as at_action_id, device_id as at_device_id, status, last_update, response};
 
-// Replace this with your actual auth user type
+/// Placeholder AuthUser; implement FromRequest in your project
 pub struct AuthUser {
     pub username: String,
+}
+
+impl AuthUser {
+    pub fn has_role(&self, _role: &str) -> bool {
+        true // Replace with real role check logic
+    }
 }
 
 /// Submit a new action
@@ -29,7 +34,7 @@ pub async fn submit_action(
 
     // TTL enforcement: 5 min <= TTL <= 7 days
     let ttl_seconds = action_data.ttl.unwrap_or(3600); // default 1 hour
-    let ttl_seconds = ttl_seconds.clamp(300, 604800); // clamp
+    let ttl_seconds = ttl_seconds.clamp(300, 604_800); // clamp
     action_data.expires_at = Utc::now().naive_utc() + Duration::seconds(ttl_seconds);
 
     rocket::tokio::task::spawn_blocking(move || {
@@ -123,7 +128,7 @@ pub async fn report_action_result(
         diesel::update(
             action_targets::table
                 .filter(at_action_id.eq(&result.action_id))
-                .filter(at_device_id.eq(&result.device_id))
+                .filter(at_device_id.eq(&result.device_id)),
         )
         .set((
             status.eq(&result.status),
