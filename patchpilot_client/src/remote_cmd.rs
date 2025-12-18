@@ -11,7 +11,7 @@ use std::sync::Arc;
 type HmacSha256 = Hmac<Sha256>;
 
 /// Command shape we expect from server in heartbeat JSON
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RemoteCommand {
     pub id: String,               // server-generated id
     pub kind: String,             // "script" or "exec" (prefer "script")
@@ -23,7 +23,7 @@ pub struct RemoteCommand {
 }
 
 /// Result we POST back to server for each command
-#[derive(serde::Serialize, Debug)]
+#[derive(Serialize, Debug)]
 pub struct CommandResult {
     pub id: String,
     pub status: String,   // "ok" | "failed" | "rejected" | "timeout"
