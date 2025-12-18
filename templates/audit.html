@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Audit Log - PatchPilot</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <!-- Navbar -->
+    {% include "navbar.html" %}
+
+    <div class="container">
+        <h1>Audit Log</h1>
+        <p>View administrative actions performed on the server.</p>
+
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Actor</th>
+                    <th>Action Type</th>
+                    <th>Target</th>
+                    <th>Details</th>
+                    <th>Timestamp</th>
+                </tr>
+            </thead>
+            <tbody id="audit-table-body">
+                <!-- Rows populated via JS -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        async function fetchAudit() {
+            try {
+                const response = await fetch('/api/audit');
+                if (!response.ok) throw new Error('Failed to fetch audit log');
+                const data = await response.json();
+                const tbody = document.getElementById('audit-table-body');
+                tbody.innerHTML = '';
+                data.forEach(entry => {
+                    const row = document.createElement('tr');
+
+                    row.innerHTML = `
+                        <td>${entry.id}</td>
+                        <td>${entry.actor || ''}</td>
+                        <td>${entry.action_type}</td>
+                        <td>${entry.target || ''}</td>
+                        <td>${entry.details || ''}</td>
+                        <td>${new Date(entry.created_at).toLocaleString()}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // Fetch audit log on page load
+        window.addEventListener('DOMContentLoaded', fetchAudit);
+    </script>
+</body>
+</html>

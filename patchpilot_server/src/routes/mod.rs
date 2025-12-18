@@ -38,6 +38,8 @@ pub fn page_routes() -> Vec<Route> {
         pages::device_detail,
         pages::actions_page,
         pages::history_page,
+        pages::audit_page,
         pages::favicon,
     ]
 }
+

@@ -15,22 +15,30 @@ use crate::schema::action_targets::{self, action_id as at_action_id, device_id a
 pub async fn submit_action(
     pool: &State<DbPool>,
     action: Json<NewAction>,
+    user: AuthUser,
 ) -> Result<Status, Status> {
-    let pool = pool.inner().clone();
+    let username = user.username.clone();
     let action_data = action.into_inner();
+    let pool = pool.inner().clone();
 
-    // Spawn blocking Diesel query
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         diesel::insert_into(actions::table)
             .values(&action_data)
             .execute(&mut conn)
-            .map_err(|_| Status::InternalServerError)
+            .map_err(|_| Status::InternalServerError)?;
+
+        log_audit(
+            &mut conn,
+            &username,
+            "submit_action",
+            Some(&action_data.id),
+            Some("Action submitted"),
+        ).map_err(|_| Status::InternalServerError)
     })
     .await
-    .map_err(|_| Status::InternalServerError)??;
-
-    Ok(Status::Created)
+    .map_err(|_| Status::InternalServerError)?
+    .map(|_| Status::Created)
 }
 
 /// List all actions
@@ -56,21 +64,30 @@ pub async fn list_actions(pool: &State<DbPool>) -> Result<Json<Vec<Action>>, Sta
 pub async fn cancel_action(
     pool: &State<DbPool>,
     action_id: &str,
+    user: AuthUser,
 ) -> Result<Status, Status> {
-    let pool = pool.inner().clone();
+    let username = user.username.clone();
     let action_id = action_id.to_string();
+    let pool = pool.inner().clone();
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        diesel::update(actions::table.filter(action_id_col.eq(&action_id)))
+        diesel::update(actions::table.filter(action_id.eq(&action_id)))
             .set(canceled.eq(true))
             .execute(&mut conn)
-            .map_err(|_| Status::InternalServerError)
+            .map_err(|_| Status::InternalServerError)?;
+
+        log_audit(
+            &mut conn,
+            &username,
+            "cancel_action",
+            Some(&action_id),
+            Some("Action canceled"),
+        ).map_err(|_| Status::InternalServerError)
     })
     .await
-    .map_err(|_| Status::InternalServerError)??;
-
-    Ok(Status::Ok)
+    .map_err(|_| Status::InternalServerError)?
+    .map(|_| Status::Ok)
 }
 
 /// Report a result for an action target

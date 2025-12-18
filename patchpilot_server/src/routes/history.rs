@@ -1,18 +1,19 @@
 use rocket::{get, State, http::Status};
 use rocket::serde::json::Json;
 use diesel::prelude::*;
+use chrono::Utc;
+
 use crate::db::pool::DbPool;
-use crate::models::HistoryLog;
+use crate::models::{HistoryLog, AuditLog};
 use crate::schema::history_log::dsl::*;
+use crate::schema::audit_log::dsl::*;
 
 /// API: GET /api/history
 #[get("/api/history")]
-pub async fn api_history(
-    pool: &State<DbPool>,
-) -> Result<Json<Vec<HistoryLog>>, Status> {
+pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, Status> {
     let pool = pool.inner().clone();
 
-    rocket::tokio::task::spawn_blocking(move || {
+    let result = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         history_log
             .order(created_at.desc())
@@ -20,7 +21,49 @@ pub async fn api_history(
             .map_err(|_| Status::InternalServerError)
     })
     .await
-    .map_err(|_| Status::InternalServerError)?
-    .map(Json)
+    .map_err(|_| Status::InternalServerError)??;
+
+    Ok(Json(result))
 }
 
+/// API: GET /api/audit
+#[get("/api/audit")]
+pub async fn api_audit(pool: &State<DbPool>) -> Result<Json<Vec<AuditLog>>, Status> {
+    let pool = pool.inner().clone();
+
+    let result = rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        audit_log
+            .order(created_at.desc())
+            .load::<AuditLog>(&mut conn)
+            .map_err(|_| Status::InternalServerError)
+    })
+    .await
+    .map_err(|_| Status::InternalServerError)??;
+
+    Ok(Json(result))
+}
+
+/// Helper function to log administrative actions to the audit log
+pub fn log_audit(
+    conn: &mut SqliteConnection,
+    actor_val: &str,
+    action_type_val: &str,
+    target_val: Option<&str>,
+    details_val: Option<&str>,
+) -> diesel::QueryResult<()> {
+    let entry = AuditLog {
+        id: 0, // will be auto-incremented
+        actor: actor_val.to_string(),
+        action_type: action_type_val.to_string(),
+        target: target_val.map(|s| s.to_string()),
+        details: details_val.map(|s| s.to_string()),
+        created_at: Utc::now().naive_utc(),
+    };
+
+    diesel::insert_into(audit_log)
+        .values(&entry)
+        .execute(conn)?;
+
+    Ok(())
+}

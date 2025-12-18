@@ -68,9 +68,21 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    audit_log (id) {
+        id -> Integer,
+        actor -> Text,               // who did it
+        action_type -> Text,         // what they did (e.g., set_auto_refresh)
+        target -> Nullable<Text>,    // optional: setting name, device_id, etc.
+        details -> Nullable<Text>,   // optional: extra info
+        created_at -> Timestamp,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(
     devices,
     actions,
     action_targets,
     history_log,
+    audit_log,
 );

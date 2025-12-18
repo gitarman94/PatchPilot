@@ -24,3 +24,8 @@ pub async fn history_page() -> Option<NamedFile> {
 pub async fn favicon() -> Option<NamedFile> {
     NamedFile::open("/opt/patchpilot_server/static/favicon.ico").await.ok()
 }
+
+#[get("/audit")]
+pub async fn audit_page() -> Option<NamedFile> {
+    NamedFile::open(Path::new("templates/audit.html")).await.ok()
+}
