@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{fs, time::Duration, str};
 use local_ip_address::local_ip;
 use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
-use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt};
+use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworksExt, NetworkData};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -88,9 +88,8 @@ impl SystemInfo {
         // --- System ---
         let mut sys = System::new_all();
         sys.refresh_all();
-
-        let hostname = sys.host_name().unwrap_or_else(|| "unknown".to_string());
-        let os_name = sys.long_os_version().unwrap_or_else(|| "unknown".to_string());
+        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "unknown".to_string());
+        let os_name = sysinfo::System::long_os_version().unwrap_or_else(|| "unknown".to_string());
         let architecture = std::env::consts::ARCH.to_string();
 
         // --- CPU ---
@@ -108,6 +107,7 @@ impl SystemInfo {
         let ram_used = sys.used_memory() as i64;
 
         // --- Disks ---
+        sys.refresh_disks_list(); // make sure disks are up to date
         let mut disk_total: i64 = 0;
         let mut disk_free: i64 = 0;
         for disk in sys.disks() {
@@ -116,9 +116,12 @@ impl SystemInfo {
         }
 
         // --- Network ---
-        let network_interfaces: Vec<String> = sys.networks().keys().cloned().collect();
-        let network_throughput = sys.networks().values()
-            .map(|data| (data.received() + data.transmitted()) as i64)
+        sys.refresh_networks(); // make sure network stats are fresh
+        use sysinfo::NetworkData;
+        let networks = sys.networks();
+        let network_interfaces: Vec<String> = networks.keys().cloned().collect();
+        let network_throughput: i64 = networks.values()
+            .map(|data: &NetworkData| (data.received() + data.transmitted()) as i64)
             .sum();
 
         let ip_address = local_ip().ok().map(|ip| ip.to_string());
