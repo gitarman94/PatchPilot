@@ -78,6 +78,7 @@ pub async fn execute_command_and_post_result(
         match out {
             Ok(o) => (
                 true,
+                String::from_utf8_lossy(&o.stdout).to_string(),
                 String::from_utf8_lossy(&o.stderr).to_string(),
                 o.status.code().unwrap_or(-1),
             ),
