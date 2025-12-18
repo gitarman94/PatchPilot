@@ -21,13 +21,13 @@ use log::info;
 
 #[launch]
 fn rocket() -> _ {
-    // 1. Initialize DB + logger + migrations
+    // 1. Initialize DB + logger (no migrations)
     let pool: DbPool = initialize();
 
     // 2. Create default admin user at DB initialization
     {
         let mut conn = get_conn(&pool);
-        create_default_admin(&mut conn).expect("Failed to create default admin");
+        create_default_admin(&mut conn); // no .expect() needed, already panics internally if fails
     }
 
     // 3. Spawn background tasks

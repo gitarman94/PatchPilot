@@ -1,16 +1,14 @@
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 use diesel::sqlite::SqliteConnection;
 use diesel::prelude::*;
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use std::env;
 use chrono::Utc;
 
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
-
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
 
+/// Initialize logger
 pub fn init_logger() {
     Logger::try_with_str("info")
         .unwrap()
@@ -24,50 +22,57 @@ pub fn init_logger() {
         .unwrap();
 }
 
+/// Initialize DB connection pool
 pub fn init_pool() -> DbPool {
-    let database_url =
-        env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
-
+    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
     Pool::builder()
         .build(manager)
         .expect("Failed to create DB pool")
 }
 
-pub fn run_migrations(conn: &mut SqliteConnection) {
-    conn.run_pending_migrations(MIGRATIONS)
-        .expect("Failed to run migrations");
-}
-
+/// Get a single connection from the pool
 pub fn get_conn(pool: &DbPool) -> DbConn {
     pool.get().expect("Failed to get DB connection")
 }
 
+/// Initialize logger and pool (no migrations)
 pub fn initialize() -> DbPool {
     init_logger();
-    let pool = init_pool();
-    let mut conn = get_conn(&pool);
-    run_migrations(&mut conn);
-    pool
+    init_pool()
 }
 
 /// Create default admin user if DB is empty
-pub fn create_default_admin(conn: &mut SqliteConnection) {
-    use crate::schema::users::dsl::*;
+pub fn create_default_admin(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
+    use crate::schema::{users, roles, user_roles};
 
-    let count: i64 = users.count().get_result(conn).unwrap_or(0);
+    let count: i64 = users::dsl::users.count().get_result(conn)?;
     if count == 0 {
         let hash = bcrypt::hash("pass1234", bcrypt::DEFAULT_COST).unwrap();
-        diesel::insert_into(users)
-            .values((
-                username.eq("admin"),
-                password_hash.eq(hash),
-            ))
-            .execute(conn)
-            .expect("Failed to create default admin");
+
+        diesel::insert_into(users::dsl::users)
+            .values((users::username.eq("admin"), users::password_hash.eq(hash)))
+            .execute(conn)?;
+
+        // Fetch IDs
+        let admin_id: i32 = users::dsl::users
+            .filter(users::dsl::username.eq("admin"))
+            .select(users::dsl::id)
+            .first(conn)?;
+
+        let admin_role_id: i32 = roles::dsl::roles
+            .filter(roles::dsl::name.eq("Admin"))
+            .select(roles::dsl::id)
+            .first(conn)?;
+
+        // Assign Admin role
+        diesel::insert_into(user_roles::dsl::user_roles)
+            .values((user_roles::user_id.eq(admin_id), user_roles::role_id.eq(admin_role_id)))
+            .execute(conn)?;
 
         println!("✅ Default admin created (admin / pass1234)");
     }
+    Ok(())
 }
 
 /// Audit logging helper

@@ -49,16 +49,16 @@ impl<'r> FromRequest<'r> for AuthUser {
                     .filter(user_roles::user_id.eq(user_id))
                     .select(roles::name)
                     .load::<String>(&conn)
-                    .unwrap_or_default();
+                    .map_err(|_| Status::InternalServerError)?;
 
-                let roles_vec = role_names
-                    .into_iter()
-                    .map(|r| match r.as_str() {
-                        "Admin" => UserRole::Admin,
-                        "Manager" => UserRole::Manager,
-                        _ => UserRole::User,
-                    })
-                    .collect();
+                let mut roles_vec = Vec::new();
+                for role_name in role_names {
+                    match role_name.as_str() {
+                        "Admin" => roles_vec.push(UserRole::Admin),
+                        "Manager" => roles_vec.push(UserRole::Manager),
+                        _ => roles_vec.push(UserRole::User),
+                    }
+                }
 
                 return Outcome::Success(AuthUser {
                     id: user_id,
