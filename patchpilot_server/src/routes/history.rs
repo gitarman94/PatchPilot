@@ -1,6 +1,7 @@
 use rocket::{get, State, http::Status};
 use rocket::serde::json::Json;
 use diesel::prelude::*;
+use diesel::sqlite::SqliteConnection;
 use chrono::Utc;
 
 use crate::db::pool::DbPool;
@@ -13,12 +14,13 @@ use crate::schema::audit_log::dsl::{audit_log, created_at as audit_created_at};
 pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, Status> {
     let pool = pool.inner().clone();
 
-    let result = rocket::tokio::task::spawn_blocking(move || {
+    let result: Vec<HistoryLog> = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        history_log
+        let logs = history_log
             .order(history_created_at.desc())
             .load::<HistoryLog>(&mut conn)
-            .map_err(|_| Status::InternalServerError)
+            .map_err(|_| Status::InternalServerError)?;
+        Ok::<_, Status>(logs)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
@@ -31,12 +33,13 @@ pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, 
 pub async fn api_audit(pool: &State<DbPool>) -> Result<Json<Vec<AuditLog>>, Status> {
     let pool = pool.inner().clone();
 
-    let result = rocket::tokio::task::spawn_blocking(move || {
+    let result: Vec<AuditLog> = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        audit_log
+        let logs = audit_log
             .order(audit_created_at.desc())
             .load::<AuditLog>(&mut conn)
-            .map_err(|_| Status::InternalServerError)
+            .map_err(|_| Status::InternalServerError)?;
+        Ok::<_, Status>(logs)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
@@ -53,7 +56,7 @@ pub fn log_audit(
     details_val: Option<&str>,
 ) -> diesel::QueryResult<()> {
     let entry = AuditLog {
-        id: 0, // will be auto-incremented
+        id: 0, // auto-incremented
         actor: actor_val.to_string(),
         action_type: action_type_val.to_string(),
         target: target_val.map(|s| s.to_string()),

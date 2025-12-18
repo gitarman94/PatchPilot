@@ -25,7 +25,6 @@ impl ServerSettings {
                 auto_refresh_enabled: cfg.auto_refresh_enabled,
                 auto_refresh_seconds: if cfg.auto_refresh_seconds == 0 { 30 } else { cfg.auto_refresh_seconds },
 
-                // NEW SETTINGS W/ FALLBACKS
                 default_action_ttl_seconds: if cfg.default_action_ttl_seconds == 0 { 3600 } else { cfg.default_action_ttl_seconds },
                 action_polling_enabled: cfg.action_polling_enabled,
             },
@@ -50,7 +49,6 @@ impl Default for ServerSettings {
             auto_refresh_enabled: true,
             auto_refresh_seconds: 30,
 
-            // NEW DEFAULTS
             default_action_ttl_seconds: 3600, // 1 hour TTL
             action_polling_enabled: true,
         }

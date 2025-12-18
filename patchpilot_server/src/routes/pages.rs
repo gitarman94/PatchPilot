@@ -1,4 +1,6 @@
+use std::path::Path;
 use rocket::fs::NamedFile;
+
 
 #[get("/")]
 pub async fn dashboard() -> Option<NamedFile> {

@@ -27,7 +27,7 @@ pub async fn set_auto_approve(
         settings.auto_approve_devices = payload.value;
     }
 
-    let mut conn = state.db_pool.get().unwrap(); // if you store pool in state
+    let mut conn = state.db_pool.get().unwrap();
     log_audit(
         &mut conn,
         &username,
