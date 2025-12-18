@@ -106,9 +106,9 @@ pub fn log_audit(
 #[derive(Insertable)]
 #[diesel(table_name = audit)]
 pub struct NewAudit<'a> {
-    pub username: &'a str,
-    pub action: &'a str,
+    pub actor: &'a str,
+    pub action_type: &'a str,
     pub target: Option<&'a str>,
     pub details: Option<&'a str>,
-    pub created_at: chrono::NaiveDateTime,
 }
+

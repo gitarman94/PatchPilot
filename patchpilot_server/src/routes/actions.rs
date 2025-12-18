@@ -38,9 +38,8 @@ pub async fn submit_action(
     let mut action_data = action.into_inner();
     let pool = pool.inner().clone();
 
-    // Validate user-provided TTL: 5 min <= TTL <= 7 days
-    let ttl_seconds = action_data.ttl.unwrap_or(3600); // 1 hour default
-    let ttl_seconds = ttl_seconds.clamp(300, 604_800);
+    // Set default TTL 1 hour
+    let ttl_seconds = 3600;
     action_data.expires_at = Utc::now().naive_utc() + Duration::seconds(ttl_seconds);
 
     rocket::tokio::task::spawn_blocking(move || {
