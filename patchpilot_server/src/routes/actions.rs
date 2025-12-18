@@ -8,7 +8,9 @@ use crate::models::{Action, NewAction, ActionTarget};
 
 // Import columns explicitly to avoid ambiguity
 use crate::schema::actions::{self, id as action_id_col, created_at, canceled};
-use crate::schema::action_targets::{self, action_id as at_action_id, device_id as at_device_id, status, last_update, response};
+use crate::schema::action_targets::{
+    self, action_id as at_action_id, device_id as at_device_id, status, last_update, response,
+};
 
 /// Placeholder AuthUser; implement FromRequest in your project
 pub struct AuthUser {
@@ -32,10 +34,14 @@ pub async fn submit_action(
     let mut action_data = action.into_inner();
     let pool = pool.inner().clone();
 
-    // TTL enforcement: 5 min <= TTL <= 7 days
-    let ttl_seconds = action_data.ttl.unwrap_or(3600); // default 1 hour
-    let ttl_seconds = ttl_seconds.clamp(300, 604_800); // clamp
-    action_data.expires_at = Utc::now().naive_utc() + Duration::seconds(ttl_seconds);
+    // Optional sanity check on expires_at
+    let min_expiry = Utc::now() + Duration::minutes(5);
+    let max_expiry = Utc::now() + Duration::days(7);
+    if action_data.expires_at < min_expiry.naive_utc() {
+        action_data.expires_at = min_expiry.naive_utc();
+    } else if action_data.expires_at > max_expiry.naive_utc() {
+        action_data.expires_at = max_expiry.naive_utc();
+    }
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;

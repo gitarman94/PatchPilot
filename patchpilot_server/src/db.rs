@@ -5,8 +5,6 @@ use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use std::env;
 use chrono::Utc;
 
-use crate::schema::{users, roles, user_roles, audit_log};
-
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
 
@@ -85,29 +83,29 @@ pub fn log_audit(
     target_val: Option<&str>,
     details_val: Option<&str>,
 ) -> Result<(), diesel::result::Error> {
-    use crate::schema::audit_log::dsl::*;
+    use crate::schema::audit::dsl::*;
 
-    let new_audit = NewAuditLog {
+    let new_audit = NewAudit {
         username,
-        action_type: action,
+        action,
         target: target_val,
         details: details_val,
         created_at: Utc::now().naive_utc(),
     };
 
-    diesel::insert_into(audit_log)
+    diesel::insert_into(audit)
         .values(&new_audit)
         .execute(conn)?;
 
     Ok(())
 }
 
-// Define struct for audit_log
+// Define struct for audit
 #[derive(Insertable)]
-#[diesel(table_name = audit_log)]
-pub struct NewAuditLog<'a> {
+#[diesel(table_name = audit)]
+pub struct NewAudit<'a> {
     pub username: &'a str,
-    pub action_type: &'a str,
+    pub action: &'a str,
     pub target: Option<&'a str>,
     pub details: Option<&'a str>,
     pub created_at: chrono::NaiveDateTime,
