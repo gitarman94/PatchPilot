@@ -33,7 +33,7 @@ pub async fn set_auto_approve(
     }
 
     // Log audit asynchronously
-    let pool = state.db_pool.clone();
+    let pool = state.system.db_pool.clone();
     rocket::tokio::task::spawn_blocking(move || {
         if let Ok(mut conn) = pool.get() {
             log_audit(

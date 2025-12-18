@@ -3,7 +3,6 @@ use diesel::sqlite::SqliteConnection;
 use diesel::prelude::*;
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use std::env;
-use chrono::Utc;
 
 use crate::schema::audit;
 
@@ -88,11 +87,10 @@ pub fn log_audit(
     use crate::schema::audit::dsl::*;
 
     let new_audit = NewAudit {
-        username,
-        action,
+        actor: username,
+        action_type: action,
         target: target_val,
         details: details_val,
-        created_at: Utc::now().naive_utc(),
     };
 
     diesel::insert_into(audit)
@@ -111,4 +109,3 @@ pub struct NewAudit<'a> {
     pub target: Option<&'a str>,
     pub details: Option<&'a str>,
 }
-

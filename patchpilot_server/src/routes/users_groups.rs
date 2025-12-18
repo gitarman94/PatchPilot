@@ -78,7 +78,11 @@ pub fn add_user(user: AuthUser, pool: &State<DbPool>, form: Form<UserForm>) -> R
         .execute(&mut conn)
         .expect("Failed to insert user");
 
-    let user_id = conn.last_insert_rowid() as i32;
+    let user_id: i32 = diesel::insert_into(users::table)
+        .values(&new_user)
+        .returning(users::id)
+        .get_result(&mut conn)?;
+
 
     if let Some(group_id_val) = form.group_id {
         diesel::insert_into(user_groups::table)
