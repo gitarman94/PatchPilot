@@ -4,13 +4,7 @@ use serde_json::{json, Value};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use tokio::time::sleep;
 use std::time::Duration;
-use crate::system_info::{
-    SystemInfo,
-    get_system_info,
-    get_local_device_id,
-    write_local_device_id,
-    get_device_info_basic,
-};
+use crate::system_info::{SystemInfo, get_system_info, get_local_device_id, write_local_device_id, get_device_info_basic};
 
 pub const ADOPTION_CHECK_INTERVAL: u64 = 10;
 

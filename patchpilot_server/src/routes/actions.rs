@@ -3,6 +3,7 @@ use rocket::{get, post, serde::json::Json, State};
 use rocket::http::Status;
 use chrono::Utc;
 
+use crate::routes::history::log_audit;
 use crate::db::pool::DbPool;
 use crate::models::{Action, NewAction, ActionTarget};
 

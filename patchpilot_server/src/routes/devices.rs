@@ -7,6 +7,7 @@ use chrono::Utc;
 use crate::db::pool::DbPool;
 use crate::models::{Device, DeviceInfo, NewDevice};
 use crate::schema::devices::dsl::{devices, device_id, approved, last_checkin};
+use crate::routes::history::log_audit;
 
 /// Get all devices
 #[get("/devices")]

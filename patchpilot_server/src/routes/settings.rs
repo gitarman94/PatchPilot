@@ -3,6 +3,7 @@ use rocket::http::Status;
 use rocket::serde::{Deserialize, json::Json};
 
 use crate::state::AppState;
+use crate::routes::history::log_audit;
 
 #[derive(Deserialize)]
 pub struct BoolSetting {
