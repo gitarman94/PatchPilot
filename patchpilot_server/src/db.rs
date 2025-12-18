@@ -5,6 +5,8 @@ use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use std::env;
 use chrono::Utc;
 
+use crate::schema::audit;
+
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
 
