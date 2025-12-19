@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::time::Duration;
+
 use anyhow::Result;
 use reqwest::Client;
-use tokio::time::sleep;
 use tokio::signal::ctrl_c;
 
-use crate::action::start_command_polling;
+use crate::action;
 use crate::device::run_adoption_and_update_loop;
 use crate::system_info::{get_system_info_refresh_secs, read_server_url, SystemInfoService};
 
@@ -21,12 +21,12 @@ pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
     let handle = Logger::try_with_str("info")?
         .log_to_file(
             FileSpec::default()
-                .directory(log_dir)
+                .directory(&log_dir)
                 .basename("patchpilot_client")
                 .suffix("log"),
         )
         .rotate(
-            Criterion::Size(5_000_000), // 5 MB
+            Criterion::Size(5_000_000),
             Naming::Numbers,
             Cleanup::KeepLogFiles(10),
         )
@@ -41,7 +41,6 @@ pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
 pub async fn run_unix_service() -> Result<()> {
     let client = Client::new();
     let server_url = read_server_url().await?;
-
     let running_flag = Arc::new(AtomicBool::new(true));
 
     // Graceful shutdown on CTRL-C
@@ -49,28 +48,26 @@ pub async fn run_unix_service() -> Result<()> {
         let flag = running_flag.clone();
         tokio::spawn(async move {
             let _ = ctrl_c().await;
-            println!("CTRL-C received, shutting down...");
+            println!("CTRL-C received, shutting down…");
             flag.store(false, Ordering::SeqCst);
         });
     }
 
     // Run adoption/update loop
-    let device_id =
-        run_adoption_and_update_loop(&client, &server_url, Some(running_flag.clone())).await?;
+    let device_id = run_adoption_and_update_loop(&client, &server_url, Some(running_flag.clone())).await?;
 
-    // Start async command polling
-    start_command_polling(
-        client,
-        server_url,
-        device_id,
+    // Start the new action loop
+    action::action_loop(
+        client.clone(),
+        server_url.clone(),
+        device_id.clone(),
         Some(running_flag.clone()),
-    )
-    .await?;
+    ).await?;
 
     Ok(())
 }
 
-/// Windows service entrypoint (fully async)
+/// Windows service entrypoint
 #[cfg(windows)]
 pub async fn run_service() -> Result<()> {
     use windows_service::{
@@ -88,7 +85,7 @@ pub async fn run_service() -> Result<()> {
         service_control_handler::register("PatchPilot", move |control| {
             match control {
                 ServiceControl::Stop => {
-                    println!("Service stop requested, shutting down...");
+                    println!("Service stop requested, shutting down…");
                     flag_for_handler.store(false, Ordering::SeqCst);
                     ServiceControlHandlerResult::NoError
                 }
@@ -98,17 +95,15 @@ pub async fn run_service() -> Result<()> {
     }
 
     // Run adoption/update loop
-    let device_id =
-        run_adoption_and_update_loop(&client, &server_url, Some(running_flag.clone())).await?;
+    let device_id = run_adoption_and_update_loop(&client, &server_url, Some(running_flag.clone())).await?;
 
-    // Start async command polling
-    start_command_polling(
-        client,
-        server_url,
-        device_id,
+    // Start the new action loop
+    action::action_loop(
+        client.clone(),
+        server_url.clone(),
+        device_id.clone(),
         Some(running_flag.clone()),
-    )
-    .await?;
+    ).await?;
 
     Ok(())
 }
@@ -122,17 +117,13 @@ pub async fn system_info_loop(
     device_id: String,
 ) {
     let interval = Duration::from_secs(get_system_info_refresh_secs());
-
     while running.load(Ordering::SeqCst) {
         match service.get_system_info_async().await {
             Ok(info) => {
                 println!("Collected system info: {:?}", info);
-
-                // Send to server
                 let url = format!("{}/api/devices/{}/system_info", server_url, device_id);
                 let client_clone = client.clone();
                 let info_clone = info.clone();
-
                 tokio::spawn(async move {
                     if let Err(e) = client_clone.post(&url).json(&info_clone).send().await {
                         eprintln!("Failed to send system info: {:?}", e);
@@ -143,7 +134,6 @@ pub async fn system_info_loop(
                 eprintln!("Failed to collect system info: {:?}", e);
             }
         }
-
         sleep(interval).await;
     }
 }

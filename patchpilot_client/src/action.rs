@@ -2,10 +2,7 @@ use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::process::Stdio;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-use std::time::Duration;
-use tokio::time::timeout;
 
 #[cfg(unix)]
 use libc;
@@ -15,12 +12,19 @@ const SCRIPTS_DIR: &str = "/opt/patchpilot_client/scripts";
 #[cfg(windows)]
 const SCRIPTS_DIR: &str = "C:\\ProgramData\\PatchPilot\\scripts";
 
-// Defaults
+/// How often the agent checks for new commands after an empty poll
 pub const COMMAND_POLL_INTERVAL_SECS: u64 = 5;
+
+/// How long a single command is allowed to run
 pub const COMMAND_EXEC_TIMEOUT_SECS: u64 = 300;
+
+/// How long a poll request may long-poll before timing out
 pub const COMMAND_LONGPOLL_TIMEOUT_SECS: u64 = 60;
+
+/// How long to back off on HTTP errors
 pub const COMMAND_RETRY_BACKOFF_SECS: u64 = 5;
 
+/// A structured representation of what to run
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum CommandSpec {
@@ -38,14 +42,19 @@ pub enum CommandSpec {
     },
 }
 
+/// A command received from the server
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServerCommand {
     pub id: String,
+
     pub spec: CommandSpec,
+
     pub created_at: Option<String>,
+
     pub run_as_root: Option<bool>,
 }
 
+/// A summary of execution for posting back
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CommandResult {
     pub id: String,
@@ -56,17 +65,20 @@ pub struct CommandResult {
     pub success: bool,
 }
 
-// Check root/admin privileges
+/// Check whether we are running with root/admin privileges
 #[cfg(unix)]
-fn check_root() {
-    if unsafe { libc::geteuid() } != 0 {
-        log::warn!("Not running as root: some commands may fail.");
+fn check_root(required: bool) -> Result<()> {
+    // 0 = root
+    if required && unsafe { libc::geteuid() } != 0 {
+        anyhow::bail!("action requires root privileges but none present");
     }
+    Ok(())
 }
 
 #[cfg(windows)]
-fn check_admin() {
-    log::warn!("Windows admin check not implemented; ensure run as Administrator");
+fn check_admin(_required: bool) -> Result<()> {
+    // Windows admin is typically handled at service installation time
+    Ok(())
 }
 
 /// Poll the server once for new commands
@@ -74,8 +86,8 @@ pub async fn poll_for_commands_once(
     client: &Client,
     server_url: &str,
     device_id: &str,
-) -> Result<()> {
-    log::debug!("Polling commands once for device {}", device_id);
+) -> Result<Vec<ServerCommand>> {
+    log::debug!("Polling server for commands for device {}", device_id);
 
     let resp = client
         .get(format!("{}/api/devices/{}/commands/poll", server_url, device_id))
@@ -84,182 +96,87 @@ pub async fn poll_for_commands_once(
 
     if !resp.status().is_success() {
         log::warn!("Command poll rejected: {}", resp.status());
-        return Ok(());
+        return Ok(vec![]);
     }
 
-    let commands: Vec<Value> = resp.json().await?;
-    for cmd_item in commands {
-        crate::command::execute_command_and_post_result(
-            client.clone(),
-            server_url.to_string(),
-            device_id.to_string(),
-            cmd_item,
-        ).await;
-    }
-
-    Ok(())
-}
-
-/// Execute a ServerCommand and return the CommandResult
-pub async fn execute_command_and_collect_result(cmd: &ServerCommand) -> CommandResult {
-    let start = std::time::Instant::now();
-    let timeout_secs = match &cmd.spec {
-        CommandSpec::Shell { timeout_secs, .. } => timeout_secs.unwrap_or(COMMAND_EXEC_TIMEOUT_SECS),
-        CommandSpec::Script { timeout_secs, .. } => timeout_secs.unwrap_or(COMMAND_EXEC_TIMEOUT_SECS),
-    };
-
-    let spec_clone = cmd.spec.clone();
-    let id_clone = cmd.id.clone();
-
-    let run = tokio::task::spawn_blocking(move || {
-        match spec_clone {
-            CommandSpec::Shell { command, .. } => {
-                #[cfg(unix)]
-                {
-                    let mut c = std::process::Command::new("/bin/sh");
-                    c.arg("-c").arg(command);
-                    c.stdin(Stdio::null());
-                    c.stdout(Stdio::piped());
-                    c.stderr(Stdio::piped());
-                    c.output().map_err(|e| format!("failed spawn: {}", e))
-                }
-                #[cfg(windows)]
-                {
-                    let mut c = std::process::Command::new("powershell");
-                    c.arg("-NoProfile")
-                        .arg("-NonInteractive")
-                        .arg("-Command")
-                        .arg(command);
-                    c.stdin(Stdio::null());
-                    c.stdout(Stdio::piped());
-                    c.stderr(Stdio::piped());
-                    c.output().map_err(|e| format!("failed spawn: {}", e))
-                }
-            }
-            CommandSpec::Script { name, args, .. } => {
-                let script_path = {
-                    #[cfg(any(unix, target_os = "macos"))]
-                    { std::path::PathBuf::from(format!("{}/{}", SCRIPTS_DIR, name)) }
-                    #[cfg(windows)]
-                    { std::path::PathBuf::from(format!("{}\\{}", SCRIPTS_DIR, name)) }
-                };
-
-                if !script_path.exists() {
-                    return Err(format!("script not found: {:?}", script_path));
-                }
-
-                let mut c = std::process::Command::new(script_path);
-                if let Some(argsv) = args {
-                    for a in argsv {
-                        c.arg(a);
-                    }
-                }
-                c.stdin(Stdio::null());
-                c.stdout(Stdio::piped());
-                c.stderr(Stdio::piped());
-                c.output().map_err(|e| format!("failed spawn: {}", e))
-            }
+    let cmds: Vec<Value> = resp.json().await?;
+    let mut out = Vec::with_capacity(cmds.len());
+    for raw in cmds {
+        match serde_json::from_value::<ServerCommand>(raw) {
+            Ok(cmd) => out.push(cmd),
+            Err(e) => log::warn!("Invalid command JSON: {}", e),
         }
-    });
-
-    let output_res = timeout(Duration::from_secs(timeout_secs), run).await;
-    let duration = start.elapsed();
-
-    match output_res {
-        Ok(join_res) => match join_res {
-            Ok(Ok(os_output)) => {
-                let stdout = String::from_utf8_lossy(&os_output.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&os_output.stderr).to_string();
-                let code = os_output.status.code().unwrap_or(-1);
-
-                CommandResult {
-                    id: id_clone,
-                    exit_code: code,
-                    stdout,
-                    stderr,
-                    duration_secs: duration.as_secs_f64(),
-                    success: os_output.status.success(),
-                }
-            }
-            Ok(Err(err_str)) => CommandResult {
-                id: id_clone,
-                exit_code: -1,
-                stdout: "".into(),
-                stderr: format!("spawn error: {}", err_str),
-                duration_secs: duration.as_secs_f64(),
-                success: false,
-            },
-            Err(join_err) => CommandResult {
-                id: id_clone,
-                exit_code: -1,
-                stdout: "".into(),
-                stderr: format!("join error: {:?}", join_err),
-                duration_secs: duration.as_secs_f64(),
-                success: false,
-            },
-        },
-        Err(_) => CommandResult {
-            id: id_clone,
-            exit_code: -1,
-            stdout: "".into(),
-            stderr: format!("command timed out after {}s", timeout_secs),
-            duration_secs: duration.as_secs_f64(),
-            success: false,
-        },
     }
+    Ok(out)
 }
 
-/// Post a CommandResult back to the server
-pub async fn post_command_result(
-    client: &Client,
-    server_url: &str,
-    result: &CommandResult,
-) -> Result<()> {
-    let url = format!("{}/api/commands/{}/result", server_url, result.id);
-    let resp = client.post(&url).json(result).send().await.context("Failed to post command result")?;
-    if !resp.status().is_success() {
-        anyhow::bail!("Server rejected result: {}", resp.status());
-    }
-    Ok(())
-}
-
-/// Start the polling loop for commands
-pub async fn start_command_polling(
+/// Execute a command via the engine in `command.rs`
+pub async fn execute_action(
     client: Client,
     server_url: String,
     device_id: String,
-    running_flag: Option<Arc<AtomicBool>>,
-) -> Result<()> {
-    #[cfg(unix)] check_root();
-    #[cfg(windows)] check_admin();
-
-    log::info!("Starting command polling for device {} at {}", device_id, server_url);
-    poll_for_commands_once(&client, &server_url, &device_id).await?;
-    command_poll_loop(client, server_url, device_id, running_flag).await;
-    Ok(())
-}
-
-/// Continuous command polling loop
-pub async fn command_poll_loop(
-    client: Client,
-    server_url: String,
-    device_id: String,
-    running_flag: Option<Arc<AtomicBool>>,
+    cmd: ServerCommand,
 ) {
-    log::info!("Starting command poll loop for device {}", device_id);
+    if let Some(run_as_root) = cmd.run_as_root {
+        #[cfg(unix)]
+        if let Err(e) = check_root(run_as_root) {
+            log::warn!("Skipping root-required action {}: {}", cmd.id, e);
+            return;
+        }
+        #[cfg(windows)]
+        let _ = check_admin(run_as_root);
+    }
 
+    // Delegate actual execution
+    let exec_result = crate::command::execute_command(cmd.clone()).await;
+
+    // Post result
+    match exec_result {
+        Ok(result) => {
+            if let Err(e) = crate::command::post_command_result(
+                &client,
+                &server_url,
+                &device_id,
+                &result.id,
+                result,
+            ).await
+            {
+                log::warn!("Failed to post result for {}: {}", cmd.id, e);
+            }
+        }
+        Err(e) => {
+            log::warn!("Execution failed for {}: {:?}", cmd.id, e);
+        }
+    }
+}
+
+/// Action loop: poll continuously and dispatch
+pub async fn action_loop(
+    client: Client,
+    server_url: String,
+    device_id: String,
+    running_flag: Option<Arc<AtomicBool>>,
+) -> Result<()> {
     loop {
-        if let Some(ref flag) = running_flag {
+        if let Some(flag) = &running_flag {
             if !flag.load(Ordering::SeqCst) {
-                log::info!("Command poll loop stopping due to shutdown flag");
-                return;
+                log::info!("Action loop stopping due to shutdown flag");
+                break;
             }
         }
 
-        if let Err(e) = poll_for_commands_once(&client, &server_url, &device_id).await {
-            log::warn!("Error polling commands: {:?}", e);
+        let commands = poll_for_commands_once(&client, &server_url, &device_id).await?;
+        for cmd in commands {
+            let c = client.clone();
+            let s = server_url.clone();
+            let d = device_id.clone();
+            tokio::spawn(async move {
+                execute_action(c, s, d, cmd).await;
+            });
         }
 
-        tokio::time::sleep(Duration::from_secs(COMMAND_POLL_INTERVAL_SECS)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(COMMAND_POLL_INTERVAL_SECS)).await;
     }
+
+    Ok(())
 }
