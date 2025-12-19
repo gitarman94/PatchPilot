@@ -1,13 +1,18 @@
-use std::sync::{Arc, RwLock, Mutex};
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock, Mutex};
 use sysinfo::System;
+use chrono::NaiveDateTime;
 
-use crate::models::DeviceInfo;
 use crate::settings::ServerSettings;
+use crate::db::DbPool;
 
-#[derive(Clone)]
-pub struct AppState {
+pub struct SystemState {
+    pub db_pool: DbPool,
     pub system: Arc<Mutex<System>>,
-    pub pending_devices: Arc<RwLock<HashMap<String, DeviceInfo>>>,
+}
+
+pub struct AppState {
+    pub system: Arc<SystemState>,
+    pub pending_devices: Arc<RwLock<HashMap<String, NaiveDateTime>>>,
     pub settings: Arc<RwLock<ServerSettings>>,
 }

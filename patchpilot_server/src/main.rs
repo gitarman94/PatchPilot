@@ -8,60 +8,55 @@ mod models;
 mod schema;
 mod settings;
 mod auth;
+mod state;
 
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-
-use rocket::fs::FileServer;
 use sysinfo::System;
 use log::info;
 
+use rocket::fs::FileServer;
+
 use crate::db::{initialize, get_conn, create_default_admin, DbPool};
 use crate::tasks::{spawn_action_ttl_sweeper, spawn_pending_cleanup};
-
-/// Global application state shared via Rocket managed state
-pub struct AppState {
-    pub system: Arc<Mutex<System>>,
-    pub pending_devices: Mutex<HashMap<String, String>>,
-    pub settings: Mutex<settings::ServerSettings>,
-    pub db_pool: DbPool,
-}
+use crate::state::{AppState, SystemState};
 
 #[launch]
 fn rocket() -> _ {
-    // 1. Initialize database + logging
-    let pool = initialize();
+    // 1️⃣ Initialize DB + logging
+    let pool: DbPool = initialize();
 
-    // 2. Ensure default admin exists
+    // 2️⃣ Ensure default admin exists
     {
         let mut conn = get_conn(&pool);
         create_default_admin(&mut conn);
     }
 
-    // 3. Spawn background tasks
+    // 3️⃣ Spawn action TTL sweeper (background task)
     spawn_action_ttl_sweeper(pool.clone());
 
-    // 4. Build application state
-    let app_state = AppState {
-        system: Arc::new(Mutex::new(System::new_all())),
-        pending_devices: Mutex::new(HashMap::new()),
-        settings: Mutex::new(settings::ServerSettings::load()),
+    // 4️⃣ Build SystemState
+    let system_state = SystemState {
         db_pool: pool.clone(),
+        system: Arc::new(Mutex::new(System::new_all())),
     };
 
-    spawn_pending_cleanup(Arc::new(app_state));
+    // 5️⃣ Build AppState
+    let app_state = Arc::new(AppState {
+        system: Arc::new(system_state),
+        pending_devices: Arc::new(Mutex::new(HashMap::new())),
+        settings: Arc::new(Mutex::new(settings::ServerSettings::load())),
+    });
+
+    // 6️⃣ Spawn pending device cleanup task
+    spawn_pending_cleanup(app_state.clone());
 
     info!("PatchPilot server ready");
 
-    // 5. Rocket build
+    // 7️⃣ Build Rocket
     rocket::build()
-        .manage(pool)
-        .manage(AppState {
-            system: Arc::new(Mutex::new(System::new_all())),
-            pending_devices: Mutex::new(HashMap::new()),
-            settings: Mutex::new(settings::ServerSettings::load()),
-            db_pool: pool,
-        })
+        .manage(pool)          // DB pool
+        .manage(app_state)     // AppState
         .mount("/api", routes::api_routes())
         .mount("/", routes::page_routes())
         .mount("/auth", routes::auth_routes())
