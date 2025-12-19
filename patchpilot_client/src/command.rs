@@ -66,27 +66,16 @@ pub async fn execute_command(cmd: crate::action::ServerCommand) -> Result<Execut
 
 /// Post execution result to server
 pub async fn post_command_result(
-    client: &reqwest::Client,
+    client: &Client,
     server_url: &str,
-    device_id: &str,
     cmd_id: &str,
-    exec: ExecutionResult,
+    result: &CommandResult
 ) -> Result<()> {
-    let url = format!(
-        "{}/api/devices/{}/commands/{}/result",
-        server_url, device_id, cmd_id
-    );
-
-    let payload = serde_json::json!({
-        "status": if exec.exit_code == 0 { "ok" } else { "error" },
-        "stdout": exec.stdout,
-        "stderr": exec.stderr,
-        "exit_code": exec.exit_code,
-    });
-
-    let resp = client.post(&url).json(&payload).send().await.context("POST failed")?;
+    let url = format!("{}/api/commands/{}/result", server_url, cmd_id);
+    let resp = client.post(&url).json(result).send().await?;
     if !resp.status().is_success() {
-        log::warn!("Server rejected result {}: {}", cmd_id, resp.status());
+        log::warn!("Server rejected command result {}: {}", cmd_id, resp.status());
     }
     Ok(())
 }
+

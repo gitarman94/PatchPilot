@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-use std::time::Duration;
+use tokio::time::{sleep, Duration};
 
 use anyhow::Result;
 use reqwest::Client;

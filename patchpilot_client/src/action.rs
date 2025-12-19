@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -133,13 +133,12 @@ pub async fn execute_action(
     // Post result
     match exec_result {
         Ok(result) => {
-            if let Err(e) = crate::command::post_command_result(
-                &client,
-                &server_url,
-                &device_id,
-                &result.id,
-                result,
-            ).await
+        if let Err(e) = crate::command::post_command_result(
+            &client,
+            &server_url,
+            &result.id,
+            &result, // pass reference instead of moving
+        ).await
             {
                 log::warn!("Failed to post result for {}: {}", cmd.id, e);
             }
