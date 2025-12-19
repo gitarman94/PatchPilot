@@ -82,7 +82,7 @@ pub struct NewDevice {
     pub ip_address: Option<String>,
 }
 
-//System Payloads
+// System Payloads
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SystemInfo {
@@ -137,6 +137,7 @@ pub struct NewAction {
     pub action_type: String,
     pub parameters: Option<String>,
     pub author: Option<String>,
+    pub created_at: NaiveDateTime,
     pub expires_at: NaiveDateTime,
     pub canceled: bool,
 }
@@ -254,6 +255,44 @@ impl DeviceInfo {
 
             device_type: self.device_type.clone().unwrap_or_default(),
             device_model: self.device_model.clone().unwrap_or_default(),
+
+            uptime: Some("0h 0m".into()),
+            updates_available: false,
+
+            network_interfaces: s.network_interfaces.clone(),
+            ip_address: s.ip_address.clone(),
+        }
+    }
+}
+
+impl NewDevice {
+    pub fn from_device_info(device_id: &str, info: &DeviceInfo, existing: Option<&Device>) -> Self {
+        let s = &info.system_info;
+        NewDevice {
+            device_id: device_id.to_string(),
+            device_name: device_id.to_string(),
+            hostname: device_id.to_string(),
+            os_name: s.os_name.clone(),
+            architecture: s.architecture.clone(),
+            last_checkin: Utc::now().naive_utc(),
+            approved: existing.map_or(false, |e| e.approved),
+
+            cpu_usage: s.cpu_usage,
+            cpu_count: s.cpu_count,
+            cpu_brand: s.cpu_brand.clone(),
+
+            ram_total: s.ram_total,
+            ram_used: s.ram_used,
+
+            disk_total: s.disk_total,
+            disk_free: s.disk_free,
+            disk_health: s.disk_health.clone(),
+
+            network_throughput: s.network_throughput,
+            ping_latency: s.ping_latency,
+
+            device_type: info.device_type.clone().unwrap_or_default(),
+            device_model: info.device_model.clone().unwrap_or_default(),
 
             uptime: Some("0h 0m".into()),
             updates_available: false,

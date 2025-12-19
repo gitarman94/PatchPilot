@@ -11,6 +11,9 @@ pub struct ServerSettings {
     // NEW OPTIONAL SETTINGS
     pub default_action_ttl_seconds: u64,
     pub action_polling_enabled: bool,
+
+    // NEW: configurable ping IP
+    pub ping_target_ip: String,
 }
 
 impl ServerSettings {
@@ -27,6 +30,8 @@ impl ServerSettings {
 
                 default_action_ttl_seconds: if cfg.default_action_ttl_seconds == 0 { 3600 } else { cfg.default_action_ttl_seconds },
                 action_polling_enabled: cfg.action_polling_enabled,
+
+                ping_target_ip: if cfg.ping_target_ip.is_empty() { "8.8.8.8".to_string() } else { cfg.ping_target_ip },
             },
 
             None => Self::default(),
@@ -51,6 +56,8 @@ impl Default for ServerSettings {
 
             default_action_ttl_seconds: 3600, // 1 hour TTL
             action_polling_enabled: true,
+
+            ping_target_ip: "8.8.8.8".to_string(), // default
         }
     }
 }

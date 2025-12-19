@@ -1,5 +1,5 @@
 use rocket::serde::json::Json;
-use rocket::{State, http::Status};
+use rocket::{State, http::Status, get, post};
 use diesel::prelude::*;
 use chrono::Utc;
 
@@ -7,6 +7,7 @@ use crate::db::DbPool;
 use crate::auth::{AuthUser, UserRole};
 use crate::models::{Device, DeviceInfo, NewDevice};
 use crate::schema::devices::dsl::*;
+use crate::schema::server_settings::dsl as settings_dsl;
 use crate::db::log_audit;
 
 /// Get all devices
@@ -55,7 +56,6 @@ pub async fn approve_device(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        // log_audit now returns Result, so propagate error
         log_audit(&mut conn, &username, "approve_device", Some(&device_id_str), Some("Device approved"))
             .map_err(|_| Status::InternalServerError)?;
 
@@ -83,14 +83,19 @@ pub async fn register_or_update_device(
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
+        // Load existing device if it exists
         let existing = devices
             .filter(device_id.eq(&info.device_id))
             .first::<Device>(&mut conn)
             .optional()
             .map_err(|_| Status::InternalServerError)?;
 
-        let updated = NewDevice::from_device_info(&info.device_id, &info, existing.as_ref());
+        // Ensure last_checkin timestamp is updated
+        let now = Utc::now();
+        let mut updated = NewDevice::from_device_info(&info.device_id, &info, existing.as_ref());
+        updated.last_checkin = now.naive_utc();
 
+        // Insert or update device
         diesel::insert_into(devices)
             .values(&updated)
             .on_conflict(device_id)
@@ -99,10 +104,24 @@ pub async fn register_or_update_device(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
+        // Log audit
         log_audit(&mut conn, &username, "register_or_update_device", Some(&info.device_id), Some("Device registered or updated"))
             .map_err(|_| Status::InternalServerError)?;
 
-        Ok(serde_json::json!({ "device_id": info.device_id }))
+        // Fetch ping_target_ip from settings
+        let ping_ip: String = settings_dsl::server_settings
+            .select(settings_dsl::ping_target_ip)
+            .first(&mut conn)
+            .unwrap_or_else(|_| "8.8.8.8".to_string());
+
+        // Measure ping latency (update sys_info or return with JSON)
+        let ping_latency = crate::utils::measure_tcp_ping(&ping_ip, 53, 1000);
+
+        Ok(serde_json::json!({
+            "device_id": info.device_id,
+            "ping_target_ip": ping_ip,
+            "ping_latency_ms": ping_latency
+        }))
     })
     .await
     .map_err(|_| Status::InternalServerError)??;

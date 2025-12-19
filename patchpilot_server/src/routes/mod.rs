@@ -16,9 +16,8 @@ pub fn api_routes() -> Vec<Route> {
         devices::get_devices,
         devices::get_device_details,
         devices::approve_device,
-        devices::register_device_route,
         devices::register_or_update_device,
-        devices::heartbeat_route,
+        devices::heartbeat,    // heartbeat route from devices.rs
 
         // Actions
         actions::submit_action,

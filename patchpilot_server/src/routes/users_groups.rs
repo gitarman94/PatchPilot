@@ -73,20 +73,23 @@ pub fn add_user(user: AuthUser, pool: &State<DbPool>, form: Form<UserForm>) -> R
     let mut conn = pool.get().expect("Failed to get DB connection");
     let pass_hash = bcrypt::hash(&form.password, bcrypt::DEFAULT_COST).unwrap();
 
-    diesel::insert_into(users::table)
-        .values((users::username.eq(&form.username), users::password_hash.eq(pass_hash)))
-        .execute(&mut conn)
+    // Insert the new user and return its ID
+    let user_id: i32 = diesel::insert_into(users::table)
+        .values((
+            users::username.eq(&form.username),
+            users::password_hash.eq(pass_hash),
+        ))
+        .returning(users::id)
+        .get_result(&mut conn)
         .expect("Failed to insert user");
 
-    let user_id: i32 = diesel::insert_into(users::table)
-        .values(&new_user)
-        .returning(users::id)
-        .get_result(&mut conn)?;
-
-
+    // Add user to group if specified
     if let Some(group_id_val) = form.group_id {
         diesel::insert_into(user_groups::table)
-            .values((user_groups::user_id.eq(user_id), user_groups::group_id.eq(group_id_val)))
+            .values((
+                user_groups::user_id.eq(user_id),
+                user_groups::group_id.eq(group_id_val),
+            ))
             .execute(&mut conn)
             .unwrap();
     }

@@ -15,7 +15,7 @@ pub const ADOPTION_CHECK_INTERVAL: u64 = 10;
 fn measure_tcp_ping(host: &str, port: u16, timeout_ms: u64) -> Option<f32> {
     let addr = format!("{}:{}", host, port);
     let addr = addr.to_socket_addrs().ok()?.next()?;
-    let start = Instant::now();
+    let start = Instant::Utc::now();
     let _ = TcpStream::connect_timeout(&addr, Duration::from_millis(timeout_ms)).ok()?;
     Some(start.elapsed().as_secs_f32() * 1000.0)
 }
