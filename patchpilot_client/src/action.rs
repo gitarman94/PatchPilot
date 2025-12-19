@@ -46,11 +46,8 @@ pub enum CommandSpec {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServerCommand {
     pub id: String,
-
     pub spec: CommandSpec,
-
     pub created_at: Option<String>,
-
     pub run_as_root: Option<bool>,
 }
 
@@ -68,7 +65,6 @@ pub struct CommandResult {
 /// Check whether we are running with root/admin privileges
 #[cfg(unix)]
 fn check_root(required: bool) -> Result<()> {
-    // 0 = root
     if required && unsafe { libc::geteuid() } != 0 {
         anyhow::bail!("action requires root privileges but none present");
     }
@@ -77,7 +73,6 @@ fn check_root(required: bool) -> Result<()> {
 
 #[cfg(windows)]
 fn check_admin(_required: bool) -> Result<()> {
-    // Windows admin is typically handled at service installation time
     Ok(())
 }
 
@@ -127,18 +122,27 @@ pub async fn execute_action(
         let _ = check_admin(run_as_root);
     }
 
-    // Delegate actual execution
+    // Delegate actual execution to engine
     let exec_result = crate::command::execute_command(cmd.clone()).await;
 
-    // Post result
     match exec_result {
-        Ok(result) => {
-        if let Err(e) = crate::command::post_command_result(
-            &client,
-            &server_url,
-            &result.id,
-            &result, // pass reference instead of moving
-        ).await
+        Ok(execution) => {
+            // Convert ExecutionResult -> CommandResult
+            let result = CommandResult {
+                id: execution.id.clone(),
+                exit_code: execution.exit_code,
+                stdout: execution.stdout.clone(),
+                stderr: execution.stderr.clone(),
+                duration_secs: 0.0,
+                success: execution.exit_code == 0,
+            };
+
+            if let Err(e) = crate::command::post_command_result(
+                &client,
+                &server_url,
+                &execution.id,
+                &result,
+            ).await
             {
                 log::warn!("Failed to post result for {}: {}", cmd.id, e);
             }
