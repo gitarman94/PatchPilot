@@ -68,7 +68,7 @@ pub async fn run_unix_service() -> Result<()> {
     let rf_clone = running_flag.clone();
     let svc_clone = sys_service.clone();
     tokio::spawn(async move {
-        system_info::system_info_loop(svc_clone, rf_clone, client_clone, srv_clone, dev_clone).await;
+        crate::service::system_info_loop(svc_clone, rf_clone, client_clone, srv_clone, dev_clone).await;
     });
 
     // Start action loop
@@ -94,7 +94,7 @@ pub async fn run_service(running_flag: Arc<AtomicBool>) -> Result<()> {
     let rf_clone = running_flag.clone();
     let svc_clone = sys_service.clone();
     tokio::spawn(async move {
-        system_info::system_info_loop(svc_clone, rf_clone, client_clone, srv_clone, dev_clone).await;
+        crate::service::system_info_loop(svc_clone, rf_clone, client_clone, srv_clone, dev_clone).await;
     });
 
     // Start action loop

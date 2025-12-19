@@ -7,8 +7,9 @@ mod patchpilot_updater;
 mod system_info;
 mod service;
 
+use crate::service::init_logging;
+
 use std::{fs, path::Path};
-use crate::service::{self, init_logging};
 use nix::unistd::Uid;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
