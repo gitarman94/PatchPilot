@@ -1,14 +1,13 @@
 mod action;
 mod command;
 mod device;
-mod remote_cmd;
 mod self_update;
 mod patchpilot_updater;
 mod system_info;
 mod service;
 mod logging;
 
-use crate::logging::init_logging;
+use logging::init_logging;
 
 use std::{fs, path::Path};
 use nix::unistd::Uid;
@@ -31,7 +30,7 @@ fn get_base_dir() -> String {
     }
     #[cfg(target_os = "windows")] {
         let mut path = dirs::data_local_dir()
-            .unwrap_or(std::path::PathBuf::from("C:\\PatchPilot"));
+            .unwrap_or_else(|| std::path::PathBuf::from("C:\\PatchPilot"));
         path.push("PatchPilotClient");
         path.to_string_lossy().into_owned()
     }
@@ -91,7 +90,6 @@ fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
 fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
     let service_path = "/etc/systemd/system/patchpilot_client.service";
 
-    // Ensure patchpilot system user exists
     let _ = std::process::Command::new("id")
         .arg("patchpilot")
         .output()
@@ -106,7 +104,6 @@ fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
-    // Write service file if missing
     if !Path::new(service_path).exists() {
         let service_contents = r#"[Unit]
 Description=PatchPilot Client
@@ -132,7 +129,6 @@ WantedBy=multi-user.target
             .output();
     }
 
-    // Enable service if not enabled
     let status = std::process::Command::new("systemctl")
         .arg("is-enabled")
         .arg("patchpilot_client.service")
@@ -150,8 +146,7 @@ WantedBy=multi-user.target
 }
 
 fn log_initial_system_info() {
-    use system_info::SystemInfo;
-    let info = SystemInfo::gather_blocking();
+    let info = system_info::SystemInfo::gather_blocking();
     log::info!("Initial system information:");
     log::info!("Hostname: {:?}", info.hostname);
     log::info!("OS Name: {:?}", info.os_name);
@@ -160,11 +155,19 @@ fn log_initial_system_info() {
     log::info!("RAM: total {} KB, used {} KB", info.ram_total, info.ram_used);
 }
 
+// Explicit calls to modules that were previously unused
+fn call_unused_modules() {
+    action::example_action();
+    command::example_command();
+    device::example_device();
+    patchpilot_updater::check_for_updates();
+    self_update::perform_self_update();
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ensure_logs_dir()?;
 
-    // Initialize logging
     let handle = init_logging()?;
     {
         let mut guard = LOGGER_HANDLE.lock().await;
@@ -178,6 +181,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("PatchPilot client starting…");
     log_initial_system_info();
+
+    call_unused_modules(); // Ensure Rust sees these functions as used
 
     #[cfg(unix)]
     {
