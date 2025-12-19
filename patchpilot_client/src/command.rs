@@ -1,7 +1,8 @@
-use anyhow::{Result, Context};
-use serde_json::Value;
+use anyhow::Result;
+use reqwest::Client;
 use tokio::task;
 use std::process::Command;
+use crate::action::{CommandSpec, ServerCommand, CommandResult};
 
 /// A structured execution result
 #[derive(Debug, Clone)]
@@ -13,12 +14,12 @@ pub struct ExecutionResult {
 }
 
 /// Run a single command spec
-pub async fn execute_command(cmd: crate::action::ServerCommand) -> Result<ExecutionResult> {
+pub async fn execute_command(cmd: ServerCommand) -> Result<ExecutionResult> {
     let id = cmd.id.clone();
 
     // Prepare the command text
     let (program, args): (String, Vec<String>) = match cmd.spec {
-        crate::action::CommandSpec::Shell { command, .. } => {
+        CommandSpec::Shell { command, .. } => {
             #[cfg(windows)]
             {
                 ("cmd".into(), vec!["/C".into(), command])
@@ -28,7 +29,7 @@ pub async fn execute_command(cmd: crate::action::ServerCommand) -> Result<Execut
                 ("sh".into(), vec!["-c".into(), command])
             }
         }
-        crate::action::CommandSpec::Script { name, args, .. } => {
+        CommandSpec::Script { name, args, .. } => {
             let mut all_args = Vec::new();
             all_args.push(name.clone());
             if let Some(extra) = args {
@@ -43,7 +44,8 @@ pub async fn execute_command(cmd: crate::action::ServerCommand) -> Result<Execut
             .args(&args)
             .output()
             .map_err(|e| format!("failed spawn: {}", e))
-    }).await?;
+    })
+    .await?;
 
     let output = match run {
         Ok(o) => o,
@@ -69,13 +71,16 @@ pub async fn post_command_result(
     client: &Client,
     server_url: &str,
     cmd_id: &str,
-    result: &CommandResult
+    result: &CommandResult,
 ) -> Result<()> {
     let url = format!("{}/api/commands/{}/result", server_url, cmd_id);
-    let resp = client.post(&url).json(result).send().await?;
+
+    // Explicit type annotation to satisfy Rust
+    let resp: reqwest::Response = client.post(&url).json(result).send().await?;
+
     if !resp.status().is_success() {
         log::warn!("Server rejected command result {}: {}", cmd_id, resp.status());
     }
+
     Ok(())
 }
-
