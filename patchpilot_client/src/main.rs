@@ -155,15 +155,6 @@ fn log_initial_system_info() {
     log::info!("RAM: total {} KB, used {} KB", info.ram_total, info.ram_used);
 }
 
-// Explicit calls to modules that were previously unused
-fn call_unused_modules() {
-    action::example_action();
-    command::example_command();
-    device::example_device();
-    patchpilot_updater::check_for_updates();
-    self_update::perform_self_update();
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ensure_logs_dir()?;
