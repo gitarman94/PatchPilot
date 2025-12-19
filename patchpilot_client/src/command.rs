@@ -13,11 +13,11 @@ pub struct ExecutionResult {
     pub exit_code: i32,
 }
 
-/// Run a single command spec
+/// Run a single command spec received from the server
 pub async fn execute_command(cmd: ServerCommand) -> Result<ExecutionResult> {
     let id = cmd.id.clone();
 
-    // Prepare the command text
+    // Prepare the command text based on spec type
     let (program, args): (String, Vec<String>) = match cmd.spec {
         CommandSpec::Shell { command, .. } => {
             #[cfg(windows)]
@@ -39,6 +39,7 @@ pub async fn execute_command(cmd: ServerCommand) -> Result<ExecutionResult> {
         }
     };
 
+    // Spawn blocking task for execution
     let run = task::spawn_blocking(move || {
         Command::new(program)
             .args(&args)
@@ -49,9 +50,7 @@ pub async fn execute_command(cmd: ServerCommand) -> Result<ExecutionResult> {
 
     let output = match run {
         Ok(o) => o,
-        Err(e) => {
-            return Err(anyhow::anyhow!("Execution failed: {}", e));
-        }
+        Err(e) => return Err(anyhow::anyhow!("Execution failed: {}", e)),
     };
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -75,7 +74,7 @@ pub async fn post_command_result(
 ) -> Result<()> {
     let url = format!("{}/api/commands/{}/result", server_url, cmd_id);
 
-    // Explicit type annotation to satisfy Rust
+    // Explicit type annotation for response
     let resp: reqwest::Response = client.post(&url).json(result).send().await?;
 
     if !resp.status().is_success() {

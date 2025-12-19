@@ -6,9 +6,10 @@ use anyhow::Result;
 use reqwest::Client;
 use tokio::signal::ctrl_c;
 
-use crate::action;
+use crate::action::{self, action_loop};
 use crate::device::run_adoption_and_update_loop;
-use crate::system_info::{get_system_info_refresh_secs, read_server_url, SystemInfoService};
+use crate::system_info::{self, get_system_info_refresh_secs, read_server_url, SystemInfoService};
+use crate::command;
 
 /// Initialize logging for both Unix and Windows
 pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
@@ -69,44 +70,34 @@ pub async fn run_unix_service() -> Result<()> {
 
 /// Windows service entrypoint
 #[cfg(windows)]
-pub async fn run_service() -> Result<()> {
-    use windows_service::{
-        service::{ServiceControl, ServiceControlHandlerResult},
-        service_control_handler,
-    };
-
+pub async fn run_service(running_flag: Arc<AtomicBool>) -> Result<()> {
+    // Create HTTP client
     let client = Client::new();
-    let server_url = read_server_url().await?;
-    let running_flag = Arc::new(AtomicBool::new(true));
 
-    // Register service control handler
-    {
-        let flag_for_handler = running_flag.clone();
-        service_control_handler::register("PatchPilot", move |control| {
-            match control {
-                ServiceControl::Stop => {
-                    println!("Service stop requested, shutting down…");
-                    flag_for_handler.store(false, Ordering::SeqCst);
-                    ServiceControlHandlerResult::NoError
-                }
-                _ => ServiceControlHandlerResult::NotImplemented,
-            }
-        })?;
-    }
+    // Read server URL from system info
+    let server_url = system_info::read_server_url().await?;
 
-    // Run adoption/update loop
-    let device_id = run_adoption_and_update_loop(&client, &server_url, Some(running_flag.clone())).await?;
+    // Device registration and adoption
+    let device_id = device::run_adoption_and_update_loop(client.clone(), server_url.clone(), running_flag.clone()).await?;
 
-    // Start the new action loop
-    action::action_loop(
-        client.clone(),
-        server_url.clone(),
-        device_id.clone(),
-        Some(running_flag.clone()),
-    ).await?;
+    // Start periodic system info reporting
+    let sys_service = Arc::new(system_info::SystemInfoService::default());
+    let client_clone = client.clone();
+    let srv_clone = server_url.clone();
+    let dev_clone = device_id.clone();
+    let rf_clone = running_flag.clone();
+    let svc_clone = sys_service.clone();
+
+    tokio::spawn(async move {
+        system_info::system_info_loop(svc_clone, rf_clone, client_clone, srv_clone, dev_clone).await;
+    });
+
+    // Start action loop (polling & dispatch)
+    action::action_loop(client.clone(), server_url.clone(), device_id.clone(), Some(running_flag.clone())).await?;
 
     Ok(())
 }
+
 
 /// Periodic system info collection loop
 pub async fn system_info_loop(

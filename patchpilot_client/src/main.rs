@@ -8,10 +8,14 @@ mod system_info;
 mod service;
 
 use std::{fs, path::Path};
-use crate::service::init_logging;
 use nix::unistd::Uid;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
+use anyhow::Result;
+use patchpilot_client::{service, self_update};
+use tokio::signal;
+
+use crate::service::init_logging;
 
 // Will hold the logger handle so it doesn’t get dropped
 lazy_static! {
@@ -159,39 +163,29 @@ fn log_initial_system_info() {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ensure_logs_dir()?;
+async fn main() -> Result<()> {
+    // Initialize logging
+    env_logger::init();
 
-    // Initialize file logging
-    let handle = init_logging()?;
-    {
-        let mut guard = LOGGER_HANDLE.lock().unwrap();
-        *guard = Some(handle);
+    log::info!("Starting PatchPilot client...");
+
+    // Check for self-update
+    if let Err(e) = self_update::check_and_update() {
+        log::warn!("Self-update check failed: {}", e);
     }
 
-    setup_runtime_environment()?;
+    // Run service
+    let running_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let rf_clone = running_flag.clone();
 
-    #[cfg(target_os = "linux")]
-    ensure_systemd_service()?;
+    tokio::spawn(async move {
+        signal::ctrl_c().await.unwrap();
+        log::info!("Shutdown signal received");
+        rf_clone.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
 
-    log::info!("PatchPilot client starting…");
-    log_initial_system_info();
+    service::run_service(running_flag.clone()).await?;
 
-    #[cfg(unix)]
-    {
-        if let Err(e) = service::run_unix_service().await {
-            log::error!("Service error: {}", e);
-            return Err(Box::from(e));
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        if let Err(e) = service::run_service().await {
-            log::error!("Service error: {}", e);
-            return Err(Box::from(e));
-        }
-    }
-
+    log::info!("PatchPilot client shutting down");
     Ok(())
 }

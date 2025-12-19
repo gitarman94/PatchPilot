@@ -109,7 +109,7 @@ pub async fn poll_for_commands_once(
 pub async fn execute_action(
     client: Client,
     server_url: String,
-    device_id: String,
+    _device_id: String,
     cmd: ServerCommand,
 ) {
     if let Some(run_as_root) = cmd.run_as_root {
