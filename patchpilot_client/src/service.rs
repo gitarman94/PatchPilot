@@ -11,32 +11,6 @@ use crate::device::run_adoption_and_update_loop;
 use crate::system_info::{self, get_system_info_refresh_secs, read_server_url, SystemInfoService};
 use crate::command;
 
-/// Initialize logging for both Unix and Windows
-pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
-    use flexi_logger::{Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming};
-
-    let log_dir: PathBuf = crate::get_base_dir().into();
-    let log_dir = log_dir.join("logs");
-    std::fs::create_dir_all(&log_dir)?;
-
-    let handle = Logger::try_with_str("info")?
-        .log_to_file(
-            FileSpec::default()
-                .directory(&log_dir)
-                .basename("patchpilot_client")
-                .suffix("log"),
-        )
-        .rotate(
-            Criterion::Size(5_000_000),
-            Naming::Numbers,
-            Cleanup::KeepLogFiles(10),
-        )
-        .duplicate_to_stderr(Duplicate::Info)
-        .start()?;
-
-    Ok(handle)
-}
-
 /// Common shutdown signal setup
 async fn setup_shutdown_signal(running_flag: Arc<AtomicBool>) {
     let flag = running_flag.clone();

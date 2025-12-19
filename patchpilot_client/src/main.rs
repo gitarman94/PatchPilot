@@ -6,17 +6,19 @@ mod self_update;
 mod patchpilot_updater;
 mod system_info;
 mod service;
+mod logging;
 
-use crate::service::init_logging;
+use crate::logging::init_logging;
 
 use std::{fs, path::Path};
 use nix::unistd::Uid;
-use lazy_static::lazy_static;
-use std::sync::Mutex;
+use anyhow::Result;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-// Logger handle to keep alive
-lazy_static! {
-    static ref LOGGER_HANDLE: Mutex<Option<env_logger::Logger>> = Mutex::new(None);
+/// Logger handle to keep alive
+lazy_static::lazy_static! {
+    static ref LOGGER_HANDLE: Mutex<Option<flexi_logger::LoggerHandle>> = Mutex::new(None);
 }
 
 // Determine platform-specific application base directory.
@@ -165,7 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     let handle = init_logging()?;
     {
-        let mut guard = LOGGER_HANDLE.lock().unwrap();
+        let mut guard = LOGGER_HANDLE.lock().await;
         *guard = Some(handle);
     }
 
@@ -187,7 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(windows)]
     {
-        if let Err(e) = service::run_service().await {
+        if let Err(e) = service::run_service(Arc::new(std::sync::atomic::AtomicBool::new(true))).await {
             log::error!("Service error: {}", e);
             return Err(Box::from(e));
         }
