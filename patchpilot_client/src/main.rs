@@ -8,18 +8,14 @@ mod system_info;
 mod service;
 
 use std::{fs, path::Path};
+use crate::service::{self, init_logging};
 use nix::unistd::Uid;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
-use anyhow::Result;
-use patchpilot_client::{service, self_update};
-use tokio::signal;
 
-use crate::service::init_logging;
-
-// Will hold the logger handle so it doesn’t get dropped
+// Logger handle to keep alive
 lazy_static! {
-    static ref LOGGER_HANDLE: Mutex<Option<flexi_logger::LoggerHandle>> = Mutex::new(None);
+    static ref LOGGER_HANDLE: Mutex<Option<env_logger::Logger>> = Mutex::new(None);
 }
 
 // Determine platform-specific application base directory.
@@ -49,7 +45,6 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     #[cfg(target_os = "linux")] {
-        // Make sure patchpilot user owns this if we're installed as root
         if Uid::effective().is_root() {
             let _ = std::process::Command::new("chown")
                 .arg("-R")
@@ -66,11 +61,10 @@ fn setup_runtime_environment() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// Ensure logs directory exists with correct ownership/permissions.
+// Ensure logs directory exists
 fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
     let base_dir = get_base_dir();
     let logs_dir = format!("{}/logs", base_dir);
-
     if !Path::new(&logs_dir).exists() {
         fs::create_dir_all(&logs_dir)?;
     }
@@ -109,7 +103,7 @@ fn ensure_systemd_service() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
-    // Write out service file if missing
+    // Write service file if missing
     if !Path::new(service_path).exists() {
         let service_contents = r#"[Unit]
 Description=PatchPilot Client
@@ -135,7 +129,7 @@ WantedBy=multi-user.target
             .output();
     }
 
-    // Enable service if not already enabled
+    // Enable service if not enabled
     let status = std::process::Command::new("systemctl")
         .arg("is-enabled")
         .arg("patchpilot_client.service")
@@ -148,6 +142,7 @@ WantedBy=multi-user.target
                 .output();
         }
     }
+
     Ok(())
 }
 
@@ -163,29 +158,39 @@ fn log_initial_system_info() {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ensure_logs_dir()?;
+
     // Initialize logging
-    env_logger::init();
-
-    log::info!("Starting PatchPilot client...");
-
-    // Check for self-update
-    if let Err(e) = self_update::check_and_update() {
-        log::warn!("Self-update check failed: {}", e);
+    let handle = init_logging()?;
+    {
+        let mut guard = LOGGER_HANDLE.lock().unwrap();
+        *guard = Some(handle);
     }
 
-    // Run service
-    let running_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let rf_clone = running_flag.clone();
+    setup_runtime_environment()?;
 
-    tokio::spawn(async move {
-        signal::ctrl_c().await.unwrap();
-        log::info!("Shutdown signal received");
-        rf_clone.store(false, std::sync::atomic::Ordering::SeqCst);
-    });
+    #[cfg(target_os = "linux")]
+    ensure_systemd_service()?;
 
-    service::run_service(running_flag.clone()).await?;
+    log::info!("PatchPilot client starting…");
+    log_initial_system_info();
 
-    log::info!("PatchPilot client shutting down");
+    #[cfg(unix)]
+    {
+        if let Err(e) = service::run_unix_service().await {
+            log::error!("Service error: {}", e);
+            return Err(Box::from(e));
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        if let Err(e) = service::run_service().await {
+            log::error!("Service error: {}", e);
+            return Err(Box::from(e));
+        }
+    }
+
     Ok(())
 }

@@ -37,6 +37,16 @@ pub fn init_logging() -> anyhow::Result<flexi_logger::LoggerHandle> {
     Ok(handle)
 }
 
+/// Common shutdown signal setup
+async fn setup_shutdown_signal(running_flag: Arc<AtomicBool>) {
+    let flag = running_flag.clone();
+    tokio::spawn(async move {
+        let _ = ctrl_c().await;
+        println!("CTRL-C received, shutting down…");
+        flag.store(false, Ordering::SeqCst);
+    });
+}
+
 /// Unix service entrypoint
 #[cfg(any(unix, target_os = "macos"))]
 pub async fn run_unix_service() -> Result<()> {
@@ -44,26 +54,25 @@ pub async fn run_unix_service() -> Result<()> {
     let server_url = read_server_url().await?;
     let running_flag = Arc::new(AtomicBool::new(true));
 
-    // Graceful shutdown on CTRL-C
-    {
-        let flag = running_flag.clone();
-        tokio::spawn(async move {
-            let _ = ctrl_c().await;
-            println!("CTRL-C received, shutting down…");
-            flag.store(false, Ordering::SeqCst);
-        });
-    }
+    // Graceful shutdown
+    setup_shutdown_signal(running_flag.clone()).await;
 
-    // Run adoption/update loop
+    // Device registration and adoption
     let device_id = run_adoption_and_update_loop(&client, &server_url, Some(running_flag.clone())).await?;
 
-    // Start the new action loop
-    action::action_loop(
-        client.clone(),
-        server_url.clone(),
-        device_id.clone(),
-        Some(running_flag.clone()),
-    ).await?;
+    // Start system info loop
+    let sys_service = Arc::new(SystemInfoService::default());
+    let client_clone = client.clone();
+    let srv_clone = server_url.clone();
+    let dev_clone = device_id.clone();
+    let rf_clone = running_flag.clone();
+    let svc_clone = sys_service.clone();
+    tokio::spawn(async move {
+        system_info::system_info_loop(svc_clone, rf_clone, client_clone, srv_clone, dev_clone).await;
+    });
+
+    // Start action loop
+    action_loop(client.clone(), server_url.clone(), device_id.clone(), Some(running_flag.clone())).await?;
 
     Ok(())
 }
@@ -71,35 +80,30 @@ pub async fn run_unix_service() -> Result<()> {
 /// Windows service entrypoint
 #[cfg(windows)]
 pub async fn run_service(running_flag: Arc<AtomicBool>) -> Result<()> {
-    // Create HTTP client
     let client = Client::new();
-
-    // Read server URL from system info
     let server_url = system_info::read_server_url().await?;
 
     // Device registration and adoption
-    let device_id = device::run_adoption_and_update_loop(client.clone(), server_url.clone(), running_flag.clone()).await?;
+    let device_id = run_adoption_and_update_loop(client.clone(), server_url.clone(), running_flag.clone()).await?;
 
-    // Start periodic system info reporting
-    let sys_service = Arc::new(system_info::SystemInfoService::default());
+    // Start system info loop
+    let sys_service = Arc::new(SystemInfoService::default());
     let client_clone = client.clone();
     let srv_clone = server_url.clone();
     let dev_clone = device_id.clone();
     let rf_clone = running_flag.clone();
     let svc_clone = sys_service.clone();
-
     tokio::spawn(async move {
         system_info::system_info_loop(svc_clone, rf_clone, client_clone, srv_clone, dev_clone).await;
     });
 
-    // Start action loop (polling & dispatch)
-    action::action_loop(client.clone(), server_url.clone(), device_id.clone(), Some(running_flag.clone())).await?;
+    // Start action loop
+    action_loop(client.clone(), server_url.clone(), device_id.clone(), Some(running_flag.clone())).await?;
 
     Ok(())
 }
 
-
-/// Periodic system info collection loop
+/// Shared periodic system info loop (can be called independently if needed)
 pub async fn system_info_loop(
     service: Arc<SystemInfoService>,
     running: Arc<AtomicBool>,
