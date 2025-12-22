@@ -6,10 +6,10 @@ pub struct ServerSettings {
     pub auto_approve_devices: bool,
 
     pub auto_refresh_enabled: bool,
-    pub auto_refresh_seconds: u64,
+    pub auto_refresh_seconds: i64,
 
     // NEW OPTIONAL SETTINGS
-    pub default_action_ttl_seconds: u64,
+    pub default_action_ttl_seconds: i64,
     pub action_polling_enabled: bool,
 
     // NEW: configurable ping IP

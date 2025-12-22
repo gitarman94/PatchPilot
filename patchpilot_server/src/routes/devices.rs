@@ -65,6 +65,22 @@ pub async fn approve_device(
     .map_err(|_| Status::InternalServerError)?
 }
 
+/// Heartbeat / health check endpoint
+#[get("/heartbeat")]
+pub async fn heartbeat(pool: &State<DbPool>) -> Result<Json<serde_json::Value>, Status> {
+    let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+
+    // Optionally, a simple DB ping to ensure DB connection is alive
+    diesel::select(diesel::dsl::sql::<diesel::sql_types::Bool>("1"))
+        .get_result::<bool>(&mut conn)
+        .map_err(|_| Status::InternalServerError)?;
+
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "timestamp": Utc::now().to_rfc3339()
+    })))
+}
+
 /// Register or update a device
 #[post("/register_or_update", data = "<info>")]
 pub async fn register_or_update_device(
@@ -105,9 +121,21 @@ pub async fn register_or_update_device(
             .map_err(|_| Status::InternalServerError)?;
 
         // Log audit
-        log_audit(&mut conn, &username, "register_or_update_device", Some(&info.device_id), Some("Device registered or updated"))
-            .map_err(|_| Status::InternalServerError)?;
+        log_audit(
+            &mut conn,
+            &username,
+            "register_or_update_device",
+            Some(&info.device_id),
+            Some("Device registered or updated"),
+        )
+        .map_err(|_| Status::InternalServerError)?;
 
+        // Return JSON value explicitly
+        Ok(serde_json::json!({
+            "device_id": info.device_id,
+            "last_checkin": updated.last_checkin.to_string(),
+            "status": "ok"
+        }))
     })
     .await
     .map_err(|_| Status::InternalServerError)??;

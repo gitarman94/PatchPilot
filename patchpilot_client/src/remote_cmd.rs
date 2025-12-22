@@ -17,7 +17,7 @@ pub struct RemoteCommand {
     pub kind: String,             // "script" or "exec" (prefer "script")
     pub name: String,             // script filename (for kind=script) or binary (for exec)
     pub args: Option<Vec<String>>,
-    pub timeout_secs: Option<u64>,
+    pub timeout_secs: Option<i64>,
     pub signature: String,        // base64(hmac_sha256(secret, payload))
     // optional metadata fields...
 }

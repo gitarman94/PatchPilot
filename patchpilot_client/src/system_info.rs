@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{Atomici64, Ordering},
     },
     time::Duration,
 };
@@ -14,13 +14,13 @@ use local_ip_address::local_ip;
 use sysinfo::{System, Disks, Networks};
 
 /// Default refresh interval (seconds)
-static SYSTEM_INFO_REFRESH_SECS: AtomicU64 = AtomicU64::new(10);
+static SYSTEM_INFO_REFRESH_SECS: Atomici64 = Atomici64::new(10);
 
-pub fn set_system_info_refresh_secs(secs: u64) {
+pub fn set_system_info_refresh_secs(secs: i64) {
     SYSTEM_INFO_REFRESH_SECS.store(secs.max(1), Ordering::SeqCst);
 }
 
-pub fn get_system_info_refresh_secs() -> u64 {
+pub fn get_system_info_refresh_secs() -> i64 {
     SYSTEM_INFO_REFRESH_SECS.load(Ordering::SeqCst)
 }
 

@@ -14,7 +14,7 @@ pub struct BoolSetting {
 
 #[derive(Deserialize)]
 pub struct IntSetting {
-    pub value: u64,
+    pub value: i64,
 }
 
 #[post("/api/settings/auto_approve", data = "<payload>")]

@@ -9,10 +9,10 @@ use crate::system_info::{
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Instant;
 
-pub const ADOPTION_CHECK_INTERVAL: u64 = 10;
+pub const ADOPTION_CHECK_INTERVAL: i64 = 10;
 
 // Helper: measure TCP ping (ms) to host:port
-fn measure_tcp_ping(host: &str, port: u16, timeout_ms: u64) -> Option<f32> {
+fn measure_tcp_ping(host: &str, port: u16, timeout_ms: i64) -> Option<f32> {
     let addr = format!("{}:{}", host, port);
     let addr = addr.to_socket_addrs().ok()?.next()?;
     let start = Instant::Utc::now();

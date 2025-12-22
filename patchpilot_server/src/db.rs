@@ -173,8 +173,8 @@ pub struct ServerSettingsRow {
     pub id: i32,
     pub auto_approve_devices: bool,
     pub auto_refresh_enabled: bool,
-    pub auto_refresh_seconds: u64,
-    pub default_action_ttl_seconds: u64,
+    pub auto_refresh_seconds: i64,
+    pub default_action_ttl_seconds: i64,
     pub action_polling_enabled: bool,
     pub ping_target_ip: String,
 }

@@ -13,16 +13,16 @@ const SCRIPTS_DIR: &str = "/opt/patchpilot_client/scripts";
 const SCRIPTS_DIR: &str = "C:\\ProgramData\\PatchPilot\\scripts";
 
 /// How often the agent checks for new commands after an empty poll
-pub const COMMAND_POLL_INTERVAL_SECS: u64 = 5;
+pub const COMMAND_POLL_INTERVAL_SECS: i64 = 5;
 
 /// How long a single command is allowed to run
-pub const COMMAND_EXEC_TIMEOUT_SECS: u64 = 300;
+pub const COMMAND_EXEC_TIMEOUT_SECS: i64 = 300;
 
 /// How long a poll request may long-poll before timing out
-pub const COMMAND_LONGPOLL_TIMEOUT_SECS: u64 = 60;
+pub const COMMAND_LONGPOLL_TIMEOUT_SECS: i64 = 60;
 
 /// How long to back off on HTTP errors
-pub const COMMAND_RETRY_BACKOFF_SECS: u64 = 5;
+pub const COMMAND_RETRY_BACKOFF_SECS: i64 = 5;
 
 /// A structured representation of what to run
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -31,14 +31,14 @@ pub enum CommandSpec {
     #[serde(rename = "shell")]
     Shell {
         command: String,
-        timeout_secs: Option<u64>,
+        timeout_secs: Option<i64>,
     },
 
     #[serde(rename = "script")]
     Script {
         name: String,
         args: Option<Vec<String>>,
-        timeout_secs: Option<u64>,
+        timeout_secs: Option<i64>,
     },
 }
 
