@@ -37,7 +37,6 @@ pub struct Device {
     pub disk_health: String,
 
     pub network_throughput: i64,
-    pub ping_latency: Option<f32>,
 
     pub device_type: String,
     pub device_model: String,
@@ -71,7 +70,6 @@ pub struct NewDevice {
     pub disk_health: String,
 
     pub network_throughput: i64,
-    pub ping_latency: Option<f32>,
 
     pub device_type: String,
     pub device_model: String,
@@ -101,7 +99,6 @@ pub struct SystemInfo {
     pub disk_health: String,
 
     pub network_throughput: i64,
-    pub ping_latency: Option<f32>,
 
     pub network_interfaces: Option<String>,
     pub ip_address: Option<String>,
@@ -210,7 +207,6 @@ impl DeviceInfo {
         s.disk_total = o.disk_total;
         s.disk_free  = o.disk_free;
         s.network_throughput = o.network_throughput;
-        s.ping_latency = o.ping_latency;
 
         if let Some(t) = &other.device_type {
             if !t.is_empty() { self.device_type = Some(t.clone()); }
@@ -251,7 +247,6 @@ impl DeviceInfo {
             disk_health: s.disk_health.clone(),
 
             network_throughput: s.network_throughput,
-            ping_latency: s.ping_latency,
 
             device_type: self.device_type.clone().unwrap_or_default(),
             device_model: self.device_model.clone().unwrap_or_default(),
@@ -289,7 +284,6 @@ impl NewDevice {
             disk_health: s.disk_health.clone(),
 
             network_throughput: s.network_throughput,
-            ping_latency: s.ping_latency,
 
             device_type: info.device_type.clone().unwrap_or_default(),
             device_model: info.device_model.clone().unwrap_or_default(),

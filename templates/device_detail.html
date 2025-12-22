@@ -358,7 +358,6 @@
 
       $('#net_ip').text(d.ip_address || '—');
       $('#net_throughput').text(d.network_throughput != null ? d.network_throughput + ' bytes' : '—');
-      $('#net_ping').text(d.ping_latency != null ? d.ping_latency + ' ms' : '—');
 
       // interfaces (string or object)
       let ifaces = d.network_interfaces;

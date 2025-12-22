@@ -108,20 +108,6 @@ pub async fn register_or_update_device(
         log_audit(&mut conn, &username, "register_or_update_device", Some(&info.device_id), Some("Device registered or updated"))
             .map_err(|_| Status::InternalServerError)?;
 
-        // Fetch ping_target_ip from settings
-        let ping_ip: String = settings_dsl::server_settings
-            .select(settings_dsl::ping_target_ip)
-            .first(&mut conn)
-            .unwrap_or_else(|_| "8.8.8.8".to_string());
-
-        // Measure ping latency (update sys_info or return with JSON)
-        let ping_latency = crate::utils::measure_tcp_ping(&ping_ip, 53, 1000);
-
-        Ok(serde_json::json!({
-            "device_id": info.device_id,
-            "ping_target_ip": ping_ip,
-            "ping_latency_ms": ping_latency
-        }))
     })
     .await
     .map_err(|_| Status::InternalServerError)??;

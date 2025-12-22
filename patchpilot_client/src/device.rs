@@ -30,9 +30,6 @@ pub async fn register_device(
 ) -> Result<String> {
     let mut sys_info: SystemInfo = system_info_service.get_system_info_async().await.unwrap_or_else(|_| get_local_device_id().map(|_| SystemInfo::default()).unwrap_or_default());
 
-    // Add real ping latency
-    sys_info.ping_latency = measure_tcp_ping("8.8.8.8", 53, 1000);
-
     // Read stored device ID if available
     let device_id = get_local_device_id().unwrap_or_default();
 
@@ -79,7 +76,6 @@ pub async fn send_heartbeat(
     system_info_service: &Arc<SystemInfoService>,
 ) -> Result<Value> {
     let mut sys_info = system_info_service.get_system_info_async().await.unwrap_or_default();
-    sys_info.ping_latency = measure_tcp_ping("8.8.8.8", 53, 1000);
 
     let payload = json!({
         "device_id": device_id,

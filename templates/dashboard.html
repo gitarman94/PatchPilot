@@ -394,7 +394,6 @@
             return `${(((d.disk_total - d.disk_free) / d.disk_total) * 100).toFixed(1)}%`;
           },
         },
-        { data: 'ping_latency', className: 'text-end', render: (d) => (d != null ? `${d} ms` : '—') },
         { data: 'last_checkin', className: 'text-end', render: (d) => (d ? new Date(d).toLocaleString() : '—') },
         {
           data: null,
@@ -475,7 +474,6 @@
             disk_free: d.disk_free ?? 0,
             disk_health: d.disk_health || '',
             network_throughput: d.network_throughput ?? 0,
-            ping_latency: d.ping_latency ?? null,
             last_checkin: d.last_checkin ?? null,
             updates_available: d.updates_available ?? false,
             approved: d.approved ?? false,

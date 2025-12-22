@@ -21,7 +21,6 @@ diesel::table! {
         disk_health -> Text,
 
         network_throughput -> BigInt,
-        ping_latency -> Nullable<Float>,
 
         device_type -> Text,
         device_model -> Text,
@@ -79,7 +78,6 @@ diesel::table! {
     }
 }
 
-// --- New tables for RBAC and multi-user ---
 diesel::table! {
     users (id) {
         id -> Integer,
@@ -120,6 +118,18 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    server_settings (id) {
+        id -> Integer,
+        auto_approve_devices -> Bool,
+        auto_refresh_enabled -> Bool,
+        auto_refresh_seconds -> BigInt,
+        default_action_ttl_seconds -> BigInt,
+        action_polling_enabled -> Bool,
+        ping_target_ip -> Text,
+    }
+}
+
 diesel::joinable!(user_roles -> roles (role_id));
 diesel::joinable!(user_roles -> users (user_id));
 diesel::joinable!(user_groups -> users (user_id));
@@ -136,4 +146,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     user_roles,
     groups,
     user_groups,
+    server_settings,
 );
+

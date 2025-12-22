@@ -72,9 +72,8 @@ read -r -d '' DEVICE_PAYLOAD <<EOF
     "disk_total": 512000,
     "disk_free": 256000,
     "disk_health": "good",
-    "network_throughput": 1000,
-    "ping_latency": 10.5
-  }
+    "network_throughput": 1000
+    }
 }
 EOF
 

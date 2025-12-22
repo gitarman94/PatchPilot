@@ -54,7 +54,6 @@ pub struct SystemInfo {
 
     pub network_throughput: i64,
     pub network_interfaces: Option<Vec<String>>,
-    pub ping_latency: Option<f32>,
     pub ip_address: Option<String>,
 
     pub device_type: String,
@@ -136,7 +135,6 @@ impl SystemInfo {
 
             network_throughput,
             network_interfaces,
-            ping_latency: None, // reserved for future ICMP/TCP probe
             ip_address,
 
             device_type: String::new(),
