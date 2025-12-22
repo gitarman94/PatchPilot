@@ -10,7 +10,7 @@ mod settings;
 mod auth;
 mod state;
 
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Mutex};
 use std::collections::HashMap;
 use sysinfo::System;
 use log::info;
