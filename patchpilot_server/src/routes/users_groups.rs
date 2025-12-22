@@ -54,14 +54,24 @@ pub fn list_users_groups(user: AuthUser, pool: &State<DbPool>) -> rocket_dyn_tem
 pub fn add_group(user: AuthUser, pool: &State<DbPool>, form: Form<GroupForm>) -> Redirect {
     if !user.has_role(&UserRole::Admin) { return Redirect::to("/unauthorized"); }
 
-    let mut conn = pool.get().expect("Failed to get DB connection");
-    diesel::insert_into(groups::table)
+    let mut conn = match pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to get DB connection: {}", e);
+            return Redirect::to("/users-groups");
+        }
+    };
+
+    if let Err(e) = diesel::insert_into(groups::table)
         .values((groups::name.eq(&form.name), groups::description.eq(&form.description)))
         .execute(&mut conn)
-        .unwrap();
+    {
+        eprintln!("Failed to insert group: {}", e);
+    }
 
-    log_audit(&mut conn, &user.username, "add_group", Some(&form.name), form.description.as_deref())
-        .unwrap();
+    if let Err(e) = log_audit(&mut conn, &user.username, "add_group", Some(&form.name), form.description.as_deref()) {
+        eprintln!("Audit log failed for add_group: {}", e);
+    }
 
     Redirect::to("/users-groups")
 }
@@ -70,41 +80,56 @@ pub fn add_group(user: AuthUser, pool: &State<DbPool>, form: Form<GroupForm>) ->
 pub fn add_user(user: AuthUser, pool: &State<DbPool>, form: Form<UserForm>) -> Redirect {
     if !user.has_role(&UserRole::Admin) { return Redirect::to("/unauthorized"); }
 
-    let mut conn = pool.get().expect("Failed to get DB connection");
-    let pass_hash = bcrypt::hash(&form.password, bcrypt::DEFAULT_COST).unwrap();
+    let mut conn = match pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to get DB connection: {}", e);
+            return Redirect::to("/users-groups");
+        }
+    };
+
+    let pass_hash = match bcrypt::hash(&form.password, bcrypt::DEFAULT_COST) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("Failed to hash password: {}", e);
+            return Redirect::to("/users-groups");
+        }
+    };
 
     let new_user = (
         users::username.eq(&form.username),
         users::password_hash.eq(pass_hash),
     );
 
-    // SQLite-compatible: insert without `RETURNING`, then fetch ID
-    diesel::insert_into(users::table)
+    if let Err(e) = diesel::insert_into(users::table)
         .values(&new_user)
         .execute(&mut conn)
-        .expect("Failed to insert user");
+    {
+        eprintln!("Failed to insert user: {}", e);
+        return Redirect::to("/users-groups");
+    }
 
     let user_id_val: i32 = users::table
         .order(users::id.desc())
         .select(users::id)
         .first(&mut conn)
-        .expect("Failed to fetch new user ID");
+        .unwrap_or(-1);
 
     if let Some(group_id_val) = form.group_id {
-        diesel::insert_into(user_groups::table)
-            .values((
-                user_groups::user_id.eq(user_id_val),
-                user_groups::group_id.eq(group_id_val),
-            ))
+        if let Err(e) = diesel::insert_into(user_groups::table)
+            .values((user_groups::user_id.eq(user_id_val), user_groups::group_id.eq(group_id_val)))
             .execute(&mut conn)
-            .unwrap();
+        {
+            eprintln!("Failed to assign user to group: {}", e);
+        }
     }
 
     let details = form.group_id.map(|id| format!("group_id: {}", id));
     let details_ref = details.as_deref();
 
-    log_audit(&mut conn, &user.username, "add_user", Some(&form.username), details_ref)
-        .unwrap();
+    if let Err(e) = log_audit(&mut conn, &user.username, "add_user", Some(&form.username), details_ref) {
+        eprintln!("Audit log failed for add_user: {}", e);
+    }
 
     Redirect::to("/users-groups")
 }
@@ -113,22 +138,35 @@ pub fn add_user(user: AuthUser, pool: &State<DbPool>, form: Form<UserForm>) -> R
 pub fn delete_group(user: AuthUser, pool: &State<DbPool>, group_id_val: i32) -> Redirect {
     if !user.has_role(&UserRole::Admin) { return Redirect::to("/unauthorized"); }
 
-    let mut conn = pool.get().expect("Failed to get DB connection");
+    let mut conn = match pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to get DB connection: {}", e);
+            return Redirect::to("/users-groups");
+        }
+    };
+
     let group_name_val: String = groups::table
         .filter(groups::id.eq(group_id_val))
         .select(groups::name)
         .first(&mut conn)
-        .unwrap_or_else(|_| "unknown".to_string());
+        .unwrap_or_else(|_| "unknown".into());
 
-    diesel::delete(user_groups::table.filter(user_groups::group_id.eq(group_id_val)))
+    if let Err(e) = diesel::delete(user_groups::table.filter(user_groups::group_id.eq(group_id_val)))
         .execute(&mut conn)
-        .unwrap();
-    diesel::delete(groups::table.filter(groups::id.eq(group_id_val)))
-        .execute(&mut conn)
-        .unwrap();
+    {
+        eprintln!("Failed to delete user_groups: {}", e);
+    }
 
-    log_audit(&mut conn, &user.username, "delete_group", Some(&group_name_val), None)
-        .unwrap();
+    if let Err(e) = diesel::delete(groups::table.filter(groups::id.eq(group_id_val)))
+        .execute(&mut conn)
+    {
+        eprintln!("Failed to delete group: {}", e);
+    }
+
+    if let Err(e) = log_audit(&mut conn, &user.username, "delete_group", Some(&group_name_val), None) {
+        eprintln!("Audit log failed for delete_group: {}", e);
+    }
 
     Redirect::to("/users-groups")
 }
@@ -137,22 +175,35 @@ pub fn delete_group(user: AuthUser, pool: &State<DbPool>, group_id_val: i32) -> 
 pub fn delete_user(user: AuthUser, pool: &State<DbPool>, user_id_val: i32) -> Redirect {
     if !user.has_role(&UserRole::Admin) { return Redirect::to("/unauthorized"); }
 
-    let mut conn = pool.get().expect("Failed to get DB connection");
+    let mut conn = match pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to get DB connection: {}", e);
+            return Redirect::to("/users-groups");
+        }
+    };
+
     let username_val: String = users::table
         .filter(users::id.eq(user_id_val))
         .select(users::username)
         .first(&mut conn)
-        .unwrap_or_else(|_| "unknown".to_string());
+        .unwrap_or_else(|_| "unknown".into());
 
-    diesel::delete(user_groups::table.filter(user_groups::user_id.eq(user_id_val)))
+    if let Err(e) = diesel::delete(user_groups::table.filter(user_groups::user_id.eq(user_id_val)))
         .execute(&mut conn)
-        .unwrap();
-    diesel::delete(users::table.filter(users::id.eq(user_id_val)))
-        .execute(&mut conn)
-        .unwrap();
+    {
+        eprintln!("Failed to delete user_groups for user: {}", e);
+    }
 
-    log_audit(&mut conn, &user.username, "delete_user", Some(&username_val), None)
-        .unwrap();
+    if let Err(e) = diesel::delete(users::table.filter(users::id.eq(user_id_val)))
+        .execute(&mut conn)
+    {
+        eprintln!("Failed to delete user: {}", e);
+    }
+
+    if let Err(e) = log_audit(&mut conn, &user.username, "delete_user", Some(&username_val), None) {
+        eprintln!("Audit log failed for delete_user: {}", e);
+    }
 
     Redirect::to("/users-groups")
 }

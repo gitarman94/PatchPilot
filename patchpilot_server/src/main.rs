@@ -29,7 +29,9 @@ fn rocket() -> _ {
     // 2️⃣ Ensure default admin exists
     {
         let mut conn = get_conn(&pool);
-        create_default_admin(&mut conn);
+        if let Err(e) = create_default_admin(&mut conn) {
+            eprintln!("Failed to create default admin: {}", e);
+        }
     }
 
     // 3️⃣ Spawn action TTL sweeper (background task)

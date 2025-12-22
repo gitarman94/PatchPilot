@@ -27,7 +27,7 @@ pub async fn view_settings(
 
     let settings = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        crate::db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)
+        db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
@@ -52,7 +52,7 @@ pub async fn update_settings(
 
     rocket::tokio::task::spawn_blocking(move || {
         if let Ok(mut conn) = pool.get() {
-            let mut settings = crate::db::load_settings(&mut conn).unwrap_or_default();
+            let mut settings = db::load_settings(&mut conn).unwrap_or_default();
 
             if let Some(v) = form.auto_approve_devices { settings.auto_approve_devices = v; }
             if let Some(v) = form.auto_refresh_enabled { settings.auto_refresh_enabled = v; }
@@ -61,7 +61,7 @@ pub async fn update_settings(
             if let Some(v) = form.action_polling_enabled { settings.action_polling_enabled = v; }
             if let Some(v) = form.ping_target_ip { settings.ping_target_ip = v; }
 
-            let _ = crate::db::save_settings(&mut conn, &settings);
+            let _ = db::save_settings(&mut conn, &settings);
 
             if let Ok(mut shared_settings) = settings_arc.write() {
                 *shared_settings = settings.clone();

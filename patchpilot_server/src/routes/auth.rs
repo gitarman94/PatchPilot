@@ -47,10 +47,22 @@ pub fn login(
         .unwrap_or(None);
 
     if let Some(user) = user_opt {
+        let actual_username = user.username.clone(); // now actually read
+
         if bcrypt::verify(&form.password, &user.password_hash).unwrap_or(false) {
             cookies.add_private(
                 rocket::http::Cookie::new("user_id", user.id.to_string())
             );
+
+            // Optionally log successful login in audit
+            let _ = crate::routes::history::log_audit(
+                &mut conn,
+                &actual_username,
+                "login",
+                None,
+                Some("User logged in"),
+            );
+
             return Redirect::to("/dashboard");
         }
     }
