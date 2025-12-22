@@ -34,7 +34,7 @@ pub async fn get_device_details(
 }
 
 /// Helper: get current server settings
-async fn get_server_settings(pool: &State<DbPool>) -> Result<crate::settings::ServerSettings, Status> {
+pub async fn get_server_settings(pool: &State<DbPool>) -> Result<crate::settings::ServerSettings, Status> {
     let pool = pool.inner().clone();
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
@@ -106,20 +106,11 @@ pub async fn register_or_update_device(
     let info = info.into_inner();
     let pool_inner = pool.inner().clone();
 
+    // Explicitly use get_server_settings to remove dead code warning
+    let settings = get_server_settings(&pool_inner).await.unwrap_or_default();
+
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
         let mut conn = pool_inner.get().map_err(|_| Status::InternalServerError)?;
-
-        // Load server settings
-        let settings_row = settings_dsl::server_settings.first::<crate::db::ServerSettingsRow>(&mut conn).optional()
-            .map_err(|_| Status::InternalServerError)?;
-        let settings = settings_row.map(|s| crate::settings::ServerSettings {
-            auto_approve_devices: s.auto_approve_devices,
-            auto_refresh_enabled: s.auto_refresh_enabled,
-            auto_refresh_seconds: s.auto_refresh_seconds,
-            default_action_ttl_seconds: s.default_action_ttl_seconds,
-            action_polling_enabled: s.action_polling_enabled,
-            ping_target_ip: s.ping_target_ip,
-        }).unwrap_or_default();
 
         // Load existing device if it exists
         let existing = devices

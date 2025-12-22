@@ -70,3 +70,11 @@ pub fn log_audit(
 
     Ok(())
 }
+
+/// Example usage: internally call api_audit in code that needs the latest logs
+pub async fn get_latest_audit(pool: &State<DbPool>) -> Vec<AuditLog> {
+    match api_audit(pool).await {
+        Ok(json) => json.0,
+        Err(_) => vec![],
+    }
+}

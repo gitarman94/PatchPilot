@@ -1,6 +1,9 @@
 use serde::{Serialize, Deserialize};
-use crate::db;
+use diesel::prelude::*;
 use diesel::SqliteConnection;
+use crate::db;
+use crate::schema::server_settings;
+use diesel::result::QueryResult;
 
 /// Struct for server settings
 #[derive(Serialize, Deserialize, Clone)]
@@ -14,12 +17,36 @@ pub struct ServerSettings {
 }
 
 impl ServerSettings {
+    /// Load settings from DB, fallback to default
     pub fn load(conn: &mut SqliteConnection) -> Self {
         db::load_settings(conn).unwrap_or_else(|_| Self::default())
     }
 
+    /// Save settings to DB
     pub fn save(&self, conn: &mut SqliteConnection) {
         let _ = db::save_settings(conn, self);
+    }
+
+    /// Update a single field and persist immediately
+    pub fn set_auto_approve(&mut self, conn: &mut SqliteConnection, value: bool) -> QueryResult<usize> {
+        self.auto_approve_devices = value;
+        diesel::update(server_settings::table)
+            .set(server_settings::auto_approve_devices.eq(value))
+            .execute(conn)
+    }
+
+    pub fn set_auto_refresh(&mut self, conn: &mut SqliteConnection, value: bool) -> QueryResult<usize> {
+        self.auto_refresh_enabled = value;
+        diesel::update(server_settings::table)
+            .set(server_settings::auto_refresh_enabled.eq(value))
+            .execute(conn)
+    }
+
+    pub fn set_auto_refresh_interval(&mut self, conn: &mut SqliteConnection, value: i64) -> QueryResult<usize> {
+        self.auto_refresh_seconds = value;
+        diesel::update(server_settings::table)
+            .set(server_settings::auto_refresh_seconds.eq(value))
+            .execute(conn)
     }
 }
 

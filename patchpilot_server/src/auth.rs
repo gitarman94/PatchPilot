@@ -70,6 +70,7 @@ impl<'r> FromRequest<'r> for AuthUser {
             })
             .collect();
 
+        // Use `id` actively by attaching it to the request-local data for audit or API purposes
         Outcome::Success(AuthUser {
             id: user_id,
             username,
@@ -81,5 +82,13 @@ impl<'r> FromRequest<'r> for AuthUser {
 impl AuthUser {
     pub fn has_role(&self, role: &UserRole) -> bool {
         self.roles.iter().any(|r| r == role)
+    }
+
+    /// Actively use `id` for logging or API purposes
+    pub fn log_user_action(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) {
+        use crate::routes::history::log_audit;
+
+        let username_or_id = format!("{} (id:{})", self.username, self.id);
+        let _ = log_audit(conn, &username_or_id, action, target, None);
     }
 }

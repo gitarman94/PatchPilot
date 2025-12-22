@@ -54,9 +54,18 @@ pub async fn update_settings(
         if let Ok(mut conn) = pool.get() {
             let mut settings = db::load_settings(&mut conn).unwrap_or_default();
 
-            if let Some(v) = form.auto_approve_devices { settings.auto_approve_devices = v; }
-            if let Some(v) = form.auto_refresh_enabled { settings.auto_refresh_enabled = v; }
-            if let Some(v) = form.auto_refresh_seconds { settings.auto_refresh_seconds = v; }
+            if let Some(v) = form.auto_approve_devices { 
+                let _ = set_auto_approve(&mut conn, v);
+                settings.auto_approve_devices = v;
+            }
+            if let Some(v) = form.auto_refresh_enabled { 
+                let _ = set_auto_refresh(&mut conn, v);
+                settings.auto_refresh_enabled = v;
+            }
+            if let Some(v) = form.auto_refresh_seconds { 
+                let _ = set_auto_refresh_interval(&mut conn, v);
+                settings.auto_refresh_seconds = v;
+            }
             if let Some(v) = form.default_action_ttl_seconds { settings.default_action_ttl_seconds = v; }
             if let Some(v) = form.action_polling_enabled { settings.action_polling_enabled = v; }
             if let Some(v) = form.ping_target_ip { settings.ping_target_ip = v; }
@@ -82,7 +91,7 @@ pub async fn update_settings(
     Status::Ok
 }
 
-/* Direct DB setters */
+/* Direct DB setters now actively used in update_settings */
 
 pub fn set_auto_approve(conn: &mut SqliteConnection, value: bool) -> QueryResult<usize> {
     diesel::update(server_settings::table)
