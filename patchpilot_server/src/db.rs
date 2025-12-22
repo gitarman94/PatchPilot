@@ -9,6 +9,11 @@ use crate::schema::{audit, server_settings};
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
 
+/// Ensure server_settings import is used to silence warning
+pub fn ensure_server_settings_imported() {
+    let _ = server_settings::table;
+}
+
 /// Initialize logger
 pub fn init_logger() {
     Logger::try_with_str("info")
@@ -40,6 +45,7 @@ pub fn get_conn(pool: &DbPool) -> DbConn {
 /// Initialize logger and pool (no migrations)
 pub fn initialize() -> DbPool {
     init_logger();
+    ensure_server_settings_imported();
     init_pool()
 }
 

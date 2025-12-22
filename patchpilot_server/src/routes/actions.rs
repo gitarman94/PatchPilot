@@ -21,7 +21,7 @@ impl<'r> FromRequest<'r> for AuthUser {
         if let Some(user) = req.headers().get_one("x-username") {
             Outcome::Success(AuthUser { username: user.to_string() })
         } else {
-            Outcome::Failure((Status::Unauthorized, ()))
+            return Err(Status::Unauthorized);
         }
     }
 }
