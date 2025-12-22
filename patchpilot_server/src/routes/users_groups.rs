@@ -68,19 +68,23 @@ pub fn add_group(user: AuthUser, pool: &State<DbPool>, form: Form<GroupForm>) ->
 
 #[post("/users/add", data = "<form>")]
 pub fn add_user(user: AuthUser, pool: &State<DbPool>, form: Form<UserForm>) -> Redirect {
-    if !user.has_role(&UserRole::Admin) { return Redirect::to("/unauthorized"); }
+    if !user.has_role(&UserRole::Admin) {
+        return Redirect::to("/unauthorized");
+    }
 
     let mut conn = pool.get().expect("Failed to get DB connection");
     let pass_hash = bcrypt::hash(&form.password, bcrypt::DEFAULT_COST).unwrap();
 
     // Insert the new user and return its ID
+    let new_user = (
+        users::username.eq(&form.username),
+        users::password_hash.eq(pass_hash),
+    );
+
     let user_id: i32 = diesel::insert_into(users::table)
-        .values((
-            users::username.eq(&form.username),
-            users::password_hash.eq(pass_hash),
-        ))
+        .values(&new_user)
         .returning(users::id)
-        .execute(&mut conn)?;
+        .get_result(&mut conn)
         .expect("Failed to insert user");
 
     // Add user to group if specified
@@ -102,6 +106,7 @@ pub fn add_user(user: AuthUser, pool: &State<DbPool>, form: Form<UserForm>) -> R
 
     Redirect::to("/users-groups")
 }
+
 
 #[delete("/groups/<group_id>")]
 pub fn delete_group(user: AuthUser, pool: &State<DbPool>, group_id: i32) -> Redirect {
