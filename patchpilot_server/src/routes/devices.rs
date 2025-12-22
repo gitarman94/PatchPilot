@@ -3,12 +3,11 @@ use rocket::{State, http::Status, get, post};
 use diesel::prelude::*;
 use chrono::Utc;
 
-use crate::db::DbPool;
+use crate::db::{DbPool, log_audit, load_settings};
 use crate::auth::{AuthUser, UserRole};
 use crate::models::{Device, DeviceInfo, NewDevice};
 use crate::schema::devices::dsl::*;
 use crate::schema::server_settings::dsl as settings_dsl;
-use crate::db::log_audit;
 
 /// Get all devices
 #[get("/devices")]
@@ -32,6 +31,17 @@ pub async fn get_device_details(
         .first::<Device>(&mut conn)
         .map_err(|_| Status::NotFound)?;
     Ok(Json(device))
+}
+
+/// Helper: get current server settings
+async fn get_server_settings(pool: &State<DbPool>) -> Result<crate::settings::ServerSettings, Status> {
+    let pool = pool.inner().clone();
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        load_settings(&mut conn).map_err(|_| Status::InternalServerError)
+    })
+    .await
+    .map_err(|_| Status::InternalServerError)?
 }
 
 /// Approve a device
@@ -70,7 +80,7 @@ pub async fn approve_device(
 pub async fn heartbeat(pool: &State<DbPool>) -> Result<Json<serde_json::Value>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
-    // Optionally, a simple DB ping to ensure DB connection is alive
+    // Simple DB ping
     diesel::select(diesel::dsl::sql::<diesel::sql_types::Bool>("1"))
         .get_result::<bool>(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
@@ -94,10 +104,22 @@ pub async fn register_or_update_device(
 
     let username = user.username.clone();
     let info = info.into_inner();
-    let pool = pool.inner().clone();
+    let pool_inner = pool.inner().clone();
 
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
-        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        let mut conn = pool_inner.get().map_err(|_| Status::InternalServerError)?;
+
+        // Load server settings
+        let settings_row = settings_dsl::server_settings.first::<crate::db::ServerSettingsRow>(&mut conn).optional()
+            .map_err(|_| Status::InternalServerError)?;
+        let settings = settings_row.map(|s| crate::settings::ServerSettings {
+            auto_approve_devices: s.auto_approve_devices,
+            auto_refresh_enabled: s.auto_refresh_enabled,
+            auto_refresh_seconds: s.auto_refresh_seconds,
+            default_action_ttl_seconds: s.default_action_ttl_seconds,
+            action_polling_enabled: s.action_polling_enabled,
+            ping_target_ip: s.ping_target_ip,
+        }).unwrap_or_default();
 
         // Load existing device if it exists
         let existing = devices
@@ -106,10 +128,14 @@ pub async fn register_or_update_device(
             .optional()
             .map_err(|_| Status::InternalServerError)?;
 
-        // Ensure last_checkin timestamp is updated
-        let now = Utc::now();
+        // Prepare updated device
         let mut updated = NewDevice::from_device_info(&info.device_id, &info, existing.as_ref());
-        updated.last_checkin = now.naive_utc();
+        updated.last_checkin = Utc::now().naive_utc();
+
+        // Apply auto-approve if enabled
+        if settings.auto_approve_devices {
+            updated.approved = true;
+        }
 
         // Insert or update device
         diesel::insert_into(devices)
@@ -130,7 +156,6 @@ pub async fn register_or_update_device(
         )
         .map_err(|_| Status::InternalServerError)?;
 
-        // Return JSON value explicitly
         Ok(serde_json::json!({
             "device_id": info.device_id,
             "last_checkin": updated.last_checkin.to_string(),
