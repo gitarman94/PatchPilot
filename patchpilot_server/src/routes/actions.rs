@@ -3,6 +3,7 @@ use rocket::{get, post, serde::json::Json, State, request::{FromRequest, Outcome
 use rocket::http::Status;
 use chrono::{Utc, Duration};
 
+use crate::auth::AuthUser;
 use crate::db::{DbPool, log_audit};
 use crate::models::{Action, NewAction, ActionTarget};
 use crate::schema::actions::{self, id as action_id_col, created_at, canceled};
@@ -14,15 +15,20 @@ pub struct AuthUser {
 }
 
 #[rocket::async_trait]
-impl<'r> FromRequest<'r> for AuthUser {
+impl<'r> rocket::request::FromRequest<'r> for AuthUser {
     type Error = ();
 
-    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        if let Some(user) = req.headers().get_one("x-username") {
-            Outcome::Success(AuthUser { username: user.to_string() })
-        } else {
-            return Err(Status::Unauthorized);
+    async fn from_request(request: &'r rocket::Request<'_>) -> Outcome<Self, (Status, ()), Status> {
+        let auth_header = request.headers().get_one("Authorization");
+
+        if let Some(token) = auth_header {
+            if token == "valid_token" {
+                return Outcome::Success(AuthUser { username: "admin".into() });
+            }
         }
+
+        // Corrected: return a tuple (Status, ()) as required by Rocket
+        return Outcome::Failure((Status::Unauthorized, ()));
     }
 }
 

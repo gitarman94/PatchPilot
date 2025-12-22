@@ -3,9 +3,11 @@ use rocket::http::Status;
 use crate::state::AppState;
 use crate::auth::AuthUser;
 use crate::routes::history::log_audit;
-use crate::db::DbPool;
 use diesel::prelude::*;
-use crate::schema::server_settings;
+use diesel::QueryDsl;
+use diesel::RunQueryDsl;
+use crate::schema::server_settings::dsl::*;
+use crate::db;
 
 /// Struct representing form submission for server settings
 #[derive(FromForm)]
@@ -84,25 +86,21 @@ pub async fn update_settings(
     Status::Ok
 }
 
-/// Direct DB setters for specific fields (used elsewhere if needed)
+/// Direct DB setters for specific fields
 pub fn set_auto_approve(conn: &mut SqliteConnection, value: bool) -> QueryResult<usize> {
-    use crate::schema::server_settings::dsl::*;
     diesel::update(server_settings)
         .set(auto_approve_devices.eq(value))
         .execute(conn)
 }
 
 pub fn set_auto_refresh(conn: &mut SqliteConnection, value: bool) -> QueryResult<usize> {
-    use crate::schema::server_settings::dsl::*;
     diesel::update(server_settings)
         .set(auto_refresh_enabled.eq(value))
         .execute(conn)
 }
 
 pub fn set_auto_refresh_interval(conn: &mut SqliteConnection, value: i64) -> QueryResult<usize> {
-    use crate::schema::server_settings::dsl::*;
     diesel::update(server_settings)
         .set(auto_refresh_seconds.eq(value))
         .execute(conn)
 }
-
