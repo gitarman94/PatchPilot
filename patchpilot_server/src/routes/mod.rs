@@ -29,9 +29,8 @@ pub fn api_routes() -> Vec<Route> {
         history::api_history,
 
         // Settings
-        settings::set_auto_approve,
-        settings::set_auto_refresh,
-        settings::set_auto_refresh_interval
+        settings::view_settings,
+        settings::update_settings,
     ]
 }
 

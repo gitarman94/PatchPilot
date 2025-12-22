@@ -86,19 +86,23 @@ pub async fn update_settings(
 
 /// Direct DB setters for specific fields (used elsewhere if needed)
 pub fn set_auto_approve(conn: &mut SqliteConnection, value: bool) -> QueryResult<usize> {
-    diesel::update(server_settings::table)
-        .set(server_settings::auto_approve.eq(value))
+    use crate::schema::server_settings::dsl::*;
+    diesel::update(server_settings)
+        .set(auto_approve_devices.eq(value))
         .execute(conn)
 }
 
 pub fn set_auto_refresh(conn: &mut SqliteConnection, value: bool) -> QueryResult<usize> {
-    diesel::update(server_settings::table)
-        .set(server_settings::auto_refresh.eq(value))
+    use crate::schema::server_settings::dsl::*;
+    diesel::update(server_settings)
+        .set(auto_refresh_enabled.eq(value))
         .execute(conn)
 }
 
-pub fn set_auto_refresh_interval(conn: &mut SqliteConnection, value: i32) -> QueryResult<usize> {
-    diesel::update(server_settings::table)
-        .set(server_settings::auto_refresh_interval.eq(value))
+pub fn set_auto_refresh_interval(conn: &mut SqliteConnection, value: i64) -> QueryResult<usize> {
+    use crate::schema::server_settings::dsl::*;
+    diesel::update(server_settings)
+        .set(auto_refresh_seconds.eq(value))
         .execute(conn)
 }
+

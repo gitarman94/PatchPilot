@@ -45,7 +45,14 @@ fn rocket() -> _ {
     let app_state = Arc::new(AppState {
         system: Arc::new(system_state),
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
-        settings: Arc::new(RwLock::new(settings::ServerSettings::load())),
+        settings: {
+            let pool_clone = pool.clone();
+            Arc::new(RwLock::new({
+                let mut conn = get_conn(&pool_clone);
+                settings::ServerSettings::load(&mut conn)
+            }))
+        },
+
     });
 
     // 6️⃣ Spawn pending device cleanup task
