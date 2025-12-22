@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Mutex};
-use sysinfo::{System, SystemExt};
+use sysinfo::System;
 use chrono::NaiveDateTime;
 
 use crate::settings::ServerSettings;
