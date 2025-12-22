@@ -60,7 +60,7 @@ pub fn login(
 
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>) -> Redirect {
-    cookies.remove_private(rocket::http::Cookie::build("user_id").finish());
+    cookies.remove_private(rocket::http::Cookie::build("user_id").build());
     Redirect::to("/login")
 }
 
