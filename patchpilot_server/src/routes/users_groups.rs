@@ -80,7 +80,7 @@ pub fn add_user(user: AuthUser, pool: &State<DbPool>, form: Form<UserForm>) -> R
             users::password_hash.eq(pass_hash),
         ))
         .returning(users::id)
-        .get_result(&mut conn)
+        .execute(&mut conn)?;
         .expect("Failed to insert user");
 
     // Add user to group if specified

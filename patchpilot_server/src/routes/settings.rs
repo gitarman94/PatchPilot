@@ -63,7 +63,7 @@ pub async fn set_auto_refresh(
         settings.auto_refresh_enabled = value;
     }
 
-    let pool = state.db_pool.clone();
+    let pool = state.system.db_pool.clone();
     rocket::tokio::task::spawn_blocking(move || {
         if let Ok(mut conn) = pool.get() {
             log_audit(
@@ -93,7 +93,7 @@ pub async fn set_auto_refresh_interval(
         settings.auto_refresh_seconds = value;
     }
 
-    let pool = state.db_pool.clone();
+    let pool = state.system.db_pool.clone();
     rocket::tokio::task::spawn_blocking(move || {
         if let Ok(mut conn) = pool.get() {
             log_audit(

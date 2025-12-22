@@ -10,7 +10,7 @@ mod settings;
 mod auth;
 mod state;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use sysinfo::System;
 use log::info;
@@ -44,8 +44,8 @@ fn rocket() -> _ {
     // 5️⃣ Build AppState
     let app_state = Arc::new(AppState {
         system: Arc::new(system_state),
-        pending_devices: Arc::new(Mutex::new(HashMap::new())),
-        settings: Arc::new(Mutex::new(settings::ServerSettings::load())),
+        pending_devices: Arc::new(RwLock::new(HashMap::new())),
+        settings: Arc::new(RwLock::new(settings::ServerSettings::load())),
     });
 
     // 6️⃣ Spawn pending device cleanup task
