@@ -18,11 +18,10 @@ impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        // Extract username from headers/cookies/etc. Replace with real logic
         if let Some(user) = req.headers().get_one("x-username") {
             Outcome::Success(AuthUser { username: user.to_string() })
         } else {
-            return Err(Status::Unauthorized); 
+            Outcome::Failure((Status::Unauthorized, ()))
         }
     }
 }
@@ -42,7 +41,7 @@ pub async fn submit_action(
     let ttl_seconds = 3600;
     action_data.expires_at = Utc::now().naive_utc() + Duration::seconds(ttl_seconds);
 
-    rocket::tokio::task::spawn_blocking(move || {
+    rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
         diesel::insert_into(actions::table)
@@ -70,7 +69,7 @@ pub async fn submit_action(
 pub async fn list_actions(pool: &State<DbPool>) -> Result<Json<Vec<Action>>, Status> {
     let pool = pool.inner().clone();
 
-    let result: Vec<Action> = rocket::tokio::task::spawn_blocking(move || {
+    let result: Vec<Action> = rocket::tokio::task::spawn_blocking(move || -> Result<_, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         actions::table
             .order(created_at.desc())
@@ -94,7 +93,7 @@ pub async fn cancel_action(
     let action_id_str = action_id_param.to_string();
     let pool = pool.inner().clone();
 
-    rocket::tokio::task::spawn_blocking(move || {
+    rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
         diesel::update(actions::table.filter(action_id_col.eq(&action_id_str)))
@@ -127,7 +126,7 @@ pub async fn report_action_result(
     let pool = pool.inner().clone();
     let result = result.into_inner();
 
-    rocket::tokio::task::spawn_blocking(move || {
+    rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
         diesel::update(
