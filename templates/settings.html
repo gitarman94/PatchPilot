@@ -11,7 +11,7 @@
                 <div class="mb-3">
                     <label class="form-label fw-bold">Auto Approve Devices</label>
                     <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="autoApprove" name="auto_approve" {{#if settings.auto_approve}}checked{{/if}}>
+                        <input class="form-check-input" type="checkbox" id="autoApprove" name="auto_approve_devices" {{#if settings.auto_approve_devices}}checked{{/if}}>
                         <label class="form-check-label" for="autoApprove">Approve new devices automatically</label>
                     </div>
                 </div>
@@ -22,15 +22,39 @@
                 <div class="mb-3">
                     <label class="form-label fw-bold">Auto Refresh Dashboard</label>
                     <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="autoRefresh" name="auto_refresh" {{#if settings.auto_refresh}}checked{{/if}}>
+                        <input class="form-check-input" type="checkbox" id="autoRefresh" name="auto_refresh_enabled" {{#if settings.auto_refresh_enabled}}checked{{/if}}>
                         <label class="form-check-label" for="autoRefresh">Enable auto-refresh</label>
                     </div>
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label">Refresh Interval (seconds)</label>
-                    <input type="number" class="form-control" name="auto_refresh_interval" min="5" max="3600"
-                           value="{{settings.auto_refresh_interval}}">
+                    <input type="number" class="form-control" name="auto_refresh_seconds" min="5" max="3600"
+                           value="{{settings.auto_refresh_seconds}}">
+                </div>
+
+                <hr>
+
+                <!-- Default Action TTL -->
+                <div class="mb-3">
+                    <label class="form-label">Default Action TTL (seconds)</label>
+                    <input type="number" class="form-control" name="default_action_ttl_seconds" min="60" max="86400"
+                           value="{{settings.default_action_ttl_seconds}}">
+                </div>
+
+                <!-- Action Polling -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Action Polling</label>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="actionPolling" name="action_polling_enabled" {{#if settings.action_polling_enabled}}checked{{/if}}>
+                        <label class="form-check-label" for="actionPolling">Enable action polling</label>
+                    </div>
+                </div>
+
+                <!-- Ping Target IP -->
+                <div class="mb-3">
+                    <label class="form-label">Ping Target IP</label>
+                    <input type="text" class="form-control" name="ping_target_ip" value="{{settings.ping_target_ip}}">
                 </div>
 
                 <hr>
