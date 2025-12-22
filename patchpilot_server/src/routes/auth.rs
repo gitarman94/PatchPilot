@@ -2,7 +2,6 @@ use rocket::form::Form;
 use rocket::http::CookieJar;
 use rocket::response::{Redirect, content::RawHtml};
 use rocket::State;
-use rocket::http::Cookie;
 
 use diesel::prelude::*;
 use diesel::SelectableHelper;
@@ -61,7 +60,7 @@ pub fn login(
 
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>) -> Redirect {
-    cookies.remove_private(rocket::http::Cookie::build("user_id", "").finish());
+    cookies.remove_private(rocket::http::Cookie::build("user_id").finish());
     Redirect::to("/login")
 }
 
