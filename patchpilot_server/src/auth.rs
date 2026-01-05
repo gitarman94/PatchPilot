@@ -1,94 +1,101 @@
-use rocket::request::{FromRequest, Outcome, Request};
-use rocket::http::Status;
+use rocket::form::Form;
+use rocket::http::CookieJar;
+use rocket::response::{Redirect, content::RawHtml};
 use rocket::State;
-
 use diesel::prelude::*;
-
+use diesel::SelectableHelper;
 use crate::db::DbPool;
-use crate::schema::{users, roles, user_roles};
+use crate::schema::{users, user_actions};
+use bcrypt::verify;
+use std::fs::read_to_string;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum UserRole {
-    Admin,
-    Manager,
-    User,
+/// Login form structure
+#[derive(FromForm)]
+pub struct LoginForm {
+    pub username: String,
+    pub password: String,
 }
 
-#[derive(Debug, Clone)]
+/// Queryable user row
+#[derive(Queryable, Selectable, Clone, Debug)]
+#[diesel(table_name = users)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct UserRow {
+    pub id: i32,
+    pub username: String,
+    pub password_hash: String,
+}
+
+/// Authenticated user structure
+#[derive(Clone, Debug)]
 pub struct AuthUser {
     pub id: i32,
     pub username: String,
-    pub roles: Vec<UserRole>,
-}
-
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for AuthUser {
-    type Error = ();
-
-    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let cookie = req.cookies().get_private("user_id");
-
-        let pool = match req.guard::<&State<DbPool>>().await {
-            Outcome::Success(p) => p,
-            _ => return Outcome::Error((Status::InternalServerError, ())),
-        };
-
-        let user_id = match cookie.and_then(|c| c.value().parse::<i32>().ok()) {
-            Some(id) => id,
-            None => return Outcome::Error((Status::Unauthorized, ())),
-        };
-
-        let mut conn = match pool.get() {
-            Ok(c) => c,
-            Err(_) => return Outcome::Error((Status::InternalServerError, ())),
-        };
-
-        let username = match users::table
-            .filter(users::id.eq(user_id))
-            .select(users::username)
-            .first::<String>(&mut conn)
-            .optional()
-            .unwrap_or(None)
-        {
-            Some(u) => u,
-            None => return Outcome::Error((Status::Unauthorized, ())),
-        };
-
-        let role_names = user_roles::table
-            .inner_join(roles::table.on(roles::id.eq(user_roles::role_id)))
-            .filter(user_roles::user_id.eq(user_id))
-            .select(roles::name)
-            .load::<String>(&mut conn)
-            .unwrap_or_default();
-
-        let roles_vec = role_names
-            .into_iter()
-            .map(|r| match r.as_str() {
-                "Admin" => UserRole::Admin,
-                "Manager" => UserRole::Manager,
-                _ => UserRole::User,
-            })
-            .collect();
-
-        // Use `id` actively by attaching it to the request-local data for audit or API purposes
-        Outcome::Success(AuthUser {
-            id: user_id,
-            username,
-            roles: roles_vec,
-        })
-    }
 }
 
 impl AuthUser {
-    pub fn has_role(&self, role: &UserRole) -> bool {
-        self.roles.iter().any(|r| r == role)
-    }
-
-    /// Actively use `id` for logging or API purposes
+    /// Log a user action into the database
     pub fn log_user_action(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) {
-        use crate::routes::history::log_audit;
-
-        let username_or_id = format!("{} (id:{})", self.username, self.id);
-        let _ = log_audit(conn, &username_or_id, action, target, None);
+        let target_str = target.unwrap_or("");
+        let _ = diesel::insert_into(user_actions::table)
+            .values((
+                user_actions::user_id.eq(self.id),
+                user_actions::action.eq(action),
+                user_actions::target.eq(target_str),
+            ))
+            .execute(conn);
     }
+}
+
+/// Handle login POST
+#[post("/login", data = "<form>")]
+pub fn login(
+    form: Form<LoginForm>,
+    cookies: &CookieJar<'_>,
+    pool: &State<DbPool>,
+) -> Redirect {
+    let mut conn = match pool.get() {
+        Ok(c) => c,
+        Err(_) => return Redirect::to("/login"),
+    };
+
+    use crate::schema::users::dsl::*;
+
+    let user_opt = users
+        .filter(username.eq(&form.username))
+        .select(UserRow::as_select())
+        .first::<UserRow>(&mut conn)
+        .optional()
+        .unwrap_or(None);
+
+    if let Some(user) = user_opt {
+        if verify(&form.password, &user.password_hash).unwrap_or(false) {
+            // Set cookie
+            cookies.add_private(rocket::http::Cookie::new("user_id", user.id.to_string()));
+
+            // Log successful login
+            let auth_user = AuthUser { id: user.id, username: user.username.clone() };
+            auth_user.log_user_action(&mut conn, "login", None);
+
+            return Redirect::to("/dashboard");
+        }
+    }
+
+    Redirect::to("/login")
+}
+
+/// Handle logout
+#[get("/logout")]
+pub fn logout(cookies: &CookieJar<'_>) -> Redirect {
+    cookies.remove_private(rocket::http::Cookie::build("user_id").finish());
+    Redirect::to("/login")
+}
+
+/// Serve login page
+#[get("/login")]
+pub fn login_page() -> RawHtml<String> {
+    RawHtml(
+        read_to_string("templates/login.html")
+            .unwrap_or_else(|_| "<h1>Login page missing</h1>".into())
+    )
 }

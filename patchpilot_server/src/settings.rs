@@ -27,7 +27,7 @@ impl ServerSettings {
         let _ = db::save_settings(conn, self);
     }
 
-    /// Update a single field and persist immediately
+    /// Update auto-approve and persist
     pub fn set_auto_approve(&mut self, conn: &mut SqliteConnection, value: bool) -> QueryResult<usize> {
         self.auto_approve_devices = value;
         diesel::update(server_settings::table)
@@ -35,6 +35,7 @@ impl ServerSettings {
             .execute(conn)
     }
 
+    /// Update auto-refresh and persist
     pub fn set_auto_refresh(&mut self, conn: &mut SqliteConnection, value: bool) -> QueryResult<usize> {
         self.auto_refresh_enabled = value;
         diesel::update(server_settings::table)
@@ -42,6 +43,7 @@ impl ServerSettings {
             .execute(conn)
     }
 
+    /// Update auto-refresh interval and persist
     pub fn set_auto_refresh_interval(&mut self, conn: &mut SqliteConnection, value: i64) -> QueryResult<usize> {
         self.auto_refresh_seconds = value;
         diesel::update(server_settings::table)

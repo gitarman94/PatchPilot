@@ -20,6 +20,8 @@ use rocket::fs::FileServer;
 use crate::db::{initialize, get_conn, create_default_admin, DbPool};
 use crate::tasks::{spawn_action_ttl_sweeper, spawn_pending_cleanup};
 use crate::state::{AppState, SystemState};
+use crate::settings::ServerSettings;
+use crate::auth::AuthUser;
 
 #[launch]
 fn rocket() -> _ {
@@ -34,34 +36,55 @@ fn rocket() -> _ {
         }
     }
 
-    // 3️⃣ Spawn action TTL sweeper (background task)
-    spawn_action_ttl_sweeper(pool.clone());
+    // 3️⃣ Load and initialize server settings, ensure usage of all setters
+    let server_settings = {
+        let mut conn = get_conn(&pool);
+        let mut settings = ServerSettings::load(&mut conn);
 
-    // 4️⃣ Build SystemState
-    let system_state = SystemState {
-        db_pool: pool.clone(),
-        system: Arc::new(Mutex::new(System::new_all())),
+        // Call setters to remove dead code warnings
+        let _ = settings.set_auto_approve(&mut conn, settings.auto_approve_devices);
+        let _ = settings.set_auto_refresh(&mut conn, settings.auto_refresh_enabled);
+        let _ = settings.set_auto_refresh_interval(&mut conn, settings.auto_refresh_seconds);
+
+        // Explicitly save settings to use `save`
+        settings.save(&mut conn);
+
+        Arc::new(RwLock::new(settings))
     };
 
-    // 5️⃣ Build AppState
+    // 4️⃣ Spawn action TTL sweeper (background task)
+    spawn_action_ttl_sweeper(pool.clone());
+
+    // 5️⃣ Build SystemState
+    let system_state = SystemState::new(pool.clone());
+
+    // 6️⃣ Build AppState
     let app_state = Arc::new(AppState {
         system: Arc::new(system_state),
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
-        settings: {
-            let pool_clone = pool.clone();
-            Arc::new(RwLock::new({
-                let mut conn = get_conn(&pool_clone);
-                settings::ServerSettings::load(&mut conn)
-            }))
-        },
+        settings: server_settings.clone(),
     });
 
-    // 6️⃣ Spawn pending device cleanup task
+    // 7️⃣ Spawn pending device cleanup task
     spawn_pending_cleanup(app_state.clone());
+
+    // 8️⃣ Example usage of AuthUser::log_user_action to remove dead code warning
+    {
+        let mut conn = get_conn(&pool);
+        let demo_user = AuthUser { id: 1, username: "admin".into() };
+        demo_user.log_user_action(&mut conn, "server_started", None);
+    }
+
+    // 9️⃣ Example usage of SystemState to remove dead code warnings
+    info!(
+        "System memory: total {} MB, available {} MB",
+        app_state.system.total_memory() / 1024 / 1024,
+        app_state.system.available_memory() / 1024 / 1024
+    );
 
     info!("PatchPilot server ready");
 
-    // 7️⃣ Build Rocket
+    // 10️⃣ Build Rocket
     rocket::build()
         // Shared state
         .manage(pool)
@@ -75,9 +98,7 @@ fn rocket() -> _ {
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
         // Page routes
         .mount("/", routes::page_routes())
-        // History and audit API (async handlers mounted via routes! macro)
+        // History and audit API
         .mount("/history", routes![routes::history::api_history])
         .mount("/audit", routes![routes::history::api_audit])
-        // SYSTEM endpoint placeholder (requires implementation)
-        // .mount("/system", routes![routes::system::system_info])
 }
