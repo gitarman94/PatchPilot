@@ -8,6 +8,7 @@ pub mod pages;
 pub mod auth;
 pub mod users_groups;
 pub mod roles;
+// pub mod system; // Uncomment when system.rs is implemented
 
 /// API routes
 pub fn api_routes() -> Vec<Route> {
@@ -17,17 +18,14 @@ pub fn api_routes() -> Vec<Route> {
         devices::get_device_details,
         devices::approve_device,
         devices::register_or_update_device,
-        devices::heartbeat,    // heartbeat route from devices.rs
-
+        devices::heartbeat,
         // Actions
         actions::submit_action,
         actions::report_action_result,
         actions::list_actions,
         actions::cancel_action,
-
         // History
         history::api_history,
-
         // Settings
         settings::view_settings,
         settings::update_settings,
@@ -48,11 +46,7 @@ pub fn page_routes() -> Vec<Route> {
 
 /// Auth routes (login/logout)
 pub fn auth_routes() -> Vec<Route> {
-    routes![
-        auth::login_page,
-        auth::login,
-        auth::logout
-    ]
+    routes![auth::login_page, auth::login, auth::logout]
 }
 
 /// Users & Groups routes
