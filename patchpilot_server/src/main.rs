@@ -54,7 +54,6 @@ fn rocket() -> _ {
                 settings::ServerSettings::load(&mut conn)
             }))
         },
-
     });
 
     // 6️⃣ Spawn pending device cleanup task
@@ -63,23 +62,20 @@ fn rocket() -> _ {
     info!("PatchPilot server ready");
 
     // 7️⃣ Build Rocket
-rocket::build()
-    // Shared state
-    .manage(pool)                           // Database connection pool
-    .manage(app_state)                      // Application-wide state
-    // API endpoints
-    .mount("/api", routes::api_routes())    // core API routes
-    .mount("/auth", routes::auth_routes())  // authentication
-    .mount("/users-groups", routes::users_groups_routes()) // user/group management
-    .mount("/roles", routes::roles_routes())               // roles/permissions
-    // Static assets
-    .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
-    // Root-level pages
-    .mount("/", routes::page_routes())     // all HTML page handlers
-    // History and audit API (fix)
-    .mount("/history", vec![routes::history::api_history])
-    .mount("/audit", vec![routes::history::api_audit])
-    // System info endpoint
-    .mount("/system", vec![routes::system::system_info])
+    rocket::build()
+        // Shared state
+        .manage(pool)                           // Database connection pool
+        .manage(app_state)                      // Application-wide state
+        // API endpoints
+        .mount("/api", routes::api_routes())    // core API routes
+        .mount("/auth", routes::auth_routes())  // authentication
+        .mount("/users-groups", routes::users_groups_routes()) // user/group management
+        .mount("/roles", routes::roles_routes())               // roles/permissions
+        // Static assets
+        .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
+        // Root-level pages
+        .mount("/", routes::page_routes())     // all HTML page handlers
+        // History and audit API
+        .mount("/history", routes![routes::history::api_history])
+        .mount("/audit", routes![routes::history::api_audit])
 }
-
