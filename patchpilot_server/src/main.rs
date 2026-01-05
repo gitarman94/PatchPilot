@@ -67,9 +67,18 @@ fn rocket() -> _ {
         .manage(pool)          // DB pool
         .manage(app_state)     // AppState
         .mount("/api", routes::api_routes())
-        .mount("/", routes::page_routes())
         .mount("/auth", routes::auth_routes())
         .mount("/users-groups", routes::users_groups_routes())
         .mount("/roles", routes::roles_routes())
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
-}
+        // Combine all "/" routes in a single mount
+        .mount(
+            "/",
+            routes![
+                routes::page_routes(),          // existing pages
+                routes::history::api_history,  // history API
+                routes::history::api_audit,    // audit API
+                routes::system::system_info    // system info API
+            ]
+        )
+
