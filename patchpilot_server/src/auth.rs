@@ -2,10 +2,16 @@ use rocket::form::Form;
 use rocket::http::CookieJar;
 use rocket::response::{Redirect, content::RawHtml};
 use rocket::State;
+use rocket::request::{FromRequest, Outcome, Request};
+use rocket::http::Status;
+
 use diesel::prelude::*;
 use diesel::SelectableHelper;
 use crate::db::DbPool;
-use crate::schema::{users, user_actions};
+use crate::schema::users;
+// user_actions table may not exist yet; stub it if needed
+// use crate::schema::user_actions;
+
 use bcrypt::verify;
 use std::fs::read_to_string;
 
@@ -33,17 +39,51 @@ pub struct AuthUser {
     pub username: String,
 }
 
+/// User roles
+#[derive(Debug, PartialEq, Eq)]
+pub enum UserRole {
+    Admin,
+    User,
+}
+
 impl AuthUser {
-    /// Log a user action into the database
-    pub fn log_user_action(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) {
-        let target_str = target.unwrap_or("");
-        let _ = diesel::insert_into(user_actions::table)
-            .values((
-                user_actions::user_id.eq(self.id),
-                user_actions::action.eq(action),
-                user_actions::target.eq(target_str),
-            ))
-            .execute(conn);
+    /// Check if user has a role
+    pub fn has_role(&self, role: &UserRole) -> bool {
+        match role {
+            UserRole::Admin => self.id == 1, // Stub: user id 1 is admin
+            UserRole::User => true,
+        }
+    }
+
+    /// Log a user action into the database (stub if table missing)
+    pub fn log_user_action(&self, _conn: &mut SqliteConnection, _action: &str, _target: Option<&str>) {
+        // Uncomment and use if user_actions table exists
+        // let target_str = target.unwrap_or("");
+        // let _ = diesel::insert_into(user_actions::table)
+        //     .values((
+        //         user_actions::user_id.eq(self.id),
+        //         user_actions::action.eq(action),
+        //         user_actions::target.eq(target_str),
+        //     ))
+        //     .execute(conn);
+    }
+}
+
+/// Implement Rocket request guard for AuthUser
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for AuthUser {
+    type Error = ();
+
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let cookies = req.cookies();
+        if let Some(cookie) = cookies.get_private("user_id") {
+            if let Ok(user_id) = cookie.value().parse::<i32>() {
+                // Stub: fetch username from DB if desired
+                let username = format!("user{}", user_id);
+                return Outcome::Success(AuthUser { id: user_id, username });
+            }
+        }
+        Outcome::Failure((Status::Unauthorized, ()))
     }
 }
 
@@ -87,7 +127,7 @@ pub fn login(
 /// Handle logout
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>) -> Redirect {
-    cookies.remove_private(rocket::http::Cookie::build("user_id").finish());
+    cookies.remove_private(rocket::http::Cookie::build("user_id").build());
     Redirect::to("/login")
 }
 

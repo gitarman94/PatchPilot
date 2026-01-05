@@ -10,9 +10,8 @@ mod settings;
 mod auth;
 mod state;
 
-use std::sync::{Arc, RwLock, Mutex};
+use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
-use sysinfo::System;
 use log::info;
 
 use rocket::fs::FileServer;
@@ -36,7 +35,7 @@ fn rocket() -> _ {
         }
     }
 
-    // 3️⃣ Load and initialize server settings, ensure usage of all setters
+    // 3️⃣ Load and initialize server settings
     let server_settings = {
         let mut conn = get_conn(&pool);
         let mut settings = ServerSettings::load(&mut conn);
@@ -68,14 +67,14 @@ fn rocket() -> _ {
     // 7️⃣ Spawn pending device cleanup task
     spawn_pending_cleanup(app_state.clone());
 
-    // 8️⃣ Example usage of AuthUser::log_user_action to remove dead code warning
+    // 8️⃣ Example usage of AuthUser::log_user_action
     {
         let mut conn = get_conn(&pool);
         let demo_user = AuthUser { id: 1, username: "admin".into() };
         demo_user.log_user_action(&mut conn, "server_started", None);
     }
 
-    // 9️⃣ Example usage of SystemState to remove dead code warnings
+    // 9️⃣ Log system memory info
     info!(
         "System memory: total {} MB, available {} MB",
         app_state.system.total_memory() / 1024 / 1024,
@@ -86,19 +85,14 @@ fn rocket() -> _ {
 
     // 10️⃣ Build Rocket
     rocket::build()
-        // Shared state
         .manage(pool)
         .manage(app_state)
-        // API endpoints
         .mount("/api", routes::api_routes())
         .mount("/auth", routes::auth_routes())
         .mount("/users-groups", routes::users_groups_routes())
         .mount("/roles", routes::roles_routes())
-        // Static assets
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
-        // Page routes
         .mount("/", routes::page_routes())
-        // History and audit API
         .mount("/history", routes![routes::history::api_history])
         .mount("/audit", routes![routes::history::api_audit])
 }
