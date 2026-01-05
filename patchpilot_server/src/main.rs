@@ -64,21 +64,28 @@ fn rocket() -> _ {
 
     // 7️⃣ Build Rocket
     rocket::build()
-        .manage(pool)          // DB pool
-        .manage(app_state)     // AppState
-        .mount("/api", routes::api_routes())
-        .mount("/auth", routes::auth_routes())
-        .mount("/users-groups", routes::users_groups_routes())
-        .mount("/roles", routes::roles_routes())
+        // Shared state
+        .manage(pool)          // Database connection pool
+        .manage(app_state)     // Application-wide state
+
+        // API endpoints
+        .mount("/api", routes::api_routes())                // core API routes
+        .mount("/auth", routes::auth_routes())             // authentication
+        .mount("/users-groups", routes::users_groups_routes()) // user/group management
+        .mount("/roles", routes::roles_routes())           // roles/permissions
+
+        // Static assets
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
-        // Combine all "/" routes in a single mount
+
+        // Root-level pages and additional API routes
         .mount(
             "/",
             routes![
-                routes::page_routes(),          // existing pages
+                routes::page_routes(),          // all HTML page handlers
                 routes::history::api_history,  // history API
                 routes::history::api_audit,    // audit API
-                routes::system::system_info    // system info API
+                routes::system::system_info    // system info endpoint
             ]
         )
+
 
