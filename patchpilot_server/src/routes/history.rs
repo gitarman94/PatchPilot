@@ -16,11 +16,11 @@ pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, 
 
     let result: Vec<HistoryLog> = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let logs = history_log
+
+        history_log
             .order(history_created_at.desc())
             .load::<HistoryLog>(&mut conn)
-            .map_err(|_| Status::InternalServerError)?;
-        Ok::<_, Status>(logs)
+            .map_err(|_| Status::InternalServerError)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
@@ -33,18 +33,23 @@ pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, 
 pub async fn api_audit(pool: &State<DbPool>) -> Result<Json<Vec<AuditLog>>, Status> {
     let pool = pool.inner().clone();
 
-    let result: Vec<AuditLog> = rocket::tokio::task::spawn_blocking(move || {
+    let result = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let logs = audit
-            .order(audit_created_at.desc())
-            .load::<AuditLog>(&mut conn)
-            .map_err(|_| Status::InternalServerError)?;
-        Ok::<_, Status>(logs)
+        Ok::<_, Status>(get_latest_audit(&mut conn))
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
 
     Ok(Json(result))
+}
+
+/// Internal helper: fetch latest audit entries
+pub fn get_latest_audit(conn: &mut SqliteConnection) -> Vec<AuditLog> {
+    audit
+        .order(audit_created_at.desc())
+        .limit(100)
+        .load::<AuditLog>(conn)
+        .unwrap_or_default()
 }
 
 /// Helper function to log administrative actions to the audit log
@@ -69,12 +74,4 @@ pub fn log_audit(
         .execute(conn)?;
 
     Ok(())
-}
-
-/// Example usage: internally call api_audit in code that needs the latest logs
-pub async fn get_latest_audit(pool: &State<DbPool>) -> Vec<AuditLog> {
-    match api_audit(pool).await {
-        Ok(json) => json.0,
-        Err(_) => vec![],
-    }
 }
