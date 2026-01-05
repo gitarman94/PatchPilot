@@ -87,5 +87,5 @@ fn rocket() -> _ {
                 routes::system::system_info    // system info endpoint
             ]
         )
-
+}
 
