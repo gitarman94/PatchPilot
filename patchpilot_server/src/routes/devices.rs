@@ -7,7 +7,6 @@ use crate::db::{DbPool, log_audit, load_settings};
 use crate::auth::{AuthUser, UserRole};
 use crate::models::{Device, DeviceInfo, NewDevice};
 use crate::schema::devices::dsl::*;
-use crate::schema::server_settings::dsl as settings_dsl;
 
 /// Get all devices
 #[get("/devices")]
@@ -34,8 +33,7 @@ pub async fn get_device_details(
 }
 
 /// Helper: get current server settings
-pub async fn get_server_settings(pool: &State<DbPool>) -> Result<crate::settings::ServerSettings, Status> {
-    let pool = pool.inner().clone();
+async fn get_server_settings(pool: DbPool) -> Result<crate::settings::ServerSettings, Status> {
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         load_settings(&mut conn).map_err(|_| Status::InternalServerError)
@@ -107,7 +105,7 @@ pub async fn register_or_update_device(
     let pool_inner = pool.inner().clone();
 
     // Explicitly use get_server_settings to remove dead code warning
-    let settings = get_server_settings(&pool_inner).await.unwrap_or_default();
+    let settings = get_server_settings(pool_inner.clone()).await.unwrap_or_default();
 
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
         let mut conn = pool_inner.get().map_err(|_| Status::InternalServerError)?;
