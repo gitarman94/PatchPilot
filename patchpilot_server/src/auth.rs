@@ -74,16 +74,17 @@ impl AuthUser {
 impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
-    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+    async fn from_request(req: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         let cookies = req.cookies();
         if let Some(cookie) = cookies.get_private("user_id") {
             if let Ok(user_id) = cookie.value().parse::<i32>() {
                 // Stub: fetch username from DB if desired
                 let username = format!("user{}", user_id);
-                return Outcome::Success(AuthUser { id: user_id, username });
+                return request::Outcome::Success(AuthUser { id: user_id, username });
             }
         }
-        Outcome::Failure((Status::Unauthorized, ()))
+        // Replacement for Outcome::Failure
+        Err(Status::Unauthorized)
     }
 }
 
