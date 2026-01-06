@@ -16,7 +16,7 @@ use crate::routes::history::log_audit;
 #[derive(FromForm)]
 pub struct SubmitActionForm {
     pub command: String,
-    pub target_device_id: i32,
+    pub target_device_id: String,
     pub ttl_seconds: Option<i64>,
 }
 
@@ -54,7 +54,7 @@ pub async fn submit_action(
         diesel::insert_into(action_targets::table)
             .values((
                 action_targets::action_id.eq(&new_action.id),
-                action_targets::device_id.eq(form.target_device_id),
+                action_targets::device_id.eq(&form.target_device_id),
                 action_targets::status.eq("pending".to_string()),
                 action_targets::last_update.eq(Utc::now().naive_utc()),
                 action_targets::response.eq::<Option<String>>(None),
@@ -133,7 +133,7 @@ pub async fn list_action_targets(
     pool: &State<DbPool>,
     action_id_param: &str,
     user: AuthUser,
-) -> Result<Json<Vec<(i32, String, Option<String>)>>, Status> {
+) -> Result<Json<Vec<(String, String, Option<String>)>>, Status> {
     let pool = pool.inner().clone();
     let action_id_val = action_id_param.to_string();
     let user_name = user.username.clone();
@@ -148,7 +148,7 @@ pub async fn list_action_targets(
                 action_targets::status,
                 action_targets::response,
             ))
-            .load::<(i32, String, Option<String>)>(&mut conn)
+            .load::<(String, String, Option<String>)>(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
         log_audit(
@@ -233,12 +233,12 @@ pub async fn pending_cleanup(
 pub async fn report_action_result(
     pool: &State<DbPool>,
     action_id_param: &str,
-    device_id_param: i32,
+    device_id_param: &str,
     body: String,
 ) -> Result<Status, Status> {
     let pool = pool.inner().clone();
     let action_id_val = action_id_param.to_string();
-    let device_id_val = device_id_param;
+    let device_id_val = device_id_param.to_string();
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
@@ -246,7 +246,7 @@ pub async fn report_action_result(
         diesel::update(
             action_targets::table
                 .filter(action_targets::action_id.eq(&action_id_val))
-                .filter(action_targets::device_id.eq(device_id_val)),
+                .filter(action_targets::device_id.eq(&device_id_val)),
         )
         .set((
             action_targets::response.eq(Some(body)),
