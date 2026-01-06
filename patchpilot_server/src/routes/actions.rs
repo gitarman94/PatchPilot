@@ -138,7 +138,7 @@ pub async fn list_action_targets(
     let action_id_val = action_id_param.to_string();
     let user_name = user.username.clone();
 
-    rocket::tokio::task::spawn_blocking(move || -> Result<Json<Vec<(i32, String, Option<String>)>>, Status> {
+    rocket::tokio::task::spawn_blocking(move || -> Result<_, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
         let targets = action_targets::table
