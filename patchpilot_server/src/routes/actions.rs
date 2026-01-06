@@ -49,10 +49,11 @@ pub async fn submit_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
+        // Fixed: ensure types match schema (Integer, Text, Nullable<Text>)
         diesel::insert_into(action_targets::table)
             .values((
                 action_targets::action_id.eq(&new_action.id),
-                action_targets::device_id.eq(&form.target_device_id),
+                action_targets::device_id.eq(form.target_device_id),
                 action_targets::status.eq("pending"),
                 action_targets::last_update.eq(Utc::now().naive_utc()),
                 action_targets::response.eq::<Option<String>>(None),
@@ -205,7 +206,7 @@ pub async fn pending_cleanup(pool: &State<DbPool>, user: AuthUser) -> Result<Sta
     .map_err(|_| Status::InternalServerError)?
 }
 
-/// NEW: Reports an action result from a device
+/// Reports an action result from a device
 #[post("/actions/report_result/<action_id_param>/<device_id_param>", data = "<response>")]
 pub async fn report_action_result(
     pool: &State<DbPool>,
