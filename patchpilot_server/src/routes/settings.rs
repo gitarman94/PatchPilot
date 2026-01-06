@@ -33,13 +33,13 @@ pub async fn view_settings(
         let s: crate::settings::ServerSettings = db::load_settings(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
         Ok(ModelSettings {
-            id: settings.id, // <-- add this line
-            auto_approve_devices: settings.auto_approve_devices,
-            auto_refresh_enabled: settings.auto_refresh_enabled,
-            auto_refresh_seconds: settings.auto_refresh_seconds,
-            default_action_ttl_seconds: settings.default_action_ttl_seconds,
-            action_polling_enabled: settings.action_polling_enabled,
-            ping_target_ip: settings.ping_target_ip,
+            id: s.id, // use `s` instead of `settings`
+            auto_approve_devices: s.auto_approve_devices,
+            auto_refresh_enabled: s.auto_refresh_enabled,
+            auto_refresh_seconds: s.auto_refresh_seconds,
+            default_action_ttl_seconds: s.default_action_ttl_seconds,
+            action_polling_enabled: s.action_polling_enabled,
+            ping_target_ip: s.ping_target_ip,
         })
     })
     .await
