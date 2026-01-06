@@ -2,14 +2,14 @@ use rocket::form::Form;
 use rocket::http::CookieJar;
 use rocket::response::{Redirect, content::RawHtml};
 use rocket::State;
-use rocket::request::{FromRequest, Request};
+use rocket::request::{FromRequest, Outcome, Request};
 use rocket::http::Status;
 
 use diesel::prelude::*;
 use diesel::SelectableHelper;
 use crate::db::DbPool;
 use crate::schema::users;
-// user_actions table may not exist yet; stub it if needed
+// Uncomment when user_actions table exists
 // use crate::schema::user_actions;
 
 use bcrypt::verify;
@@ -57,7 +57,7 @@ impl AuthUser {
 
     /// Log a user action into the database (stub if table missing)
     pub fn log_user_action(&self, _conn: &mut SqliteConnection, _action: &str, _target: Option<&str>) {
-        // Uncomment and use if user_actions table exists
+        // Uncomment when user_actions table exists
         // let target_str = target.unwrap_or("");
         // let _ = diesel::insert_into(user_actions::table)
         //     .values((
@@ -69,24 +69,23 @@ impl AuthUser {
     }
 }
 
-/// Implement Rocket request guard for AuthUser
+/// Rocket request guard for AuthUser
 #[rocket::async_trait]
-impl<'r> rocket::request::FromRequest<'r> for AuthUser {
-    type Error = Status;
+impl<'r> FromRequest<'r> for AuthUser {
+    type Error = ();
 
-    async fn from_request(request: &'r rocket::Request<'_>) -> rocket::request::Outcome<Self, Self::Error> {
-        use rocket::request::Outcome::*;
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        // Expect Authorization header with token
         if let Some(auth_header) = request.headers().get_one("Authorization") {
             match validate_token(auth_header).await {
-                Ok(user) => Success(user),
-                Err(_) => Failure(Status::Unauthorized),
+                Ok(user) => Outcome::Success(user),
+                Err(_) => Outcome::Failure(()),
             }
         } else {
-            Failure(Status::Unauthorized)
+            Outcome::Failure(())
         }
     }
 }
-
 
 /// Handle login POST
 #[post("/login", data = "<form>")]
@@ -104,14 +103,14 @@ pub fn login(
 
     let user_opt = users
         .filter(username.eq(&form.username))
-        .select(UserRow::as_select())
+        .select((id, username, password_hash)) // select only required columns
         .first::<UserRow>(&mut conn)
         .optional()
         .unwrap_or(None);
 
     if let Some(user) = user_opt {
         if verify(&form.password, &user.password_hash).unwrap_or(false) {
-            // Set cookie
+            // Set private cookie
             cookies.add_private(rocket::http::Cookie::new("user_id", user.id.to_string()));
 
             // Log successful login
@@ -128,7 +127,7 @@ pub fn login(
 /// Handle logout
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>) -> Redirect {
-    cookies.remove_private(rocket::http::Cookie::build("user_id").build());
+    cookies.remove_private(rocket::http::Cookie::build("user_id").finish());
     Redirect::to("/login")
 }
 
@@ -139,4 +138,15 @@ pub fn login_page() -> RawHtml<String> {
         read_to_string("templates/login.html")
             .unwrap_or_else(|_| "<h1>Login page missing</h1>".into())
     )
+}
+
+/// Placeholder for token validation
+/// Replace with your JWT or session token logic
+async fn validate_token(token: &str) -> Result<AuthUser, ()> {
+    // Stub logic: accept "testtoken" for user id 1
+    if token == "testtoken" {
+        Ok(AuthUser { id: 1, username: "admin".into() })
+    } else {
+        Err(())
+    }
 }
