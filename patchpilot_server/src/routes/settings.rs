@@ -8,7 +8,8 @@ use crate::auth::AuthUser;
 use crate::routes::history::log_audit;
 use crate::schema::server_settings;
 use crate::db;
-use crate::models::ServerSettings;
+use crate::models::ServerSettings as ModelSettings;
+
 
 /// Struct representing form submission for server settings
 #[derive(FromForm)]
@@ -27,12 +28,18 @@ pub async fn view_settings(
     _user: AuthUser,
 ) -> Result<rocket_dyn_templates::Template, Status> {
     let pool = state.system.db_pool.clone();
-    let settings: ServerSettings = rocket::tokio::task::spawn_blocking(move || {
+
+    let settings: ModelSettings = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)
+        let s: crate::settings::ServerSettings = db::load_settings(&mut conn)
+            .map_err(|_| Status::InternalServerError)?;
+        Ok(ModelSettings {
+            max_concurrent_actions: s.max_concurrent_actions,
+            default_ttl_seconds: s.default_ttl_seconds,
+        })
     })
     .await
-    .map_err(|_| Status::InternalServerError)??; // now correctly returns models::ServerSettings
+    .map_err(|_| Status::InternalServerError)??;
 
     let mut context = std::collections::HashMap::new();
     context.insert("settings", settings);

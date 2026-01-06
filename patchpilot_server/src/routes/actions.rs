@@ -115,9 +115,9 @@ pub async fn cancel_action(
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-
+        let new_expiry = Utc::now().naive_utc() + Duration::seconds(ttl_seconds);
         diesel::update(actions::table.filter(actions::id.eq(&action_id)))
-            .set(actions::canceled.eq(true))
+            .set(actions::expires_at.eq(new_expiry))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
