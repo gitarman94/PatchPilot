@@ -8,36 +8,30 @@ diesel::table! {
         architecture -> Text,
         last_checkin -> Timestamp,
         approved -> Bool,
-
         cpu_usage -> Float,
         cpu_count -> Integer,
         cpu_brand -> Text,
-
         ram_total -> BigInt,
         ram_used -> BigInt,
-
         disk_total -> BigInt,
         disk_free -> BigInt,
         disk_health -> Text,
-
         network_throughput -> BigInt,
-
         device_type -> Text,
         device_model -> Text,
-        uptime -> Nullable<Text>,
+        uptime -> Nullable,
         updates_available -> Bool,
-
-        network_interfaces -> Nullable<Text>,
-        ip_address -> Nullable<Text>,
+        network_interfaces -> Nullable,
+        ip_address -> Nullable,
     }
 }
 
 diesel::table! {
     actions (id) {
-        id -> Text,                 
-        action_type -> Text,        
-        parameters -> Nullable<Text>,
-        author -> Nullable<Text>,
+        id -> Text,
+        action_type -> Text,
+        parameters -> Nullable,
+        author -> Nullable,
         created_at -> Timestamp,
         expires_at -> Timestamp,
         canceled -> Bool,
@@ -47,22 +41,22 @@ diesel::table! {
 diesel::table! {
     action_targets (id) {
         id -> Integer,
-        action_id -> Text,          
-        device_id -> Text,        
-        status -> Text,             
+        action_id -> Text,
+        device_id -> Text,
+        status -> Text,
         last_update -> Timestamp,
-        response -> Nullable<Text>, 
+        response -> Nullable,
     }
 }
 
 diesel::table! {
     history_log (id) {
         id -> Integer,
-        action_id -> Nullable<Text>,
-        device_name -> Nullable<Text>,
-        actor -> Nullable<Text>,
+        action_id -> Nullable,
+        device_name -> Nullable,
+        actor -> Nullable,
         action_type -> Text,
-        details -> Nullable<Text>,
+        details -> Nullable,
         created_at -> Timestamp,
     }
 }
@@ -70,10 +64,10 @@ diesel::table! {
 diesel::table! {
     audit (id) {
         id -> Integer,
-        actor -> Text,               
-        action_type -> Text,         
-        target -> Nullable<Text>,    
-        details -> Nullable<Text>,   
+        actor -> Text,
+        action_type -> Text,
+        target -> Nullable,
+        details -> Nullable,
         created_at -> Timestamp,
     }
 }
@@ -106,7 +100,7 @@ diesel::table! {
     groups (id) {
         id -> Integer,
         name -> Text,
-        description -> Nullable<Text>,
+        description -> Nullable,
     }
 }
 
@@ -148,4 +142,3 @@ diesel::allow_tables_to_appear_in_same_query!(
     user_groups,
     server_settings,
 );
-

@@ -1,11 +1,9 @@
 use rocket::form::Form;
-use rocket::http::CookieJar;
+use rocket::http::{Cookie, CookieJar, Status};
 use rocket::response::{Redirect, content::RawHtml};
 use rocket::State;
-
 use diesel::prelude::*;
 use diesel::SelectableHelper;
-
 use std::fs::read_to_string;
 
 use crate::db::DbPool;
@@ -47,32 +45,54 @@ pub fn login(
         .unwrap_or(None);
 
     if let Some(user) = user_opt {
-        let actual_username = user.username.clone(); // now actually read
+        let actual_username = user.username.clone();
 
         if bcrypt::verify(&form.password, &user.password_hash).unwrap_or(false) {
-            cookies.add_private(
-                rocket::http::Cookie::new("user_id", user.id.to_string())
-            );
+            cookies.add_private(Cookie::new("user_id", user.id.to_string()));
 
-            // Optionally log successful login in audit
             let _ = crate::routes::history::log_audit(
                 &mut conn,
                 &actual_username,
-                "login",
+                "auth.login.success",
                 None,
-                Some("User logged in"),
+                Some("User login successful"),
             );
 
             return Redirect::to("/dashboard");
         }
+
+        let _ = crate::routes::history::log_audit(
+            &mut conn,
+            &user.username,
+            "auth.login.failure",
+            None,
+            Some("Invalid password provided"),
+        );
     }
 
     Redirect::to("/login")
 }
 
 #[get("/logout")]
-pub fn logout(cookies: &CookieJar<'_>) -> Redirect {
-    cookies.remove_private(rocket::http::Cookie::build("user_id").build());
+pub fn logout(
+    cookies: &CookieJar<'_>,
+    pool: &State<DbPool>,
+) -> Redirect {
+    if let Some(cookie) = cookies.get_private("user_id") {
+        if let Ok(user_id) = cookie.value().parse::<i32>() {
+            if let Ok(mut conn) = pool.get() {
+                let _ = crate::routes::history::log_audit(
+                    &mut conn,
+                    &user_id.to_string(),
+                    "auth.logout",
+                    None,
+                    Some("User logout"),
+                );
+            }
+        }
+    }
+
+    cookies.remove_private(Cookie::build("user_id").finish());
     Redirect::to("/login")
 }
 
@@ -80,6 +100,6 @@ pub fn logout(cookies: &CookieJar<'_>) -> Redirect {
 pub fn login_page() -> RawHtml<String> {
     RawHtml(
         read_to_string("templates/login.html")
-            .unwrap_or_else(|_| "<h1>Login page missing</h1>".into())
+            .unwrap_or_else(|_| "<h1>Login page missing</h1>".into()),
     )
 }

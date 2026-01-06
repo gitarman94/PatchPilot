@@ -6,6 +6,7 @@ use chrono::Utc;
 
 use crate::db::DbPool;
 use crate::models::{HistoryLog, AuditLog};
+
 use crate::schema::history_log::dsl::{history_log, created_at as history_created_at};
 use crate::schema::audit::dsl::{audit, created_at as audit_created_at};
 
@@ -13,10 +14,8 @@ use crate::schema::audit::dsl::{audit, created_at as audit_created_at};
 #[get("/api/history")]
 pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, Status> {
     let pool = pool.inner().clone();
-
     let result: Vec<HistoryLog> = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-
         history_log
             .order(history_created_at.desc())
             .load::<HistoryLog>(&mut conn)
@@ -24,7 +23,6 @@ pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, 
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
-
     Ok(Json(result))
 }
 
@@ -32,14 +30,12 @@ pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, 
 #[get("/api/audit")]
 pub async fn api_audit(pool: &State<DbPool>) -> Result<Json<Vec<AuditLog>>, Status> {
     let pool = pool.inner().clone();
-
     let result = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         Ok::<_, Status>(get_latest_audit(&mut conn))
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
-
     Ok(Json(result))
 }
 
@@ -68,10 +64,8 @@ pub fn log_audit(
         details: details_val.map(|s| s.to_string()),
         created_at: Utc::now().naive_utc(),
     };
-
     diesel::insert_into(audit)
         .values(&entry)
         .execute(conn)?;
-
     Ok(())
 }
