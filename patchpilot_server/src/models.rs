@@ -1,7 +1,7 @@
 use diesel::prelude::*;
 use chrono::{NaiveDateTime, Utc};
 use rocket::serde::{Serialize, Deserialize};
-use crate::schema::{devices, actions, action_targets, history_log, audit};
+use crate::schema::{devices, actions, action_targets, history_log, audit, server_settings};
 
 #[derive(Queryable, Identifiable, Selectable, Serialize, Deserialize, Debug)]
 #[diesel(table_name = devices)]
@@ -144,6 +144,20 @@ pub struct AuditLog {
     pub target: Option<String>,
     pub details: Option<String>,
     pub created_at: NaiveDateTime,
+}
+
+/// ServerSettings for devices.rs
+#[derive(Debug, Queryable, Selectable, Serialize, Deserialize, Default)]
+#[diesel(table_name = server_settings)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ServerSettings {
+    pub id: i32,
+    pub auto_approve_devices: bool,
+    pub auto_refresh_enabled: bool,
+    pub auto_refresh_seconds: i64,
+    pub default_action_ttl_seconds: i64,
+    pub action_polling_enabled: bool,
+    pub ping_target_ip: String,
 }
 
 impl DeviceInfo {

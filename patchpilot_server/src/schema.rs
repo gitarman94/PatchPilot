@@ -1,3 +1,5 @@
+use diesel::sql_types::{Integer, BigInt, Text, Bool, Float, Timestamp, Nullable};
+
 diesel::table! {
     devices (id) {
         id -> Integer,
@@ -19,10 +21,10 @@ diesel::table! {
         network_throughput -> BigInt,
         device_type -> Text,
         device_model -> Text,
-        uptime -> Nullable,
+        uptime -> Nullable<BigInt>,              // Nullable numeric (nanoseconds / seconds)
         updates_available -> Bool,
-        network_interfaces -> Nullable,
-        ip_address -> Nullable,
+        network_interfaces -> Nullable<Text>,
+        ip_address -> Nullable<Text>,
     }
 }
 
@@ -30,8 +32,8 @@ diesel::table! {
     actions (id) {
         id -> Text,
         action_type -> Text,
-        parameters -> Nullable,
-        author -> Nullable,
+        parameters -> Nullable<Text>,
+        author -> Nullable<Text>,
         created_at -> Timestamp,
         expires_at -> Timestamp,
         canceled -> Bool,
@@ -41,22 +43,22 @@ diesel::table! {
 diesel::table! {
     action_targets (id) {
         id -> Integer,
-        action_id -> Text,
+        action_id -> Nullable<Text>,
         device_id -> Text,
         status -> Text,
         last_update -> Timestamp,
-        response -> Nullable,
+        response -> Nullable<Text>,
     }
 }
 
 diesel::table! {
     history_log (id) {
         id -> Integer,
-        action_id -> Nullable,
-        device_name -> Nullable,
-        actor -> Nullable,
+        action_id -> Nullable<Text>,
+        device_name -> Nullable<Text>,
+        actor -> Nullable<Text>,
         action_type -> Text,
-        details -> Nullable,
+        details -> Nullable<Text>,
         created_at -> Timestamp,
     }
 }
@@ -66,8 +68,8 @@ diesel::table! {
         id -> Integer,
         actor -> Text,
         action_type -> Text,
-        target -> Nullable,
-        details -> Nullable,
+        target -> Nullable<Text>,
+        details -> Nullable<Text>,
         created_at -> Timestamp,
     }
 }
@@ -100,7 +102,7 @@ diesel::table! {
     groups (id) {
         id -> Integer,
         name -> Text,
-        description -> Nullable,
+        description -> Nullable<Text>,
     }
 }
 
