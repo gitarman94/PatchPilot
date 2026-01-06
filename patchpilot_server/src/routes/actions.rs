@@ -34,12 +34,11 @@ pub async fn submit_action(
         let ttl = form.ttl_seconds.unwrap_or(3600);
         let expires_at = Utc::now().naive_utc() + Duration::seconds(ttl);
 
-        // Fixed: NewAction fields must match struct
         let new_action = NewAction {
             id: Uuid::new_v4().to_string(),
-            action_type: form.command.clone(),   // Replaced `command` field
-            parameters: None,                     // Optional parameters
-            author: Some(user_name.clone()),      // author replaces created_by
+            action_type: form.command.clone(),
+            parameters: None,
+            author: Some(user_name.clone()),
             created_at: Utc::now().naive_utc(),
             expires_at,
             canceled: false,
@@ -50,7 +49,6 @@ pub async fn submit_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        // Fixed: device_id is Integer in schema
         diesel::insert_into(action_targets::table)
             .values((
                 action_targets::action_id.eq(&new_action.id),
@@ -62,7 +60,6 @@ pub async fn submit_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        // Audit logging
         log_audit(
             &mut conn,
             &user_name,
@@ -201,6 +198,38 @@ pub async fn pending_cleanup(pool: &State<DbPool>, user: AuthUser) -> Result<Sta
         .map_err(|_| Status::InternalServerError)?;
 
         log_audit(&mut conn, &user_name, "action.pending_cleanup", None, None).ok();
+
+        Ok(Status::Ok)
+    })
+    .await
+    .map_err(|_| Status::InternalServerError)?
+}
+
+/// NEW: Reports an action result from a device
+#[post("/actions/report_result/<action_id_param>/<device_id_param>", data = "<response>")]
+pub async fn report_action_result(
+    pool: &State<DbPool>,
+    action_id_param: &str,
+    device_id_param: i32,
+    response: String,
+) -> Result<Status, Status> {
+    let pool = pool.inner().clone();
+    let action_id = action_id_param.to_string();
+    let device_id = device_id_param;
+
+    rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+
+        use crate::schema::action_targets::dsl::*;
+
+        diesel::update(action_targets.filter(action_id.eq(&action_id)).filter(device_id.eq(device_id)))
+            .set((
+                response.eq(Some(response.clone())),
+                last_update.eq(Utc::now().naive_utc()),
+                status.eq("completed"),
+            ))
+            .execute(&mut conn)
+            .map_err(|_| Status::InternalServerError)?;
 
         Ok(Status::Ok)
     })

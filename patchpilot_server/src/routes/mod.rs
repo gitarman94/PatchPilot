@@ -8,7 +8,7 @@ pub mod pages;
 pub mod auth;
 pub mod users_groups;
 pub mod roles;
-// pub mod system; // Uncomment when system.rs is implemented
+pub use crate::routes::actions::report_action_result;
 
 /// API routes
 pub fn api_routes() -> Vec<Route> {

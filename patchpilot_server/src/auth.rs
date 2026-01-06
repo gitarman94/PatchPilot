@@ -71,25 +71,22 @@ impl AuthUser {
 
 /// Implement Rocket request guard for AuthUser
 #[rocket::async_trait]
-impl<'r> FromRequest<'r> for AuthUser {
-    type Error = ();
+impl<'r> rocket::request::FromRequest<'r> for AuthUser {
+    type Error = Status;
 
-    async fn from_request(req: &'r Request<'_>) -> Result<Self, Status> {
-        let cookies = req.cookies();
-
-        if let Some(cookie) = cookies.get_private("user_id") {
-            if let Ok(user_id) = cookie.value().parse::<i32>() {
-                let username = format!("user{}", user_id);
-                return Ok(AuthUser {
-                    id: user_id,
-                    username,
-                });
+    async fn from_request(request: &'r rocket::Request<'_>) -> rocket::request::Outcome<Self, Self::Error> {
+        use rocket::request::Outcome::*;
+        if let Some(auth_header) = request.headers().get_one("Authorization") {
+            match validate_token(auth_header).await {
+                Ok(user) => Success(user),
+                Err(_) => Failure(Status::Unauthorized),
             }
+        } else {
+            Failure(Status::Unauthorized)
         }
-
-        Err(Status::Unauthorized)
     }
 }
+
 
 /// Handle login POST
 #[post("/login", data = "<form>")]
