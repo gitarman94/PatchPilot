@@ -165,28 +165,16 @@ impl DeviceInfo {
         let s = &mut self.system_info;
         let o = &other.system_info;
 
-        if !o.os_name.is_empty() {
-            s.os_name = o.os_name.clone();
-        }
-        if !o.architecture.is_empty() {
-            s.architecture = o.architecture.clone();
-        }
-        if !o.cpu_brand.is_empty() {
-            s.cpu_brand = o.cpu_brand.clone();
-        }
-        if !o.disk_health.is_empty() {
-            s.disk_health = o.disk_health.clone();
-        }
+        if !o.os_name.is_empty() { s.os_name = o.os_name.clone(); }
+        if !o.architecture.is_empty() { s.architecture = o.architecture.clone(); }
+        if !o.cpu_brand.is_empty() { s.cpu_brand = o.cpu_brand.clone(); }
+        if !o.disk_health.is_empty() { s.disk_health = o.disk_health.clone(); }
 
         if let Some(ip) = &o.ip_address {
-            if !ip.is_empty() {
-                s.ip_address = Some(ip.clone());
-            }
+            if !ip.is_empty() { s.ip_address = Some(ip.clone()); }
         }
         if let Some(nics) = &o.network_interfaces {
-            if !nics.is_empty() {
-                s.network_interfaces = Some(nics.clone());
-            }
+            if !nics.is_empty() { s.network_interfaces = Some(nics.clone()); }
         }
 
         s.cpu_usage = o.cpu_usage;
@@ -198,19 +186,13 @@ impl DeviceInfo {
         s.network_throughput = o.network_throughput;
 
         if let Some(t) = &other.device_type {
-            if !t.is_empty() {
-                self.device_type = Some(t.clone());
-            }
+            if !t.is_empty() { self.device_type = Some(t.clone()); }
         }
         if let Some(m) = &other.device_model {
-            if !m.is_empty() {
-                self.device_model = Some(m.clone());
-            }
+            if !m.is_empty() { self.device_model = Some(m.clone()); }
         }
 
-        if !other.device_id.is_empty() {
-            self.device_id = other.device_id.clone();
-        }
+        if !other.device_id.is_empty() { self.device_id = other.device_id.clone(); }
     }
 
     pub fn to_device(&self, device_id: &str) -> Device {
@@ -235,7 +217,7 @@ impl DeviceInfo {
             network_throughput: s.network_throughput,
             device_type: self.device_type.clone().unwrap_or_default(),
             device_model: self.device_model.clone().unwrap_or_default(),
-            uptime: Some("0h 0m".into()),
+            uptime: Some(0),
             updates_available: false,
             network_interfaces: s.network_interfaces.clone(),
             ip_address: s.ip_address.clone(),
@@ -269,7 +251,7 @@ impl NewDevice {
             network_throughput: s.network_throughput,
             device_type: info.device_type.clone().unwrap_or_default(),
             device_model: info.device_model.clone().unwrap_or_default(),
-            uptime: Some("0h 0m".into()),
+            uptime: Some(0),
             updates_available: false,
             network_interfaces: s.network_interfaces.clone(),
             ip_address: s.ip_address.clone(),
@@ -278,9 +260,9 @@ impl NewDevice {
 }
 
 impl Device {
-    pub fn compute_uptime(&self) -> String {
+    pub fn compute_uptime(&self) -> i64 {
         let duration = Utc::now().naive_utc() - self.last_checkin;
-        format!("{}h {}m", duration.num_hours(), duration.num_minutes() % 60)
+        duration.num_seconds()
     }
 
     pub fn enrich_for_dashboard(mut self) -> Self {
