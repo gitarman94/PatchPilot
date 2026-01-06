@@ -14,7 +14,6 @@ use crate::models::{Action, NewAction};
 use crate::schema::{actions, action_targets};
 use crate::routes::history::log_audit;
 
-
 #[derive(FromForm)]
 pub struct SubmitActionForm {
     pub command: String,
@@ -115,7 +114,9 @@ pub async fn cancel_action(
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let new_expiry = Utc::now().naive_utc() + Duration::seconds(ttl_seconds);
+
+        // Set new expiry to now to cancel the action
+        let new_expiry = Utc::now().naive_utc();
         diesel::update(actions::table.filter(actions::id.eq(&action_id)))
             .set(actions::expires_at.eq(new_expiry))
             .execute(&mut conn)
@@ -139,19 +140,20 @@ pub async fn list_action_targets(
     let pool = pool.inner().clone();
     let action_id_val = action_id_param.to_string();
 
-    let targets = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<(String, String, Option<String>)>, Status> {
-        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+    let targets =
+        rocket::tokio::task::spawn_blocking(move || -> Result<Vec<(String, String, Option<String>)>, Status> {
+            let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
-        let results = action_targets::table
-            .filter(action_targets::action_id.eq(&action_id_val))
-            .select((action_targets::device_id, action_targets::status, action_targets::response))
-            .load::<(String, String, Option<String>)>(&mut conn)
-            .map_err(|_| Status::InternalServerError)?;
+            let results = action_targets::table
+                .filter(action_targets::action_id.eq(&action_id_val))
+                .select((action_targets::device_id, action_targets::status, action_targets::response))
+                .load::<(String, String, Option<String>)>(&mut conn)
+                .map_err(|_| Status::InternalServerError)?;
 
-        Ok(results)
-    })
-    .await
-    .map_err(|_| Status::InternalServerError)??;
+            Ok(results)
+        })
+        .await
+        .map_err(|_| Status::InternalServerError)??;
 
     Ok(Json(targets))
 }
@@ -169,8 +171,9 @@ pub async fn update_action_ttl(
     rocket::tokio::task::spawn_blocking(move || -> Result<_, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
-        diesel::update(actions::table.filter(actions::id.eq(action_id_val)))
-            .set(actions::ttl.eq(ttl_seconds))
+        let new_expiry = Utc::now().naive_utc() + Duration::seconds(ttl_seconds);
+        diesel::update(actions::table.filter(actions::id.eq(&action_id_val)))
+            .set(actions::expires_at.eq(new_expiry))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 

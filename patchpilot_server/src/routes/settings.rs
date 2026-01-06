@@ -10,7 +10,6 @@ use crate::schema::server_settings;
 use crate::db;
 use crate::models::ServerSettings as ModelSettings;
 
-
 /// Struct representing form submission for server settings
 #[derive(FromForm)]
 pub struct ServerSettingsForm {
@@ -34,8 +33,13 @@ pub async fn view_settings(
         let s: crate::settings::ServerSettings = db::load_settings(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
         Ok(ModelSettings {
-            max_concurrent_actions: s.max_concurrent_actions,
-            default_ttl_seconds: s.default_ttl_seconds,
+            id: s.id,
+            auto_approve_devices: s.auto_approve_devices,
+            auto_refresh_enabled: s.auto_refresh_enabled,
+            auto_refresh_seconds: s.auto_refresh_seconds,
+            default_action_ttl_seconds: s.default_action_ttl_seconds,
+            action_polling_enabled: s.action_polling_enabled,
+            ping_target_ip: s.ping_target_ip,
         })
     })
     .await
@@ -52,7 +56,7 @@ pub async fn update_settings(
     form: Form<ServerSettingsForm>,
     user: AuthUser,
 ) -> Status {
-    let username = user.username.clone(); // this "uses" AuthUser fields
+    let username = user.username.clone();
     let form = form.into_inner();
     let pool = state.system.db_pool.clone();
     let settings_arc = state.settings.clone();
@@ -63,7 +67,7 @@ pub async fn update_settings(
             Err(_) => return,
         };
 
-        let mut settings: ServerSettings = match db::load_settings(&mut conn) {
+        let mut settings: crate::settings::ServerSettings = match db::load_settings(&mut conn) {
             Ok(s) => s,
             Err(_) => return,
         };
