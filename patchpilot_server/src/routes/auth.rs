@@ -79,10 +79,10 @@ impl<'r> FromRequest<'r> for AuthUser {
         if let Some(auth_header) = request.headers().get_one("Authorization") {
             match validate_token(auth_header).await {
                 Ok(user) => Outcome::Success(user),
-                Err(_) => Outcome::Failure(()),
+                Err(_) => Outcome::Error((Status::Unauthorized, ())),
             }
         } else {
-            Outcome::Failure(())
+            Outcome::Error((Status::Unauthorized, ()))
         }
     }
 }
@@ -127,7 +127,7 @@ pub fn login(
 /// Handle logout
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>) -> Redirect {
-    cookies.remove_private(rocket::http::Cookie::build("user_id").finish());
+    cookies.remove_private(rocket::http::Cookie::new("user_id", ""));
     Redirect::to("/login")
 }
 

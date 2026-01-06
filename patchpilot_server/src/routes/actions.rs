@@ -2,14 +2,16 @@ use rocket::{get, post, delete, State};
 use rocket::serde::json::Json;
 use rocket::form::Form;
 use rocket::http::Status;
+
 use diesel::prelude::*;
 use chrono::{Utc, Duration};
+use uuid::Uuid;
+
 use crate::auth::AuthUser;
 use crate::db::DbPool;
 use crate::models::{Action, NewAction};
 use crate::schema::{actions, action_targets};
 use crate::routes::history::log_audit;
-use uuid::Uuid;
 
 #[derive(FromForm)]
 pub struct SubmitActionForm {
@@ -25,8 +27,8 @@ pub async fn submit_action(
     user: AuthUser,
 ) -> Result<Status, Status> {
     let pool = pool.inner().clone();
-    let user_name = user.username.clone();
     let form = form.into_inner();
+    let user_name = user.username.clone();
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
@@ -36,7 +38,7 @@ pub async fn submit_action(
 
         let new_action = NewAction {
             id: Uuid::new_v4().to_string(),
-            action_type: form.command.clone(),
+            action_type: form.command,
             parameters: None,
             author: Some(user_name.clone()),
             created_at: Utc::now().naive_utc(),
@@ -49,12 +51,11 @@ pub async fn submit_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        // Fixed: ensure types match schema (Integer, Text, Nullable<Text>)
         diesel::insert_into(action_targets::table)
             .values((
                 action_targets::action_id.eq(&new_action.id),
                 action_targets::device_id.eq(form.target_device_id),
-                action_targets::status.eq("pending"),
+                action_targets::status.eq("pending".to_string()),
                 action_targets::last_update.eq(Utc::now().naive_utc()),
                 action_targets::response.eq::<Option<String>>(None),
             ))
@@ -77,12 +78,16 @@ pub async fn submit_action(
 }
 
 #[get("/actions")]
-pub async fn list_actions(pool: &State<DbPool>, user: AuthUser) -> Result<Json<Vec<Action>>, Status> {
+pub async fn list_actions(
+    pool: &State<DbPool>,
+    user: AuthUser,
+) -> Result<Json<Vec<Action>>, Status> {
     let pool = pool.inner().clone();
     let user_name = user.username.clone();
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Json<Vec<Action>>, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+
         let all_actions = actions::table
             .order(actions::created_at.desc())
             .load::<Action>(&mut conn)
@@ -108,6 +113,7 @@ pub async fn cancel_action(
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+
         diesel::update(actions::table.filter(actions::id.eq(&action_id)))
             .set(actions::canceled.eq(true))
             .execute(&mut conn)
@@ -129,18 +135,30 @@ pub async fn list_action_targets(
     user: AuthUser,
 ) -> Result<Json<Vec<(i32, String, Option<String>)>>, Status> {
     let pool = pool.inner().clone();
-    let action_id = action_id_param.to_string();
+    let action_id_val = action_id_param.to_string();
     let user_name = user.username.clone();
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Json<Vec<(i32, String, Option<String>)>>, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+
         let targets = action_targets::table
-            .filter(action_targets::action_id.eq(&action_id))
-            .select((action_targets::device_id, action_targets::status, action_targets::response))
+            .filter(action_targets::action_id.eq(&action_id_val))
+            .select((
+                action_targets::device_id,
+                action_targets::status,
+                action_targets::response,
+            ))
             .load::<(i32, String, Option<String>)>(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        log_audit(&mut conn, &user_name, "action.list_targets", Some(&action_id), None).ok();
+        log_audit(
+            &mut conn,
+            &user_name,
+            "action.list_targets",
+            Some(&action_id_val),
+            None,
+        )
+        .ok();
 
         Ok(Json(targets))
     })
@@ -162,6 +180,7 @@ pub async fn update_action_ttl(
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+
         diesel::update(actions::table.filter(actions::id.eq(&action_id)))
             .set(actions::expires_at.eq(new_expiry))
             .execute(&mut conn)
@@ -183,17 +202,21 @@ pub async fn update_action_ttl(
 }
 
 #[delete("/actions/pending_cleanup")]
-pub async fn pending_cleanup(pool: &State<DbPool>, user: AuthUser) -> Result<Status, Status> {
+pub async fn pending_cleanup(
+    pool: &State<DbPool>,
+    user: AuthUser,
+) -> Result<Status, Status> {
     let pool = pool.inner().clone();
     let user_name = user.username.clone();
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         let cutoff = Utc::now().naive_utc();
+
         diesel::delete(
             action_targets::table
-                .filter(action_targets::status.eq("completed")
-                .and(action_targets::last_update.lt(cutoff)))
+                .filter(action_targets::status.eq("completed"))
+                .filter(action_targets::last_update.lt(cutoff)),
         )
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
@@ -206,31 +229,32 @@ pub async fn pending_cleanup(pool: &State<DbPool>, user: AuthUser) -> Result<Sta
     .map_err(|_| Status::InternalServerError)?
 }
 
-/// Reports an action result from a device
-#[post("/actions/report_result/<action_id_param>/<device_id_param>", data = "<response>")]
+#[post("/actions/report_result/<action_id_param>/<device_id_param>", data = "<body>")]
 pub async fn report_action_result(
     pool: &State<DbPool>,
     action_id_param: &str,
     device_id_param: i32,
-    response: String,
+    body: String,
 ) -> Result<Status, Status> {
     let pool = pool.inner().clone();
-    let action_id = action_id_param.to_string();
-    let device_id = device_id_param;
+    let action_id_val = action_id_param.to_string();
+    let device_id_val = device_id_param;
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
-        use crate::schema::action_targets::dsl::*;
-
-        diesel::update(action_targets.filter(action_id.eq(&action_id)).filter(device_id.eq(device_id)))
-            .set((
-                response.eq(Some(response.clone())),
-                last_update.eq(Utc::now().naive_utc()),
-                status.eq("completed"),
-            ))
-            .execute(&mut conn)
-            .map_err(|_| Status::InternalServerError)?;
+        diesel::update(
+            action_targets::table
+                .filter(action_targets::action_id.eq(&action_id_val))
+                .filter(action_targets::device_id.eq(device_id_val)),
+        )
+        .set((
+            action_targets::response.eq(Some(body)),
+            action_targets::status.eq("completed".to_string()),
+            action_targets::last_update.eq(Utc::now().naive_utc()),
+        ))
+        .execute(&mut conn)
+        .map_err(|_| Status::InternalServerError)?;
 
         Ok(Status::Ok)
     })

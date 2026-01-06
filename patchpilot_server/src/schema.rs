@@ -1,5 +1,3 @@
-use diesel::sql_types::{Integer, BigInt, Text, Bool, Float, Timestamp, Nullable};
-
 diesel::table! {
     devices (id) {
         id -> Integer,
