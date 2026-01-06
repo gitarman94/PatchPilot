@@ -114,7 +114,7 @@ pub struct NewAction {
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ActionTarget {
     pub id: i32,
-    pub action_id: String,
+    pub action_id: Option<String>,
     pub device_id: String,
     pub status: String,
     pub last_update: NaiveDateTime,
