@@ -28,19 +28,19 @@ pub async fn view_settings(
 ) -> Result<rocket_dyn_templates::Template, Status> {
     let pool = state.system.db_pool.clone();
 
-    let settings: models::ServerSettings = rocket::tokio::task::spawn_blocking(move || {
+    let settings: ModelSettings = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         let s: crate::settings::ServerSettings = db::load_settings(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
-        
-        Ok(models::ServerSettings {
+
+        Ok(ModelSettings {
             id: 1,
             auto_approve_devices: s.auto_approve_devices,
             auto_refresh_enabled: s.auto_refresh_enabled,
             auto_refresh_seconds: s.auto_refresh_seconds,
             default_action_ttl_seconds: s.default_action_ttl_seconds,
             action_polling_enabled: s.action_polling_enabled,
-            ping_target_ip: s.ping_target_ip.clone(),
+            ping_target_ip: s.ping_target_ip,
         })
     })
     .await
