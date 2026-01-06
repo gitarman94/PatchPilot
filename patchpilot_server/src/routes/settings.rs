@@ -1,15 +1,11 @@
-use rocket::{get, post, State, form::{Form, FromForm}};
+use rocket::{get, post, State, form::{Form}};
 use rocket::http::Status;
 use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
-
-use crate::state::AppState;
 use crate::auth::AuthUser;
+use crate::db::{DbPool};
 use crate::routes::history::log_audit;
 use crate::schema::server_settings;
-use crate::db;
 
-/// Struct representing form submission for server settings
 #[derive(FromForm)]
 pub struct ServerSettingsForm {
     pub auto_approve_devices: Option<bool>,
@@ -22,119 +18,107 @@ pub struct ServerSettingsForm {
 
 #[get("/settings")]
 pub async fn view_settings(
-    state: &State<AppState>,
+    pool: &State<DbPool>,
     _user: AuthUser,
 ) -> Result<rocket_dyn_templates::Template, Status> {
-    let pool = state.system.db_pool.clone();
+    let pool = pool.inner().clone();
 
     let settings = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)
+        crate::db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
 
     let mut context = std::collections::HashMap::new();
     context.insert("settings", settings);
-
     Ok(rocket_dyn_templates::Template::render("settings", &context))
 }
 
 #[post("/settings/update", data = "<form>")]
 pub async fn update_settings(
-    state: &State<AppState>,
+    pool: &State<DbPool>,
     form: Form<ServerSettingsForm>,
     user: AuthUser,
-) -> Status {
+) -> Result<Status, Status> {
     let username = user.username.clone();
     let form = form.into_inner();
-
-    let pool = state.system.db_pool.clone();
-    let settings_arc = state.settings.clone();
+    let pool = pool.inner().clone();
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return,
+            Err(_) => return Err(Status::InternalServerError),
         };
 
-        let mut settings = match db::load_settings(&mut conn) {
+        let current = match crate::db::load_settings(&mut conn) {
             Ok(s) => s,
-            Err(_) => return,
+            Err(_) => return Err(Status::InternalServerError),
         };
+
+        let mut details = Vec::new();
+        let mut updated_settings = current.clone();
 
         if let Some(v) = form.auto_approve_devices {
-            let _ = set_auto_approve(&mut conn, v);
-            settings.auto_approve_devices = v;
+            details.push(format!("auto_approve_devices: {} -> {}", current.auto_approve_devices, v));
+            updated_settings.auto_approve_devices = v;
+            let _ = diesel::update(server_settings::table)
+                .set(server_settings::auto_approve_devices.eq(v))
+                .execute(&mut conn);
         }
 
         if let Some(v) = form.auto_refresh_enabled {
-            let _ = set_auto_refresh(&mut conn, v);
-            settings.auto_refresh_enabled = v;
+            details.push(format!("auto_refresh_enabled: {} -> {}", current.auto_refresh_enabled, v));
+            updated_settings.auto_refresh_enabled = v;
+            let _ = diesel::update(server_settings::table)
+                .set(server_settings::auto_refresh_enabled.eq(v))
+                .execute(&mut conn);
         }
 
         if let Some(v) = form.auto_refresh_seconds {
-            let _ = set_auto_refresh_interval(&mut conn, v);
-            settings.auto_refresh_seconds = v;
+            details.push(format!("auto_refresh_seconds: {} -> {}", current.auto_refresh_seconds, v));
+            updated_settings.auto_refresh_seconds = v;
+            let _ = diesel::update(server_settings::table)
+                .set(server_settings::auto_refresh_seconds.eq(v))
+                .execute(&mut conn);
         }
 
         if let Some(v) = form.default_action_ttl_seconds {
-            settings.default_action_ttl_seconds = v;
+            details.push(format!("default_action_ttl_seconds: {} -> {}", current.default_action_ttl_seconds, v));
+            updated_settings.default_action_ttl_seconds = v;
         }
 
         if let Some(v) = form.action_polling_enabled {
-            settings.action_polling_enabled = v;
+            details.push(format!("action_polling_enabled: {} -> {}", current.action_polling_enabled, v));
+            updated_settings.action_polling_enabled = v;
+            let _ = diesel::update(server_settings::table)
+                .set(server_settings::action_polling_enabled.eq(v))
+                .execute(&mut conn);
         }
 
-        if let Some(v) = form.ping_target_ip {
-            settings.ping_target_ip = v;
+        if let Some(v) = form.ping_target_ip.clone() {
+            details.push(format!("ping_target_ip: {} -> {}", current.ping_target_ip, v));
+            updated_settings.ping_target_ip = v.clone();
+            let _ = diesel::update(server_settings::table)
+                .set(server_settings::ping_target_ip.eq(v))
+                .execute(&mut conn);
         }
 
-        let _ = db::save_settings(&mut conn, &settings);
+        let _ = crate::db::save_settings(&mut conn, &updated_settings);
 
-        if let Ok(mut shared) = settings_arc.write() {
-            *shared = settings.clone();
-        }
-
+        let detail_str = details.join("; ");
         let _ = log_audit(
             &mut conn,
             &username,
-            "update_settings",
+            "settings.update",
             None,
-            Some("Updated server settings"),
+            Some(&detail_str),
         );
+
+        Ok::<(), Status>(())
     })
     .await
-    .ok();
+    .map_err(|_| Status::InternalServerError)?;
 
-    Status::Ok
-}
-
-/* Direct DB setters — actively used */
-
-pub fn set_auto_approve(
-    conn: &mut SqliteConnection,
-    value: bool,
-) -> QueryResult<usize> {
-    diesel::update(server_settings::table)
-        .set(server_settings::auto_approve_devices.eq(value))
-        .execute(conn)
-}
-
-pub fn set_auto_refresh(
-    conn: &mut SqliteConnection,
-    value: bool,
-) -> QueryResult<usize> {
-    diesel::update(server_settings::table)
-        .set(server_settings::auto_refresh_enabled.eq(value))
-        .execute(conn)
-}
-
-pub fn set_auto_refresh_interval(
-    conn: &mut SqliteConnection,
-    value: i64,
-) -> QueryResult<usize> {
-    diesel::update(server_settings::table)
-        .set(server_settings::auto_refresh_seconds.eq(value))
-        .execute(conn)
+    Ok(Status::Ok)
 }
