@@ -6,7 +6,6 @@ use rocket::request::{FromRequest, Outcome, Request};
 use rocket::http::Status;
 
 use diesel::prelude::*;
-use diesel::SelectableHelper;
 use crate::db::DbPool;
 use crate::schema::users;
 // Uncomment when user_actions table exists
