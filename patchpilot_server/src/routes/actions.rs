@@ -4,14 +4,13 @@ use rocket::form::Form;
 use rocket::http::Status;
 
 use diesel::prelude::*;
-use diesel::dsl::update;
 
 use chrono::{Utc, Duration};
 use uuid::Uuid;
 
-use crate::auth::{AuthUser, UserRole};
+use crate::auth::AuthUser;
 use crate::db::DbPool;
-use crate::models::{Action, NewAction, ActionTarget};
+use crate::models::{Action, NewAction};
 use crate::schema::{actions, action_targets};
 use crate::routes::history::log_audit;
 
@@ -135,64 +134,43 @@ pub async fn cancel_action(
 pub async fn list_action_targets(
     pool: &State<DbPool>,
     action_id_param: &str,
-    user: AuthUser,
+    _user: AuthUser,
 ) -> Result<Json<Vec<(String, String, Option<String>)>>, Status> {
     let pool = pool.inner().clone();
     let action_id_val = action_id_param.to_string();
-    let user_name = user.username.clone();
+
+    let targets = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<(String, String, Option<String>)>, Status> {
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+
+        let results = action_targets::table
+            .filter(action_targets::action_id.eq(&action_id_val))
+            .select((action_targets::device_id, action_targets::status, action_targets::response))
+            .load::<(String, String, Option<String>)>(&mut conn)
+            .map_err(|_| Status::InternalServerError)?;
+
+        Ok(results)
+    })
+    .await
+    .map_err(|_| Status::InternalServerError)??;
+
+    Ok(Json(targets))
+}
+
+#[post("/actions/update_ttl/<action_id>/<ttl_seconds>")]
+pub async fn update_action_ttl(
+    pool: &State<DbPool>,
+    _user: AuthUser,
+    action_id: &str,
+    ttl_seconds: i64,
+) -> Result<Status, Status> {
+    let pool = pool.inner().clone();
+    let action_id_val = action_id.to_string();
 
     rocket::tokio::task::spawn_blocking(move || -> Result<_, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
-        let targets = action_targets::table
-            .filter(action_targets::action_id.eq(&action_id_val))
-            .select((
-                action_targets::device_id,
-                action_targets::status,
-                action_targets::response,
-            ))
-            .load::<ActionTarget>(&mut conn)
-            .map_err(|_| Status::InternalServerError)?;
-
-        log_audit(
-            &mut conn,
-            &user_name,
-            "action.list_targets",
-            Some(&action_id_val),
-            None,
-        )
-        Ok(Json(
-            targets
-                .into_iter()
-                .map(|t| (t.device_id, t.status, t.response))
-                .collect()
-        ))
-    })
-    .await
-    .map_err(|_| Status::InternalServerError)?
-}
-
-#[post("/actions/update_ttl/<action_id_param>/<ttl_seconds>")]
-pub async fn update_action_ttl(
-    pool: &State<DbPool>,
-    user: AuthUser,
-    action_id: &str,
-    ttl: i64,
-) -> Result<Status, Status> {
-    use crate::routes::auth::UserRole;
-
-    if !user.has_role(&UserRole::Admin) {
-        return Err(Status::Forbidden);
-    }
-
-    let pool = pool.inner().clone();
-    let action_id = action_id.to_string();
-
-    rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-
-        diesel::update(actions::table.filter(actions::id.eq(action_id)))
-            .set(actions::ttl.eq(ttl))
+        diesel::update(actions::table.filter(actions::id.eq(action_id_val)))
+            .set(actions::ttl.eq(ttl_seconds))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 

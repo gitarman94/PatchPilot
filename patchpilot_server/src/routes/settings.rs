@@ -8,7 +8,7 @@ use crate::auth::AuthUser;
 use crate::routes::history::log_audit;
 use crate::schema::server_settings;
 use crate::db;
-use crate::models::ServerSettings; // <--- add import to activate struct
+use crate::models::ServerSettings;
 
 /// Struct representing form submission for server settings
 #[derive(FromForm)]
@@ -32,7 +32,7 @@ pub async fn view_settings(
         db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)
     })
     .await
-    .map_err(|_| Status::InternalServerError)??;
+    .map_err(|_| Status::InternalServerError)??; // now correctly returns models::ServerSettings
 
     let mut context = std::collections::HashMap::new();
     context.insert("settings", settings);
