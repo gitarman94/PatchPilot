@@ -8,6 +8,7 @@ use crate::auth::AuthUser;
 use crate::routes::history::log_audit;
 use crate::schema::server_settings;
 use crate::db;
+use crate::models::ServerSettings; // <--- add import to activate struct
 
 /// Struct representing form submission for server settings
 #[derive(FromForm)]
@@ -26,7 +27,7 @@ pub async fn view_settings(
     _user: AuthUser,
 ) -> Result<rocket_dyn_templates::Template, Status> {
     let pool = state.system.db_pool.clone();
-    let settings = rocket::tokio::task::spawn_blocking(move || {
+    let settings: ServerSettings = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)
     })
@@ -44,7 +45,7 @@ pub async fn update_settings(
     form: Form<ServerSettingsForm>,
     user: AuthUser,
 ) -> Status {
-    let username = user.username.clone();
+    let username = user.username.clone(); // this "uses" AuthUser fields
     let form = form.into_inner();
     let pool = state.system.db_pool.clone();
     let settings_arc = state.settings.clone();
@@ -55,7 +56,7 @@ pub async fn update_settings(
             Err(_) => return,
         };
 
-        let mut settings = match db::load_settings(&mut conn) {
+        let mut settings: ServerSettings = match db::load_settings(&mut conn) {
             Ok(s) => s,
             Err(_) => return,
         };

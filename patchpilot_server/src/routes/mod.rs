@@ -11,20 +11,26 @@ pub mod roles;
 
 /// API routes
 pub fn api_routes() -> Vec<Route> {
-    routes![
+        routes![
         // Devices
         devices::get_devices,
         devices::get_device_details,
         devices::approve_device,
         devices::register_or_update_device,
         devices::heartbeat,
+
         // Actions
         actions::submit_action,
         actions::report_action_result,
         actions::list_actions,
+        actions::list_action_targets,
+        actions::update_action_ttl,
+        actions::pending_cleanup,
         actions::cancel_action,
+
         // History
         history::api_history,
+
         // Settings
         settings::view_settings,
         settings::update_settings,

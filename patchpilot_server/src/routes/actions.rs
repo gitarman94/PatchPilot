@@ -4,14 +4,17 @@ use rocket::form::Form;
 use rocket::http::Status;
 
 use diesel::prelude::*;
+use diesel::dsl::update;
+
 use chrono::{Utc, Duration};
 use uuid::Uuid;
 
-use crate::auth::AuthUser;
+use crate::auth::{AuthUser, UserRole};
 use crate::db::DbPool;
-use crate::models::{Action, NewAction};
+use crate::models::{Action, NewAction, ActionTarget};
 use crate::schema::{actions, action_targets};
 use crate::routes::history::log_audit;
+
 
 #[derive(FromForm)]
 pub struct SubmitActionForm {
@@ -148,7 +151,7 @@ pub async fn list_action_targets(
                 action_targets::status,
                 action_targets::response,
             ))
-            .load::<(String, String, Option<String>)>(&mut conn)
+            .load::<ActionTarget>(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
         log_audit(
@@ -158,9 +161,12 @@ pub async fn list_action_targets(
             Some(&action_id_val),
             None,
         )
-        .ok();
-
-        Ok(Json(targets))
+        Ok(Json(
+            targets
+                .into_iter()
+                .map(|t| (t.device_id, t.status, t.response))
+                .collect()
+        ))
     })
     .await
     .map_err(|_| Status::InternalServerError)?
@@ -169,31 +175,26 @@ pub async fn list_action_targets(
 #[post("/actions/update_ttl/<action_id_param>/<ttl_seconds>")]
 pub async fn update_action_ttl(
     pool: &State<DbPool>,
-    action_id_param: &str,
-    ttl_seconds: i64,
     user: AuthUser,
+    action_id: &str,
+    ttl: i64,
 ) -> Result<Status, Status> {
-    let pool = pool.inner().clone();
-    let action_id = action_id_param.to_string();
-    let user_name = user.username.clone();
-    let new_expiry = Utc::now().naive_utc() + Duration::seconds(ttl_seconds);
+    use crate::routes::auth::UserRole;
 
-    rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
+    if !user.has_role(&UserRole::Admin) {
+        return Err(Status::Forbidden);
+    }
+
+    let pool = pool.inner().clone();
+    let action_id = action_id.to_string();
+
+    rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
-        diesel::update(actions::table.filter(actions::id.eq(&action_id)))
-            .set(actions::expires_at.eq(new_expiry))
+        diesel::update(actions::table.filter(actions::id.eq(action_id)))
+            .set(actions::ttl.eq(ttl))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
-
-        log_audit(
-            &mut conn,
-            &user_name,
-            "action.ttl_update",
-            Some(&action_id),
-            Some(&format!("New TTL: {} seconds", ttl_seconds)),
-        )
-        .map_err(|_| Status::InternalServerError)?;
 
         Ok(Status::Ok)
     })
