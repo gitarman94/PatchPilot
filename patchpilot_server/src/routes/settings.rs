@@ -33,7 +33,6 @@ pub async fn view_settings(
         let s: crate::settings::ServerSettings = db::load_settings(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
         Ok(ModelSettings {
-            id: s.id,
             auto_approve_devices: s.auto_approve_devices,
             auto_refresh_enabled: s.auto_refresh_enabled,
             auto_refresh_seconds: s.auto_refresh_seconds,
