@@ -6,8 +6,8 @@ use chrono::Utc;
 use crate::db::{DbPool, log_audit, load_settings};
 use crate::auth::{AuthUser, UserRole};
 use crate::models::{Device, DeviceInfo, NewDevice};
+use crate::settings::ServerSettings; // <- Added
 use crate::schema::devices::dsl::*;
-use crate::schema::server_settings::dsl as settings_dsl;
 
 /// Get all devices
 #[get("/devices")]
@@ -34,10 +34,10 @@ pub async fn get_device_details(
 }
 
 /// Helper: get current server settings
-pub async fn get_server_settings(pool: &State<DbPool>) -> Result<crate::models::ServerSettings, Status> {
-    let pool = pool.inner().clone();
+pub async fn get_server_settings(pool: &State<DbPool>) -> Result<ServerSettings, Status> {
+    let pool_clone = pool.inner().clone();
     rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
         load_settings(&mut conn).map_err(|_| Status::InternalServerError)
     })
     .await
@@ -57,10 +57,10 @@ pub async fn approve_device(
 
     let username = user.username.clone();
     let device_id_str = device_id_param.to_string();
-    let pool = pool.inner().clone();
+    let pool_clone = pool.inner().clone();
 
     rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
         diesel::update(devices.filter(device_id.eq(&device_id_str)))
             .set(approved.eq(true))
             .execute(&mut conn)
@@ -105,12 +105,13 @@ pub async fn register_or_update_device(
 
     let username = user.username.clone();
     let info = info.into_inner();
-    let pool_inner = pool.inner().clone();
+    let pool_clone = pool.inner().clone();
 
-    let settings = get_server_settings(&pool_inner).await.unwrap_or_default();
+    // Fixed: pass &State<DbPool> to get_server_settings
+    let settings = get_server_settings(&pool).await.unwrap_or_default();
 
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
-        let mut conn = pool_inner.get().map_err(|_| Status::InternalServerError)?;
+        let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
         let existing = devices
             .filter(device_id.eq(&info.device_id))
             .first::<Device>(&mut conn)
