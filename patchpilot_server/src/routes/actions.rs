@@ -58,6 +58,7 @@ pub async fn submit_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
+        // Audit logging
         log_audit(&mut conn,
                   &user_name,
                   "action.submit",
@@ -70,8 +71,9 @@ pub async fn submit_action(
 }
 
 #[get("/actions")]
-pub async fn list_actions(pool: &State<DbPool>) -> Result<Json<Vec<Action>>, Status> {
+pub async fn list_actions(pool: &State<DbPool>, user: AuthUser) -> Result<Json<Vec<Action>>, Status> {
     let pool = pool.inner().clone();
+    let user_name = user.username.clone();
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Json<Vec<Action>>, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
@@ -79,6 +81,10 @@ pub async fn list_actions(pool: &State<DbPool>) -> Result<Json<Vec<Action>>, Sta
             .order(actions::created_at.desc())
             .load::<Action>(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
+
+        // Audit logging for viewing action list
+        log_audit(&mut conn, &user_name, "action.list", None, None)
+            .ok();
 
         Ok(Json(all_actions))
     }).await.map_err(|_| Status::InternalServerError)?
@@ -101,6 +107,7 @@ pub async fn cancel_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
+        // Audit logging
         log_audit(&mut conn, &user_name, "action.cancel", Some(&action_id), None)
             .map_err(|_| Status::InternalServerError)?;
 
@@ -111,10 +118,12 @@ pub async fn cancel_action(
 #[get("/actions/targets/<action_id_param>")]
 pub async fn list_action_targets(
     pool: &State<DbPool>,
-    action_id_param: &str
+    action_id_param: &str,
+    user: AuthUser,
 ) -> Result<Json<Vec<(i32, String, Option<String>)>>, Status> {
     let pool = pool.inner().clone();
     let action_id = action_id_param.to_string();
+    let user_name = user.username.clone();
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Json<Vec<(i32, String, Option<String>)>>, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
@@ -123,6 +132,10 @@ pub async fn list_action_targets(
             .select((action_targets::device_id, action_targets::status, action_targets::response))
             .load::<(i32, String, Option<String>)>(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
+
+        // Audit logging
+        log_audit(&mut conn, &user_name, "action.list_targets", Some(&action_id), None)
+            .ok();
 
         Ok(Json(targets))
     }).await.map_err(|_| Status::InternalServerError)?
@@ -147,6 +160,7 @@ pub async fn update_action_ttl(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
+        // Audit logging
         log_audit(&mut conn,
                   &user_name,
                   "action.ttl_update",
@@ -159,16 +173,22 @@ pub async fn update_action_ttl(
 }
 
 #[delete("/actions/pending_cleanup")]
-pub async fn pending_cleanup(pool: &State<DbPool>) -> Result<Status, Status> {
+pub async fn pending_cleanup(pool: &State<DbPool>, user: AuthUser) -> Result<Status, Status> {
     let pool = pool.inner().clone();
+    let user_name = user.username.clone();
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         let cutoff = Utc::now().naive_utc();
-        diesel::delete(action_targets::table.filter(action_targets::status.eq("completed")
-            .and(action_targets::last_update.lt(cutoff))))
+        diesel::delete(action_targets::table
+            .filter(action_targets::status.eq("completed")
+                .and(action_targets::last_update.lt(cutoff))))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
+
+        // Audit logging
+        log_audit(&mut conn, &user_name, "action.pending_cleanup", None, None)
+            .ok();
 
         Ok(Status::Ok)
     }).await.map_err(|_| Status::InternalServerError)?

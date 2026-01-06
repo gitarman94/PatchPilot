@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use crate::db::DbPool;
 use crate::auth::{AuthUser, UserRole};
 use crate::schema::{users, groups, user_groups};
+use crate::routes::history::log_audit;
 
 #[derive(FromForm)]
 pub struct UserForm {
@@ -55,6 +56,9 @@ pub fn list_users_groups(
         "group_users": group_users,
     });
 
+    // Audit log: viewing users/groups page
+    let _ = log_audit(&mut conn, &user.username, "users_groups.view", None, None);
+
     rocket_dyn_templates::Template::render("users_groups", &context)
 }
 
@@ -77,7 +81,7 @@ pub fn add_group(
         .values((groups::name.eq(&form.name), groups::description.eq(&form.description)))
         .execute(&mut conn);
 
-    let _ = crate::routes::history::log_audit(
+    let _ = log_audit(
         &mut conn,
         &user.username,
         "group.create",
@@ -132,7 +136,7 @@ pub fn add_user(
     let details = form.group_id.map(|gid| format!("assigned_group: {}", gid));
     let details_ref = details.as_deref();
 
-    let _ = crate::routes::history::log_audit(
+    let _ = log_audit(
         &mut conn,
         &user.username,
         "user.create",
@@ -170,7 +174,7 @@ pub fn delete_group(
     let _ = diesel::delete(groups::table.filter(groups::id.eq(group_id_val)))
         .execute(&mut conn);
 
-    let _ = crate::routes::history::log_audit(
+    let _ = log_audit(
         &mut conn,
         &user.username,
         "group.delete",
@@ -208,7 +212,7 @@ pub fn delete_user(
     let _ = diesel::delete(users::table.filter(users::id.eq(user_id_val)))
         .execute(&mut conn);
 
-    let _ = crate::routes::history::log_audit(
+    let _ = log_audit(
         &mut conn,
         &user.username,
         "user.delete",
