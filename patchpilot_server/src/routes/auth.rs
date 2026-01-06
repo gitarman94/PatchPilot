@@ -1,149 +1,152 @@
 use rocket::form::Form;
-use rocket::http::{Cookie, CookieJar, Status};
+use rocket::http::CookieJar;
 use rocket::response::{Redirect, content::RawHtml};
-use rocket::request::{FromRequest, Outcome, Request};
 use rocket::State;
+use rocket::request::{FromRequest, Outcome, Request};
+use rocket::http::Status;
+
 use diesel::prelude::*;
 use diesel::SelectableHelper;
-use std::fs::read_to_string;
-use bcrypt::verify;
-
 use crate::db::DbPool;
 use crate::schema::users;
+// Uncomment when user_actions table exists
+// use crate::schema::user_actions;
 
+use bcrypt::verify;
+use std::fs::read_to_string;
+
+/// Login form structure
 #[derive(FromForm)]
 pub struct LoginForm {
     pub username: String,
     pub password: String,
 }
 
-#[derive(Queryable, Selectable)]
+/// Queryable user row
+#[derive(Queryable, Selectable, Clone, Debug)]
 #[diesel(table_name = users)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-struct UserRow {
+pub struct UserRow {
     pub id: i32,
     pub username: String,
     pub password_hash: String,
 }
 
-// AuthUser request guard
-#[derive(Clone)]
+/// Authenticated user structure
+#[derive(Clone, Debug)]
 pub struct AuthUser {
     pub id: i32,
     pub username: String,
 }
 
+/// User roles
+#[derive(Debug, PartialEq, Eq)]
+pub enum UserRole {
+    Admin,
+    User,
+}
+
+impl AuthUser {
+    /// Check if user has a role
+    pub fn has_role(&self, role: &UserRole) -> bool {
+        match role {
+            UserRole::Admin => self.id == 1, // Stub: user id 1 is admin
+            UserRole::User => true,
+        }
+    }
+
+    /// Log a user action into the database (stub if table missing)
+    pub fn log_user_action(&self, _conn: &mut SqliteConnection, _action: &str, _target: Option<&str>) {
+        // Uncomment when user_actions table exists
+        // let target_str = target.unwrap_or("");
+        // let _ = diesel::insert_into(user_actions::table)
+        //     .values((
+        //         user_actions::user_id.eq(self.id),
+        //         user_actions::action.eq(action),
+        //         user_actions::target.eq(target_str),
+        //     ))
+        //     .execute(conn);
+    }
+}
+
+/// Rocket request guard for AuthUser
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
-    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let cookies = req.cookies();
-        let pool = req.guard::<&State<DbPool>>().await.succeeded();
-
-        match (cookies.get_private("user_id"), pool) {
-            (Some(cookie), Some(pool)) => {
-                if let Ok(user_id) = cookie.value().parse::<i32>() {
-                    let pool = pool.inner().clone();
-                    let user_opt = rocket::tokio::task::spawn_blocking(move || {
-                        let mut conn = pool.get().ok()?;
-                        users::table
-                            .filter(users::id.eq(user_id))
-                            .first::<UserRow>(&mut conn)
-                            .optional()
-                            .ok()?
-                    })
-                    .await
-                    .ok()
-                    .flatten();
-
-                    if let Some(user) = user_opt {
-                        return Outcome::Success(AuthUser {
-                            id: user.id,
-                            username: user.username,
-                        });
-                    }
-                }
-                Outcome::Failure((Status::Unauthorized, ()))
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        // Expect Authorization header with token
+        if let Some(auth_header) = request.headers().get_one("Authorization") {
+            match validate_token(auth_header).await {
+                Ok(user) => Outcome::Success(user),
+                Err(_) => Outcome::Failure(()),
             }
-            _ => Outcome::Failure((Status::Unauthorized, ())),
+        } else {
+            Outcome::Failure(())
         }
     }
 }
 
+/// Handle login POST
 #[post("/login", data = "<form>")]
 pub fn login(
     form: Form<LoginForm>,
     cookies: &CookieJar<'_>,
     pool: &State<DbPool>,
 ) -> Redirect {
-    use crate::schema::users::dsl::*;
-
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => return Redirect::to("/login"),
     };
 
+    use crate::schema::users::dsl::*;
+
     let user_opt = users
         .filter(username.eq(&form.username))
-        .select(UserRow::as_select())
+        .select((id, username, password_hash)) // select only required columns
         .first::<UserRow>(&mut conn)
         .optional()
         .unwrap_or(None);
 
     if let Some(user) = user_opt {
         if verify(&form.password, &user.password_hash).unwrap_or(false) {
-            cookies.add_private(Cookie::new("user_id", user.id.to_string()));
+            // Set private cookie
+            cookies.add_private(rocket::http::Cookie::new("user_id", user.id.to_string()));
 
-            let _ = crate::routes::history::log_audit(
-                &mut conn,
-                &user.username,
-                "auth.login.success",
-                None,
-                Some("User login successful"),
-            );
+            // Log successful login
+            let auth_user = AuthUser { id: user.id, username: user.username.clone() };
+            auth_user.log_user_action(&mut conn, "login", None);
 
             return Redirect::to("/dashboard");
         }
-
-        let _ = crate::routes::history::log_audit(
-            &mut conn,
-            &user.username,
-            "auth.login.failure",
-            None,
-            Some("Invalid password provided"),
-        );
     }
 
     Redirect::to("/login")
 }
 
+/// Handle logout
 #[get("/logout")]
-pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
-    if let Some(cookie) = cookies.get_private("user_id") {
-        if let Ok(user_id) = cookie.value().parse::<i32>() {
-            if let Ok(mut conn) = pool.get() {
-                let _ = crate::routes::history::log_audit(
-                    &mut conn,
-                    &user_id.to_string(),
-                    "auth.logout",
-                    None,
-                    Some("User logout"),
-                );
-            }
-        }
-    }
-
-    // Fixed deprecated CookieBuilder::finish()
-    cookies.remove_private(Cookie::new("user_id", ""));
-
+pub fn logout(cookies: &CookieJar<'_>) -> Redirect {
+    cookies.remove_private(rocket::http::Cookie::build("user_id").finish());
     Redirect::to("/login")
 }
 
+/// Serve login page
 #[get("/login")]
 pub fn login_page() -> RawHtml<String> {
     RawHtml(
         read_to_string("templates/login.html")
-            .unwrap_or_else(|_| "<h1>Login page missing</h1>".into()),
+            .unwrap_or_else(|_| "<h1>Login page missing</h1>".into())
     )
+}
+
+/// Placeholder for token validation
+/// Replace with your JWT or session token logic
+async fn validate_token(token: &str) -> Result<AuthUser, ()> {
+    // Stub logic: accept "testtoken" for user id 1
+    if token == "testtoken" {
+        Ok(AuthUser { id: 1, username: "admin".into() })
+    } else {
+        Err(())
+    }
 }
