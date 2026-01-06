@@ -18,15 +18,26 @@ pub fn list_roles(user: AuthUser, pool: &State<DbPool>) -> rocket_dyn_templates:
         return rocket_dyn_templates::Template::render("unauthorized", &());
     }
 
-    let mut conn = pool.get().unwrap();
-    let all_roles = roles::table.load::<(i32, String)>(&mut conn).unwrap_or_default();
+    let mut conn = match pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to get DB connection: {}", e);
+            return rocket_dyn_templates::Template::render("error", &());
+        }
+    };
+
+    let all_roles = roles::table
+        .load::<(i32, String)>(&mut conn)
+        .unwrap_or_default();
 
     rocket_dyn_templates::Template::render("roles", &all_roles)
 }
 
 #[post("/roles/add", data = "<form>")]
 pub fn add_role(user: AuthUser, pool: &State<DbPool>, form: Form<RoleForm>) -> Redirect {
-    if !user.has_role(&UserRole::Admin) { return Redirect::to("/unauthorized"); }
+    if !user.has_role(&UserRole::Admin) {
+        return Redirect::to("/unauthorized");
+    }
 
     let mut conn = match pool.get() {
         Ok(c) => c,
@@ -52,7 +63,9 @@ pub fn add_role(user: AuthUser, pool: &State<DbPool>, form: Form<RoleForm>) -> R
 
 #[delete("/roles/<role_id>")]
 pub fn delete_role(user: AuthUser, pool: &State<DbPool>, role_id: i32) -> Redirect {
-    if !user.has_role(&UserRole::Admin) { return Redirect::to("/unauthorized"); }
+    if !user.has_role(&UserRole::Admin) {
+        return Redirect::to("/unauthorized");
+    }
 
     let mut conn = match pool.get() {
         Ok(c) => c,
@@ -86,4 +99,3 @@ pub fn delete_role(user: AuthUser, pool: &State<DbPool>, role_id: i32) -> Redire
 
     Redirect::to("/roles")
 }
-
