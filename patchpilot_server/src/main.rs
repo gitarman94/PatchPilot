@@ -12,7 +12,6 @@ mod action_ttl;
 mod pending_cleanup;
 
 use std::sync::{Arc, RwLock};
-use std::collections::HashMap;
 use log::info;
 use rocket::fs::FileServer;
 
@@ -20,9 +19,8 @@ use crate::db::{initialize, get_conn, create_default_admin, DbPool};
 use crate::action_ttl::spawn_action_ttl_task;
 use crate::pending_cleanup::spawn_pending_cleanup;
 use crate::state::{AppState, SystemState};
-use crate::models::{ServerSettings as ModelServerSettings, AuditLog};
+use crate::models::{ServerSettings as ModelServerSettings};
 use crate::auth::AuthUser;
-use diesel::RunQueryDsl;
 
 type AuditClosure =
     dyn Fn(&mut diesel::SqliteConnection, &str, &str, Option<&str>, Option<&str>) + Send + Sync;
@@ -43,29 +41,30 @@ fn rocket() -> _ {
     // 3. Load server settings
     let server_settings = {
         let mut conn = get_conn(&pool);
-        let settings = settings::ServerSettings::load(&mut conn);
+        let s = settings::ServerSettings::load(&mut conn);
 
         Arc::new(RwLock::new(ModelServerSettings {
-            id: 0,
-            auto_approve_devices: settings.auto_approve_devices,
-            auto_refresh_enabled: settings.auto_refresh_enabled,
-            auto_refresh_seconds: settings.auto_refresh_seconds,
-            default_action_ttl_seconds: settings.default_action_ttl_seconds,
-            action_polling_enabled: settings.action_polling_enabled,
-            ping_target_ip: settings.ping_target_ip,
-            allow_http: settings.allow_http,
-            force_https: settings.force_https,
+            id: s.id,
+            auto_approve_devices: s.auto_approve_devices,
+            auto_refresh_enabled: s.auto_refresh_enabled,
+            auto_refresh_seconds: s.auto_refresh_seconds,
+            default_action_ttl_seconds: s.default_action_ttl_seconds,
+            action_polling_enabled: s.action_polling_enabled,
+            ping_target_ip: s.ping_target_ip,
+            allow_http: s.allow_http,
+            force_https: s.force_https,
         }))
     };
 
     // 4. Build SystemState
-    let system_state = SystemState::new(pool.clone());
+    let system_state = SystemState::new(pool.clone()); // Already returns Arc<SystemState>
 
     // 5. Build AppState
     let app_state = Arc::new(AppState {
         db_pool: pool.clone(),
-        log_audit: Some(Arc::new(|_, _, _, _, _| {})), // <-- FIXED: wrapped in Some
-        system: system_state.clone(),                  // <-- FIXED: SystemState implements Clone
+        log_audit: Some(Arc::new(|_, _, _, _, _| {})),
+        system: system_state.clone(),
+        pending_devices: Arc::new(RwLock::new(std::collections::HashMap::new())),
         settings: server_settings.clone(),
     });
 
@@ -76,7 +75,11 @@ fn rocket() -> _ {
     // 7. Example usage of AuthUser::audit
     {
         let mut conn = get_conn(&pool);
-        let demo_user = AuthUser { id: 1, username: "admin".into(), role: "Admin".into() };
+        let demo_user = AuthUser {
+            id: 1,
+            username: "admin".into(),
+            role: "Admin".into(),
+        };
         demo_user.audit(&mut conn, "server_started", None);
     }
 

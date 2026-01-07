@@ -6,19 +6,19 @@ use sysinfo::System;
 use crate::models::ServerSettings;
 use crate::db::DbPool;
 
-/// SystemState tracks current system metrics
+/// Tracks current system metrics
 #[derive(Clone)]
 pub struct SystemState {
     system: Arc<RwLock<System>>,
 }
 
 impl SystemState {
-    pub fn new(_pool: DbPool) -> Self {
+    pub fn new(_pool: DbPool) -> Arc<Self> {
         let mut sys = System::new_all();
         sys.refresh_all();
-        Self {
+        Arc::new(Self {
             system: Arc::new(RwLock::new(sys)),
-        }
+        })
     }
 
     pub fn refresh(&self) {
@@ -44,7 +44,7 @@ impl SystemState {
     }
 }
 
-/// AppState holds server-wide state
+/// Holds server-wide state
 pub struct AppState {
     pub system: Arc<SystemState>,
     pub pending_devices: Arc<RwLock<HashMap<String, Instant>>>,
