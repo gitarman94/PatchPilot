@@ -3,12 +3,13 @@ use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 use sysinfo::System;
-use crate::models::{ServerSettings};
+use crate::models::ServerSettings;
 use crate::db::DbPool;
 
 /// SystemState tracks current system metrics
+#[derive(Clone)]
 pub struct SystemState {
-    system: RwLock<System>,
+    system: Arc<RwLock<System>>,
 }
 
 impl SystemState {
@@ -16,23 +17,30 @@ impl SystemState {
         let mut sys = System::new_all();
         sys.refresh_all();
         Self {
-            system: RwLock::new(sys),
+            system: Arc::new(RwLock::new(sys)),
         }
     }
 
     pub fn refresh(&self) {
-        let mut sys = self.system.write().unwrap();
-        sys.refresh_all();
+        if let Ok(mut sys) = self.system.write() {
+            sys.refresh_all();
+        }
     }
 
     pub fn total_memory(&self) -> u64 {
-        let sys = self.system.read().unwrap();
-        sys.total_memory()
+        if let Ok(sys) = self.system.read() {
+            sys.total_memory()
+        } else {
+            0
+        }
     }
 
     pub fn available_memory(&self) -> u64 {
-        let sys = self.system.read().unwrap();
-        sys.available_memory()
+        if let Ok(sys) = self.system.read() {
+            sys.available_memory()
+        } else {
+            0
+        }
     }
 }
 
@@ -42,7 +50,18 @@ pub struct AppState {
     pub pending_devices: Arc<RwLock<HashMap<String, Instant>>>,
     pub settings: Arc<RwLock<ServerSettings>>,
     pub db_pool: DbPool,
-    pub log_audit: Option<Arc<dyn Fn(&mut diesel::SqliteConnection, &str, &str, Option<&str>, Option<&str>) + Send + Sync>>,
+    pub log_audit: Option<
+        Arc<
+            dyn Fn(
+                    &mut diesel::SqliteConnection,
+                    &str,
+                    &str,
+                    Option<&str>,
+                    Option<&str>,
+                ) + Send
+                + Sync,
+        >,
+    >,
 }
 
 impl AppState {
@@ -62,14 +81,16 @@ impl AppState {
 
     /// Registers or updates a pending device heartbeat
     pub fn update_pending_device(&self, device_id: &str) {
-        let mut pending = self.pending_devices.write().unwrap();
-        pending.insert(device_id.to_string(), Instant::now());
+        if let Ok(mut pending) = self.pending_devices.write() {
+            pending.insert(device_id.to_string(), Instant::now());
+        }
     }
 
     /// Removes stale pending devices
     pub fn cleanup_stale_devices(&self, max_age_secs: u64) {
-        let mut pending = self.pending_devices.write().unwrap();
-        let now = Instant::now();
-        pending.retain(|_, t| now.duration_since(*t).as_secs() < max_age_secs);
+        if let Ok(mut pending) = self.pending_devices.write() {
+            let now = Instant::now();
+            pending.retain(|_, t| now.duration_since(*t).as_secs() < max_age_secs);
+        }
     }
 }

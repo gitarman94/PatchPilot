@@ -64,8 +64,8 @@ fn rocket() -> _ {
     // 5. Build AppState
     let app_state = Arc::new(AppState {
         db_pool: pool.clone(),
-        log_audit: Arc::new(|_, _, _, _, _| {}),
-        system: system_state.clone(),
+        log_audit: Some(Arc::new(|_, _, _, _, _| {})), // <-- FIXED: wrapped in Some
+        system: system_state.clone(),                  // <-- FIXED: SystemState implements Clone
         settings: server_settings.clone(),
     });
 
