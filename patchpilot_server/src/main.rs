@@ -64,21 +64,23 @@ fn rocket() -> _ {
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
         settings: server_settings.clone(),
         db_pool: pool.clone(),
-        audit: Some(Arc::new(|conn, actor, action_type, target, details| {
-            let log = AuditLog {
-                id: 0,
-                actor: actor.to_string(),
-                action_type: action_type.to_string(),
-                target: target.map(|s| s.to_string()),
-                details: details.map(|s| s.to_string()),
-                created_at: chrono::Utc::now().naive_utc(),
-            };
-            diesel::insert_into(crate::schema::audit::table)
-                .values(&log)
-                .execute(conn)
-                .ok();
-        })),
-    }));
+        audit: Some(Arc::new(
+            |conn, actor, action_type, target, details| {
+                let log = AuditLog {
+                    id: 0,
+                    actor: actor.to_string(),
+                    action_type: action_type.to_string(),
+                    target: target.map(|s| s.to_string()),
+                    details: details.map(|s| s.to_string()),
+                    created_at: chrono::Utc::now().naive_utc(),
+                };
+                diesel::insert_into(crate::schema::audit::table)
+                    .values(&log)
+                    .execute(conn)
+                    .ok();
+            },
+        )),
+    });
 
     // 6. Spawn background tasks
     spawn_action_ttl_task(app_state.clone());
@@ -123,7 +125,7 @@ fn rocket() -> _ {
             let figment = Config::figment()
                 .merge(("tls", TlsConfig::from_paths("certs/server.crt", "certs/server.key")));
             return rocket::custom(figment)
-                .mount("/api", routes::api_routes()) // re-mount routes for custom instance
+                .mount("/api", routes::api_routes())
                 .mount("/auth", routes::auth_routes())
                 .mount("/users-groups", routes::users_groups_routes())
                 .mount("/roles", routes::roles_routes())
