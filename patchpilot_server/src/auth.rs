@@ -26,7 +26,7 @@ pub struct UserRow {
     pub id: i32,
     pub username: String,
     pub password_hash: String,
-    pub role: String, // add role to match database
+    pub role: String,
 }
 
 /// Authenticated user representation
@@ -62,7 +62,7 @@ impl AuthUser {
     pub fn has_role(&self, role: UserRole) -> bool {
         match role {
             UserRole::Admin => self.role == "Admin",
-            UserRole::User => true, // all users have User role implicitly
+            UserRole::User => true,
         }
     }
 }
@@ -92,14 +92,14 @@ impl<'r> FromRequest<'r> for AuthUser {
             Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
-        use crate::schema::users::dsl::{users, id as col_id, username as col_username};
+        use crate::schema::users::dsl::{users, id as col_id, username as col_username, user_role as col_role};
 
         match users
             .filter(col_id.eq(user_id))
-            .select((col_id, col_username))
-            .first::<(i32, String)>(&mut conn)
+            .select((col_id, col_username, col_role))
+            .first::<(i32, String, String)>(&mut conn)
         {
-            Ok((uid, uname)) => Outcome::Success(AuthUser { id: uid, username: uname }),
+            Ok((uid, uname, urole)) => Outcome::Success(AuthUser { id: uid, username: uname, role: urole }),
             Err(_) => Outcome::Failure((Status::Unauthorized, ())),
         }
     }
@@ -113,7 +113,7 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
         Err(_) => return Redirect::to("/login"),
     };
 
-    use crate::schema::users::dsl::{id as col_id, password_hash as col_password_hash, role as col_role, username as col_username};
+    use crate::schema::users::dsl::{users, id as col_id, password_hash as col_password_hash, user_role as col_role, username as col_username};
 
     let user = match users
         .filter(col_username.eq(&form.username))
@@ -150,7 +150,7 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
 
     if let Some(uid) = user_id {
         if let Ok(mut conn) = pool.get() {
-            use crate::schema::users::dsl::{id as col_id, username as col_username, role as col_role};
+            use crate::schema::users::dsl::{users, id as col_id, username as col_username, user_role as col_role};
             if let Ok((uname, urole)) = users
                 .filter(col_id.eq(uid))
                 .select((col_username, col_role))

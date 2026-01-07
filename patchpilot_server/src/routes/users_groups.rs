@@ -27,7 +27,7 @@ pub fn list_users_groups(
     user: AuthUser,
     pool: &State<DbPool>,
 ) -> rocket_dyn_templates::Template {
-    if !user.has_role(&UserRole::Admin) {
+    if !user.has_role(UserRole::Admin) {
         return rocket_dyn_templates::Template::render("unauthorized", &());
     }
 
@@ -68,7 +68,7 @@ pub fn add_group(
     pool: &State<DbPool>,
     form: Form<GroupForm>,
 ) -> Redirect {
-    if !user.has_role(&UserRole::Admin) {
+    if !user.has_role(UserRole::Admin) {
         return Redirect::to("/unauthorized");
     }
 
@@ -98,7 +98,7 @@ pub fn add_user(
     pool: &State<DbPool>,
     form: Form<UserForm>,
 ) -> Redirect {
-    if !user.has_role(&UserRole::Admin) {
+    if !user.has_role(UserRole::Admin) {
         return Redirect::to("/unauthorized");
     }
 
@@ -153,7 +153,7 @@ pub fn delete_group(
     pool: &State<DbPool>,
     group_id_val: i32,
 ) -> Redirect {
-    if !user.has_role(&UserRole::Admin) {
+    if !user.has_role(UserRole::Admin) {
         return Redirect::to("/unauthorized");
     }
 
@@ -191,7 +191,7 @@ pub fn delete_user(
     pool: &State<DbPool>,
     user_id_val: i32,
 ) -> Redirect {
-    if !user.has_role(&UserRole::Admin) {
+    if !user.has_role(UserRole::Admin) {
         return Redirect::to("/unauthorized");
     }
 

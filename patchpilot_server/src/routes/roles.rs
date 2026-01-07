@@ -14,7 +14,7 @@ pub struct RoleForm {
 
 #[get("/roles")]
 pub fn list_roles(user: AuthUser, pool: &State<DbPool>) -> rocket_dyn_templates::Template {
-    if !user.has_role(&UserRole::Admin) {
+    if !user.has_role(UserRole::Admin) {
         return rocket_dyn_templates::Template::render("unauthorized", &());
     }
 
@@ -35,7 +35,7 @@ pub fn list_roles(user: AuthUser, pool: &State<DbPool>) -> rocket_dyn_templates:
 
 #[post("/roles/add", data = "<form>")]
 pub fn add_role(user: AuthUser, pool: &State<DbPool>, form: Form<RoleForm>) -> Redirect {
-    if !user.has_role(&UserRole::Admin) {
+    if !user.has_role(UserRole::Admin) {
         return Redirect::to("/unauthorized");
     }
 
@@ -63,7 +63,7 @@ pub fn add_role(user: AuthUser, pool: &State<DbPool>, form: Form<RoleForm>) -> R
 
 #[delete("/roles/<role_id>")]
 pub fn delete_role(user: AuthUser, pool: &State<DbPool>, role_id: i32) -> Redirect {
-    if !user.has_role(&UserRole::Admin) {
+    if !user.has_role(UserRole::Admin) {
         return Redirect::to("/unauthorized");
     }
 
