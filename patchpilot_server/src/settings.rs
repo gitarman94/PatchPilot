@@ -14,6 +14,10 @@ pub struct ServerSettings {
     pub default_action_ttl_seconds: i64,
     pub action_polling_enabled: bool,
     pub ping_target_ip: String,
+
+    // HTTPS / HTTP options
+    pub force_https: bool,
+    pub allow_http: bool,
 }
 
 impl ServerSettings {
@@ -50,6 +54,15 @@ impl ServerSettings {
             .set(server_settings::auto_refresh_seconds.eq(value))
             .execute(conn)
     }
+
+    /// HTTP / HTTPS getters
+    pub fn force_https(&self) -> bool {
+        self.force_https
+    }
+
+    pub fn allow_http(&self) -> bool {
+        self.allow_http
+    }
 }
 
 impl Default for ServerSettings {
@@ -61,6 +74,9 @@ impl Default for ServerSettings {
             default_action_ttl_seconds: 3600,
             action_polling_enabled: true,
             ping_target_ip: "8.8.8.8".to_string(),
+
+            force_https: false,
+            allow_http: true,
         }
     }
 }

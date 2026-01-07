@@ -13,14 +13,16 @@ mod state;
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use log::info;
-
 use rocket::fs::FileServer;
 
 use crate::db::{initialize, get_conn, create_default_admin, DbPool};
 use crate::tasks::{spawn_action_ttl_task, spawn_pending_cleanup};
 use crate::state::{AppState, SystemState};
-use crate::settings::ServerSettings;
+use crate::models::{ServerSettings as ModelServerSettings, AuditLog};
 use crate::auth::AuthUser;
+
+type AuditClosure =
+    dyn Fn(&mut diesel::SqliteConnection, &str, &str, Option<&str>, Option<&str>) + Send + Sync;
 
 #[launch]
 fn rocket() -> _ {
@@ -35,19 +37,22 @@ fn rocket() -> _ {
         }
     }
 
-    // 3. Load and initialize server settings
+    // 3. Load server settings
     let server_settings = {
         let mut conn = get_conn(&pool);
-        let mut settings = ServerSettings::load(&mut conn);
+        let settings = settings::ServerSettings::load(&mut conn);
 
-        // Call setters to remove dead code warnings
-        let _ = settings.set_auto_approve(&mut conn, settings.auto_approve_devices);
-        let _ = settings.set_auto_refresh(&mut conn, settings.auto_refresh_enabled);
-        let _ = settings.set_auto_refresh_interval(&mut conn, settings.auto_refresh_seconds);
-
-        settings.save(&mut conn);
-
-        Arc::new(RwLock::new(settings))
+        Arc::new(RwLock::new(ModelServerSettings {
+            id: 0,
+            auto_approve_devices: settings.auto_approve_devices,
+            auto_refresh_enabled: settings.auto_refresh_enabled,
+            auto_refresh_seconds: settings.auto_refresh_seconds,
+            default_action_ttl_seconds: settings.default_action_ttl_seconds,
+            action_polling_enabled: settings.action_polling_enabled,
+            ping_target_ip: settings.ping_target_ip,
+            force_https: settings.force_https,
+            allow_http: settings.allow_http,
+        }))
     };
 
     // 4. Build SystemState
@@ -60,9 +65,6 @@ fn rocket() -> _ {
         settings: server_settings.clone(),
         db_pool: pool.clone(),
         log_audit: Some(Arc::new(|conn, actor, action_type, target, details| {
-            // Example audit logging implementation
-            use crate::models::AuditLog;
-            use diesel::prelude::*;
             let log = AuditLog {
                 id: 0,
                 actor: actor.to_string(),
@@ -76,7 +78,7 @@ fn rocket() -> _ {
                 .execute(conn)
                 .ok();
         })),
-    });
+    }));
 
     // 6. Spawn background tasks
     spawn_action_ttl_task(app_state.clone());
@@ -98,11 +100,8 @@ fn rocket() -> _ {
 
     info!("PatchPilot server ready");
 
-    // 9. HTTP/HTTPS handling
+    // 9. HTTP/HTTPS
     let settings_read = app_state.settings.read().unwrap();
-    let force_https = settings_read.force_https();
-    let allow_http = settings_read.allow_http();
-
     let rocket_builder = rocket::build()
         .manage(pool)
         .manage(app_state)
@@ -115,15 +114,21 @@ fn rocket() -> _ {
         .mount("/history", routes![routes::history::api_history])
         .mount("/audit", routes![routes::history::api_audit]);
 
-    if force_https {
-        // TLS mode: provide server.crt & server.key
-        rocket_builder.configure(rocket::Config {
-            tls: Some(rocket::config::TlsConfig::from_paths("certs/server.crt", "certs/server.key")),
-            ..Default::default()
-        })
-    } else if allow_http {
-        rocket_builder // default HTTP
-    } else {
-        rocket_builder // fallback
+    #[cfg(feature = "tls")]
+    {
+        use rocket::config::{Config, TlsConfig};
+        if settings_read.force_https {
+            let figment = Config::figment()
+                .merge(("tls", TlsConfig::from_paths("certs/server.crt", "certs/server.key")));
+            rocket::custom(figment)
+                .mount("/api", routes::api_routes()) // re-mount routes
+        } else {
+            rocket_builder
+        }
+    }
+
+    #[cfg(not(feature = "tls"))]
+    {
+        rocket_builder
     }
 }

@@ -2,10 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
-use chrono::Utc;
-use sysinfo::{System, SystemExt, CpuExt};
-
-use crate::models::{ServerSettings, AuditLog};
+use sysinfo::System;
+use crate::models::{ServerSettings};
 use crate::db::DbPool;
 
 /// SystemState tracks current system metrics
@@ -43,7 +41,8 @@ pub struct AppState {
     pub system: Arc<SystemState>,
     pub pending_devices: Arc<RwLock<HashMap<String, Instant>>>,
     pub settings: Arc<RwLock<ServerSettings>>,
-    pub audit: Option<Arc<dyn Fn(&mut diesel::SqliteConnection, &str, &str, Option<&str>, Option<&str>) + Send + Sync>>,
+    pub db_pool: DbPool,
+    pub log_audit: Option<Arc<dyn Fn(&mut diesel::SqliteConnection, &str, &str, Option<&str>, Option<&str>) + Send + Sync>>,
 }
 
 impl AppState {
@@ -56,7 +55,7 @@ impl AppState {
         target: Option<&str>,
         details: Option<&str>,
     ) {
-        if let Some(ref f) = self.audit {
+        if let Some(ref f) = self.log_audit {
             f(conn, actor, action_type, target, details);
         }
     }
