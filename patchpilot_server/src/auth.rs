@@ -92,14 +92,14 @@ impl<'r> FromRequest<'r> for AuthUser {
             Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
-        use crate::schema::users::dsl::{id as col_id, username as col_username, role as col_role};
+        use crate::schema::users::dsl::{users, id as col_id, username as col_username};
 
         match users
             .filter(col_id.eq(user_id))
-            .select((col_id, col_username, col_role))
-            .first::<(i32, String, String)>(&mut conn)
+            .select((col_id, col_username))
+            .first::<(i32, String)>(&mut conn)
         {
-            Ok((uid, uname, urole)) => Outcome::Success(AuthUser { id: uid, username: uname, role: urole }),
+            Ok((uid, uname)) => Outcome::Success(AuthUser { id: uid, username: uname }),
             Err(_) => Outcome::Failure((Status::Unauthorized, ())),
         }
     }
