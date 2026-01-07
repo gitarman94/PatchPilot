@@ -109,16 +109,38 @@ pub struct NewAction {
     pub canceled: bool,
 }
 
-#[derive(Debug, Queryable, Selectable, Serialize, Deserialize)]
+#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = action_targets)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ActionTarget {
     pub id: i32,
-    pub action_id: Option<String>,
+    pub action_id: String,
     pub device_id: String,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
+}
+
+#[derive(Debug, Insertable, Serialize, Deserialize)]
+#[diesel(table_name = action_targets)]
+pub struct NewActionTarget {
+    pub action_id: String,
+    pub device_id: String,
+    pub status: String,
+    pub last_update: NaiveDateTime,
+    pub response: Option<String>,
+}
+
+impl NewActionTarget {
+    pub fn pending(action_id: &str, device_id: &str) -> Self {
+        Self {
+            action_id: action_id.to_string(),
+            device_id: device_id.to_string(),
+            status: "Pending".to_string(),
+            last_update: Utc::now().naive_utc(),
+            response: None,
+        }
+    }
 }
 
 #[derive(Debug, Queryable, Selectable, Serialize)]
@@ -146,7 +168,6 @@ pub struct AuditLog {
     pub created_at: NaiveDateTime,
 }
 
-/// ServerSettings for devices.rs
 #[derive(Debug, Queryable, Selectable, Serialize, Deserialize, Default)]
 #[diesel(table_name = server_settings)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
@@ -158,119 +179,4 @@ pub struct ServerSettings {
     pub default_action_ttl_seconds: i64,
     pub action_polling_enabled: bool,
     pub ping_target_ip: String,
-}
-
-impl DeviceInfo {
-    pub fn merge_with(&mut self, other: &DeviceInfo) {
-        let s = &mut self.system_info;
-        let o = &other.system_info;
-
-        if !o.os_name.is_empty() { s.os_name = o.os_name.clone(); }
-        if !o.architecture.is_empty() { s.architecture = o.architecture.clone(); }
-        if !o.cpu_brand.is_empty() { s.cpu_brand = o.cpu_brand.clone(); }
-        if !o.disk_health.is_empty() { s.disk_health = o.disk_health.clone(); }
-
-        if let Some(ip) = &o.ip_address {
-            if !ip.is_empty() { s.ip_address = Some(ip.clone()); }
-        }
-        if let Some(nics) = &o.network_interfaces {
-            if !nics.is_empty() { s.network_interfaces = Some(nics.clone()); }
-        }
-
-        s.cpu_usage = o.cpu_usage;
-        s.cpu_count = o.cpu_count;
-        s.ram_total = o.ram_total;
-        s.ram_used = o.ram_used;
-        s.disk_total = o.disk_total;
-        s.disk_free = o.disk_free;
-        s.network_throughput = o.network_throughput;
-
-        if let Some(t) = &other.device_type {
-            if !t.is_empty() { self.device_type = Some(t.clone()); }
-        }
-        if let Some(m) = &other.device_model {
-            if !m.is_empty() { self.device_model = Some(m.clone()); }
-        }
-
-        if !other.device_id.is_empty() { self.device_id = other.device_id.clone(); }
-    }
-
-    pub fn to_device(&self, device_id: &str) -> Device {
-        let s = &self.system_info;
-        Device {
-            id: 0,
-            device_id: device_id.to_string(),
-            device_name: device_id.to_string(),
-            hostname: device_id.to_string(),
-            os_name: s.os_name.clone(),
-            architecture: s.architecture.clone(),
-            last_checkin: Utc::now().naive_utc(),
-            approved: false,
-            cpu_usage: s.cpu_usage,
-            cpu_count: s.cpu_count,
-            cpu_brand: s.cpu_brand.clone(),
-            ram_total: s.ram_total,
-            ram_used: s.ram_used,
-            disk_total: s.disk_total,
-            disk_free: s.disk_free,
-            disk_health: s.disk_health.clone(),
-            network_throughput: s.network_throughput,
-            device_type: self.device_type.clone().unwrap_or_default(),
-            device_model: self.device_model.clone().unwrap_or_default(),
-            uptime: Some(0),
-            updates_available: false,
-            network_interfaces: s.network_interfaces.clone(),
-            ip_address: s.ip_address.clone(),
-        }
-    }
-}
-
-impl NewDevice {
-    pub fn from_device_info(
-        device_id: &str,
-        info: &DeviceInfo,
-        existing: Option<&Device>,
-    ) -> Self {
-        let s = &info.system_info;
-        NewDevice {
-            device_id: device_id.to_string(),
-            device_name: device_id.to_string(),
-            hostname: device_id.to_string(),
-            os_name: s.os_name.clone(),
-            architecture: s.architecture.clone(),
-            last_checkin: Utc::now().naive_utc(),
-            approved: existing.map_or(false, |e| e.approved),
-            cpu_usage: s.cpu_usage,
-            cpu_count: s.cpu_count,
-            cpu_brand: s.cpu_brand.clone(),
-            ram_total: s.ram_total,
-            ram_used: s.ram_used,
-            disk_total: s.disk_total,
-            disk_free: s.disk_free,
-            disk_health: s.disk_health.clone(),
-            network_throughput: s.network_throughput,
-            device_type: info.device_type.clone().unwrap_or_default(),
-            device_model: info.device_model.clone().unwrap_or_default(),
-            uptime: Some(0),
-            updates_available: false,
-            network_interfaces: s.network_interfaces.clone(),
-            ip_address: s.ip_address.clone(),
-        }
-    }
-}
-
-impl Device {
-    pub fn compute_uptime(&self) -> i64 {
-        let duration = Utc::now().naive_utc() - self.last_checkin;
-        duration.num_seconds()
-    }
-
-    pub fn enrich_for_dashboard(mut self) -> Self {
-        self.uptime = Some(self.compute_uptime());
-        self
-    }
-
-    pub fn from_info(device_id: &str, info: &DeviceInfo) -> Self {
-        info.to_device(device_id)
-    }
 }
