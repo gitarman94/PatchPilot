@@ -8,6 +8,8 @@ mod schema;
 mod settings;
 mod auth;
 mod state;
+mod action_ttl;
+mod pending_cleanup;
 
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
@@ -15,8 +17,8 @@ use log::info;
 use rocket::fs::FileServer;
 
 use crate::db::{initialize, get_conn, create_default_admin, DbPool};
-use crate::tasks::action_ttl::spawn_action_ttl_task;
-use crate::tasks::pending_cleanup::spawn_pending_cleanup;
+use crate::action_ttl::spawn_action_ttl_task;
+use crate::pending_cleanup::spawn_pending_cleanup;
 use crate::state::{AppState, SystemState};
 use crate::models::{ServerSettings as ModelServerSettings, AuditLog};
 use crate::auth::AuthUser;
