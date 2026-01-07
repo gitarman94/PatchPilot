@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::db::DbPool;
-use crate::models::{Action, NewAction};
+use crate::models::{Action, NewAction, NewActionTarget};
 use crate::schema::{actions, action_targets};
 use crate::routes::history::log_audit;
 
@@ -52,14 +52,11 @@ pub async fn submit_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
+        // Create and insert ActionTarget
+        let target = NewActionTarget::pending(&new_action.id, &form.target_device_id);
+
         diesel::insert_into(action_targets::table)
-            .values((
-                action_targets::action_id.eq(&new_action.id),
-                action_targets::device_id.eq(&form.target_device_id),
-                action_targets::status.eq("pending".to_string()),
-                action_targets::last_update.eq(Utc::now().naive_utc()),
-                action_targets::response.eq::<Option<String>>(None),
-            ))
+            .values(&target)
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
@@ -115,7 +112,6 @@ pub async fn cancel_action(
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
 
-        // Set new expiry to now to cancel the action
         let new_expiry = Utc::now().naive_utc();
         diesel::update(actions::table.filter(actions::id.eq(&action_id)))
             .set(actions::expires_at.eq(new_expiry))
