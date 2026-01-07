@@ -6,8 +6,8 @@ use chrono::Utc;
 use crate::db::{DbPool, log_audit, load_settings};
 use crate::auth::{AuthUser, UserRole};
 use crate::models::{Device, DeviceInfo, NewDevice};
-use crate::settings::ServerSettings; // <- Added
 use crate::schema::devices::dsl::*;
+use crate::schema::server_settings::dsl as settings_dsl;
 
 /// Get all devices
 #[get("/devices")]
@@ -34,10 +34,10 @@ pub async fn get_device_details(
 }
 
 /// Helper: get current server settings
-pub async fn get_server_settings(pool: &State<DbPool>) -> Result<ServerSettings, Status> {
-    let pool_clone = pool.inner().clone();
+pub async fn get_server_settings(pool: &State<DbPool>) -> Result<settings_dsl::ServerSettings, Status> {
+    let pool = pool.inner().clone();
     rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         load_settings(&mut conn).map_err(|_| Status::InternalServerError)
     })
     .await
@@ -57,14 +57,15 @@ pub async fn approve_device(
 
     let username = user.username.clone();
     let device_id_str = device_id_param.to_string();
-    let pool_clone = pool.inner().clone();
+    let pool = pool.inner().clone();
 
     rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         diesel::update(devices.filter(device_id.eq(&device_id_str)))
             .set(approved.eq(true))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
+
         log_audit(
             &mut conn,
             &username,
@@ -73,6 +74,7 @@ pub async fn approve_device(
             Some("Device approved"),
         )
         .map_err(|_| Status::InternalServerError)?;
+
         Ok(Status::Ok)
     })
     .await
@@ -86,6 +88,7 @@ pub async fn heartbeat(pool: &State<DbPool>) -> Result<Json<serde_json::Value>, 
     diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1"))
         .get_result::<i32>(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
+
     Ok(Json(serde_json::json!({
         "status": "ok",
         "timestamp": Utc::now().to_rfc3339()
@@ -105,23 +108,24 @@ pub async fn register_or_update_device(
 
     let username = user.username.clone();
     let info = info.into_inner();
-    let pool_clone = pool.inner().clone();
-
-    // Fixed: pass &State<DbPool> to get_server_settings
-    let settings = get_server_settings(&pool).await.unwrap_or_default();
+    let pool_inner = pool.inner().clone();
+    let settings = get_server_settings(&pool_inner).await.unwrap_or_default();
 
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
-        let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
+        let mut conn = pool_inner.get().map_err(|_| Status::InternalServerError)?;
         let existing = devices
             .filter(device_id.eq(&info.device_id))
             .first::<Device>(&mut conn)
             .optional()
             .map_err(|_| Status::InternalServerError)?;
+
         let mut updated = NewDevice::from_device_info(&info.device_id, &info, existing.as_ref());
         updated.last_checkin = Utc::now().naive_utc();
+
         if settings.auto_approve_devices {
             updated.approved = true;
         }
+
         diesel::insert_into(devices)
             .values(&updated)
             .on_conflict(device_id)
