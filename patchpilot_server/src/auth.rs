@@ -13,7 +13,7 @@ use bcrypt::verify;
 use chrono::Utc;
 use std::fs::read_to_string;
 
-/// Local struct representing a user from the database
+/// Local struct representing a user row from the database
 #[derive(Queryable)]
 struct User {
     pub id: i32,
@@ -69,26 +69,29 @@ impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        // Get user_id cookie
         let cookie = match request.cookies().get_private("user_id") {
             Some(c) => c,
-            None => return Outcome::Failure((Status::Unauthorized, ())),
+            None => return Outcome::Error((Status::Unauthorized, ())),
         };
 
         let user_id = match cookie.value().parse::<i32>() {
             Ok(v) => v,
-            Err(_) => return Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => return Outcome::Error((Status::Unauthorized, ())),
         };
 
+        // Get DB pool
         let pool = match request.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Failure((Status::InternalServerError, ())),
+            _ => return Outcome::Error((Status::InternalServerError, ())),
         };
 
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
+            Err(_) => return Outcome::Error((Status::InternalServerError, ())),
         };
 
+        // Query user with role
         match users::table
             .filter(users::id.eq(user_id))
             .inner_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
@@ -96,8 +99,10 @@ impl<'r> FromRequest<'r> for AuthUser {
             .select((users::id, users::username, roles::name))
             .first::<(i32, String, String)>(&mut conn)
         {
-            Ok((uid, uname, urole)) => Outcome::Success(AuthUser { id: uid, username: uname, role: urole }),
-            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
+            Ok((uid, uname, urole)) => {
+                Outcome::Success(AuthUser { id: uid, username: uname, role: urole })
+            }
+            Err(_) => Outcome::Error((Status::Unauthorized, ())),
         }
     }
 }
@@ -109,7 +114,7 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
         Err(_) => return Redirect::to("/login"),
     };
 
-    match users::table
+    let user_row = match users::table
         .filter(users::username.eq(&form.username))
         .inner_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
         .inner_join(roles::table.on(roles::id.eq(user_roles::role_id)))
@@ -117,38 +122,38 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
         .first::<(i32, String, String, String)>(&mut conn)
         .optional()
     {
-        Ok(Some((uid, uname, password_hash, role))) => {
-            if !verify(&form.password, &password_hash).unwrap_or(false) {
-                return Redirect::to("/login");
-            }
+        Ok(Some(u)) => u,
+        _ => return Redirect::to("/login"),
+    };
 
-            let mut cookie = Cookie::new("user_id", uid.to_string());
-            cookie.set_same_site(SameSite::Lax);
-            cookies.add_private(cookie);
-
-            let auth_user = AuthUser { id: uid, username: uname.clone(), role: role.clone() };
-            auth_user.audit(&mut conn, "login", None);
-
-            Redirect::to("/dashboard")
-        }
-        _ => Redirect::to("/login"),
+    if !verify(&form.password, &user_row.2).unwrap_or(false) {
+        return Redirect::to("/login");
     }
+
+    let mut cookie = Cookie::new("user_id", user_row.0.to_string());
+    cookie.set_same_site(SameSite::Lax);
+    cookies.add_private(cookie);
+
+    let auth_user = AuthUser { id: user_row.0, username: user_row.1.clone(), role: user_row.3.clone() };
+    auth_user.audit(&mut conn, "login", None);
+
+    Redirect::to("/dashboard")
 }
 
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
-    let user_id = cookies
+    let user_id_opt = cookies
         .get_private("user_id")
         .and_then(|c| c.value().parse::<i32>().ok());
 
     cookies.remove_private(Cookie::from("user_id"));
 
-    if let Some(uid) = user_id {
+    if let Some(uid) = user_id_opt {
         if let Ok(mut conn) = pool.get() {
             if let Ok((uname, urole)) = users::table
+                .filter(users::id.eq(uid))
                 .inner_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
                 .inner_join(roles::table.on(roles::id.eq(user_roles::role_id)))
-                .filter(users::id.eq(uid))
                 .select((users::username, roles::name))
                 .first::<(String, String)>(&mut conn)
             {
@@ -163,10 +168,11 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
 
 #[get("/login")]
 pub fn login_page() -> RawHtml<String> {
-    RawHtml(read_to_string("templates/login.html").unwrap_or_else(|_| "<h1>Login page missing</h1>".to_string()))
+    RawHtml(read_to_string("templates/login.html")
+        .unwrap_or_else(|_| "<h1>Login page missing</h1>".to_string()))
 }
 
-/// Token validation stub for API use
+/// Token validation stub
 pub async fn validate_token(token: &str) -> Result<AuthUser, ()> {
     if token == "testtoken" {
         Ok(AuthUser { id: 1, username: "admin".into(), role: "Admin".into() })
