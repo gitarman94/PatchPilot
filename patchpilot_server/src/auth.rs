@@ -7,7 +7,7 @@ use rocket::State;
 use diesel::prelude::*;
 
 use crate::db::DbPool;
-use crate::schema::{users, audit};
+use crate::schema::audit;
 
 use bcrypt::verify;
 use chrono::Utc;
@@ -35,6 +35,7 @@ pub struct AuthUser {
     pub username: String,
 }
 
+/// Roles
 #[derive(Debug, PartialEq, Eq)]
 pub enum UserRole {
     Admin,
@@ -42,15 +43,13 @@ pub enum UserRole {
 }
 
 impl AuthUser {
-    /// Check if user has a role
     pub fn has_role(&self, role: &UserRole) -> bool {
         match role {
-            UserRole::Admin => self.id == 1, // id 1 is admin
+            UserRole::Admin => self.id == 1,
             UserRole::User => true,
         }
     }
 
-    /// Log an action to the audit table
     pub fn audit(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) {
         let _ = diesel::insert_into(audit::table)
             .values((
@@ -71,22 +70,22 @@ impl<'r> FromRequest<'r> for AuthUser {
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         let cookie = match request.cookies().get_private("user_id") {
             Some(c) => c,
-            None => return Outcome::Failure(Status::Unauthorized),
+            None => return Outcome::Error((Status::Unauthorized, ())),
         };
 
         let user_id = match cookie.value().parse::<i32>() {
             Ok(v) => v,
-            Err(_) => return Outcome::Failure(Status::Unauthorized),
+            Err(_) => return Outcome::Error((Status::Unauthorized, ())),
         };
 
         let pool = match request.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Failure(Status::InternalServerError),
+            _ => return Outcome::Error((Status::InternalServerError, ())),
         };
 
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Failure(Status::InternalServerError),
+            Err(_) => return Outcome::Error((Status::InternalServerError, ())),
         };
 
         use crate::schema::users::dsl::{users, id as col_id, username as col_username};
@@ -97,12 +96,11 @@ impl<'r> FromRequest<'r> for AuthUser {
             .first::<(i32, String)>(&mut conn)
         {
             Ok((uid, uname)) => Outcome::Success(AuthUser { id: uid, username: uname }),
-            Err(_) => Outcome::Failure(Status::Unauthorized),
+            Err(_) => Outcome::Error((Status::Unauthorized, ())),
         }
     }
 }
 
-/// Handle login POST
 #[post("/login", data = "<form>")]
 pub fn login(
     form: Form<LoginForm>,
@@ -114,7 +112,9 @@ pub fn login(
         Err(_) => return Redirect::to("/login"),
     };
 
-    use crate::schema::users::dsl::{users, id as col_id, username as col_username, password_hash as col_password_hash};
+    use crate::schema::users::dsl::{
+        users, id as col_id, username as col_username, password_hash as col_password_hash,
+    };
 
     let user = match users
         .filter(col_username.eq(&form.username))
@@ -140,7 +140,6 @@ pub fn login(
     Redirect::to("/dashboard")
 }
 
-/// Handle logout
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
     let user_id = cookies
@@ -167,7 +166,6 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
     Redirect::to("/login")
 }
 
-/// Serve login page
 #[get("/login")]
 pub fn login_page() -> RawHtml<String> {
     RawHtml(
@@ -176,7 +174,7 @@ pub fn login_page() -> RawHtml<String> {
     )
 }
 
-/// Token validation stub for API use
+/// Optional API token validation
 pub async fn validate_token(token: &str) -> Result<AuthUser, ()> {
     if token == "testtoken" {
         Ok(AuthUser { id: 1, username: "admin".into() })
