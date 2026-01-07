@@ -8,7 +8,7 @@ use diesel::prelude::*;
 
 use crate::db::DbPool;
 use crate::schema::{audit, users, roles, user_roles};
-use crate::models::User;
+use crate::models::UserRow; // fixed import
 
 use bcrypt::verify;
 use chrono::Utc;
@@ -64,22 +64,22 @@ impl<'r> FromRequest<'r> for AuthUser {
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         let cookie = match request.cookies().get_private("user_id") {
             Some(c) => c,
-            None => return Outcome::Failure(Status::Unauthorized),
+            None => return Outcome::Failure((Status::Unauthorized, ())),
         };
 
         let user_id = match cookie.value().parse::<i32>() {
             Ok(v) => v,
-            Err(_) => return Outcome::Failure(Status::Unauthorized),
+            Err(_) => return Outcome::Failure((Status::Unauthorized, ())),
         };
 
         let pool = match request.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Failure(Status::InternalServerError),
+            _ => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Failure(Status::InternalServerError),
+            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         match users::table
@@ -90,7 +90,7 @@ impl<'r> FromRequest<'r> for AuthUser {
             .first::<(i32, String, String)>(&mut conn)
         {
             Ok((uid, uname, urole)) => Outcome::Success(AuthUser { id: uid, username: uname, role: urole }),
-            Err(_) => Outcome::Failure(Status::Unauthorized),
+            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
         }
     }
 }
