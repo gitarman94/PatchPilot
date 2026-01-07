@@ -7,8 +7,8 @@ use rocket::State;
 use diesel::prelude::*;
 
 use crate::db::DbPool;
-use crate::schema::audit;
-use crate::models::UserRow;
+use crate::schema::{audit, users, roles, user_roles};
+use crate::models::User;
 
 use bcrypt::verify;
 use chrono::Utc;
@@ -64,33 +64,33 @@ impl<'r> FromRequest<'r> for AuthUser {
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         let cookie = match request.cookies().get_private("user_id") {
             Some(c) => c,
-            None => return Outcome::Failure((Status::Unauthorized, ())),
+            None => return Outcome::Failure(Status::Unauthorized),
         };
 
         let user_id = match cookie.value().parse::<i32>() {
             Ok(v) => v,
-            Err(_) => return Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => return Outcome::Failure(Status::Unauthorized),
         };
 
         let pool = match request.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Failure((Status::InternalServerError, ())),
+            _ => return Outcome::Failure(Status::InternalServerError),
         };
 
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
+            Err(_) => return Outcome::Failure(Status::InternalServerError),
         };
 
-        use crate::schema::users::dsl::{users, id as col_id, username as col_username, role as col_role};
-
-        match users
-            .filter(col_id.eq(user_id))
-            .select((col_id, col_username, col_role))
+        match users::table
+            .filter(users::id.eq(user_id))
+            .inner_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
+            .inner_join(roles::table.on(roles::id.eq(user_roles::role_id)))
+            .select((users::id, users::username, roles::name))
             .first::<(i32, String, String)>(&mut conn)
         {
             Ok((uid, uname, urole)) => Outcome::Success(AuthUser { id: uid, username: uname, role: urole }),
-            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => Outcome::Failure(Status::Unauthorized),
         }
     }
 }
@@ -102,30 +102,30 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
         Err(_) => return Redirect::to("/login"),
     };
 
-    use crate::schema::users::dsl::{users, id as col_id, username as col_username, password_hash as col_password_hash, role as col_role};
-
-    let user_row = match users
-        .filter(col_username.eq(&form.username))
-        .select((col_id, col_username, col_password_hash, col_role))
-        .first::<UserRow>(&mut conn)
+    match users::table
+        .filter(users::username.eq(&form.username))
+        .inner_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
+        .inner_join(roles::table.on(roles::id.eq(user_roles::role_id)))
+        .select((users::id, users::username, users::password_hash, roles::name))
+        .first::<(i32, String, String, String)>(&mut conn)
         .optional()
     {
-        Ok(Some(u)) => u,
-        _ => return Redirect::to("/login"),
-    };
+        Ok(Some((uid, uname, password_hash, role))) => {
+            if !verify(&form.password, &password_hash).unwrap_or(false) {
+                return Redirect::to("/login");
+            }
 
-    if !verify(&form.password, &user_row.password_hash).unwrap_or(false) {
-        return Redirect::to("/login");
+            let mut cookie = Cookie::new("user_id", uid.to_string());
+            cookie.set_same_site(SameSite::Lax);
+            cookies.add_private(cookie);
+
+            let auth_user = AuthUser { id: uid, username: uname.clone(), role: role.clone() };
+            auth_user.audit(&mut conn, "login", None);
+
+            Redirect::to("/dashboard")
+        }
+        _ => Redirect::to("/login"),
     }
-
-    let mut cookie = Cookie::new("user_id", user_row.id.to_string());
-    cookie.set_same_site(SameSite::Lax);
-    cookies.add_private(cookie);
-
-    let auth_user = AuthUser { id: user_row.id, username: user_row.username.clone(), role: user_row.role.clone() };
-    auth_user.audit(&mut conn, "login", None);
-
-    Redirect::to("/dashboard")
 }
 
 #[get("/logout")]
@@ -138,11 +138,11 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
 
     if let Some(uid) = user_id {
         if let Ok(mut conn) = pool.get() {
-            use crate::schema::users::dsl::{users, id as col_id, username as col_username, role as col_role};
-
-            if let Ok((uname, urole)) = users
-                .filter(col_id.eq(uid))
-                .select((col_username, col_role))
+            if let Ok((uname, urole)) = users::table
+                .inner_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
+                .inner_join(roles::table.on(roles::id.eq(user_roles::role_id)))
+                .filter(users::id.eq(uid))
+                .select((users::username, roles::name))
                 .first::<(String, String)>(&mut conn)
             {
                 let auth_user = AuthUser { id: uid, username: uname, role: urole };

@@ -5,9 +5,8 @@ use chrono::Utc;
 
 use crate::db::{DbPool, log_audit, load_settings};
 use crate::auth::{AuthUser, UserRole};
-use crate::models::{Device, DeviceInfo, NewDevice};
+use crate::models::{Device, DeviceInfo, NewDevice, ServerSettings as ModelServerSettings};
 use crate::schema::devices::dsl::*;
-use crate::schema::server_settings::dsl as settings_dsl;
 
 /// Get all devices
 #[get("/devices")]
@@ -34,11 +33,21 @@ pub async fn get_device_details(
 }
 
 /// Helper: get current server settings
-pub async fn get_server_settings(pool: &State<DbPool>) -> Result<crate::models::ServerSettings, Status> {
+pub async fn get_server_settings(pool: &State<DbPool>) -> Result<ModelServerSettings, Status> {
     let pool_inner = pool.inner().clone();
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool_inner.get().map_err(|_| Status::InternalServerError)?;
-        crate::db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)
+        let settings: crate::settings::ServerSettings =
+            load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
+        // Convert crate::settings::ServerSettings -> models::ServerSettings
+        Ok(ModelServerSettings {
+            auto_approve_devices: settings.auto_approve_devices,
+            auto_refresh_enabled: settings.auto_refresh_enabled,
+            auto_refresh_seconds: settings.auto_refresh_seconds,
+            default_action_ttl_seconds: settings.default_action_ttl_seconds,
+            action_polling_enabled: settings.action_polling_enabled,
+            ping_target_ip: settings.ping_target_ip,
+        })
     })
     .await
     .map_err(|_| Status::InternalServerError)?
