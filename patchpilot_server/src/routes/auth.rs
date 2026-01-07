@@ -7,7 +7,7 @@ use rocket::State;
 use diesel::prelude::*;
 
 use crate::db::DbPool;
-use crate::schema::{users, audit};
+use crate::schema::audit;
 
 use bcrypt::verify;
 use chrono::Utc;
@@ -37,9 +37,7 @@ impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let cookies = request.cookies();
-
-        let cookie = match cookies.get_private("user_id") {
+        let cookie = match request.cookies().get_private("user_id") {
             Some(c) => c,
             None => return Outcome::Error((Status::Unauthorized, ())),
         };
@@ -83,10 +81,16 @@ pub fn login(
         Err(_) => return Redirect::to("/login"),
     };
 
-    use crate::schema::users::dsl::{users, username as col_username};
+    use crate::schema::users::dsl::{
+        users,
+        id as col_id,
+        username as col_username,
+        password_hash as col_password_hash,
+    };
 
     let user = match users
         .filter(col_username.eq(&form.username))
+        .select((col_id, col_username, col_password_hash))
         .first::<UserRow>(&mut conn)
         .optional()
     {
