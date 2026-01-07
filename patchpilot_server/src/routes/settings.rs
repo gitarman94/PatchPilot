@@ -29,12 +29,12 @@ pub async fn view_settings(
 ) -> Result<rocket_dyn_templates::Template, Status> {
     let pool = state.system.pool.clone();
 
-    let settings: ModelSettings = rocket::tokio::task::spawn_blocking(move || {
+    let settings: ModelServerSettings = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let s: crate::settings::ServerSettings = db::load_settings(&mut conn)
+        let s: ServerSettings = db::load_settings(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        Ok(ModelSettings {
+        Ok(ModelServerSettings {
             id: 1,
             auto_approve_devices: s.auto_approve_devices,
             auto_refresh_enabled: s.auto_refresh_enabled,
@@ -42,6 +42,8 @@ pub async fn view_settings(
             default_action_ttl_seconds: s.default_action_ttl_seconds,
             action_polling_enabled: s.action_polling_enabled,
             ping_target_ip: s.ping_target_ip,
+            allow_http: s.allow_http,
+            force_https: s.force_https,
         })
     })
     .await
@@ -51,7 +53,6 @@ pub async fn view_settings(
     context.insert("settings", settings);
     Ok(rocket_dyn_templates::Template::render("settings", &context))
 }
-
 
 #[post("/settings/update", data = "<form>")]
 pub async fn update_settings(
@@ -70,7 +71,7 @@ pub async fn update_settings(
             Err(_) => return,
         };
 
-        let mut settings: crate::settings::ServerSettings = match db::load_settings(&mut conn) {
+        let mut settings: ServerSettings = match db::load_settings(&mut conn) {
             Ok(s) => s,
             Err(_) => return,
         };
@@ -144,16 +145,13 @@ pub fn set_auto_refresh_interval(
         .execute(conn)
 }
 
-pub async fn get_settings(state: actix_web::web::Data<Arc<SystemState>>) -> impl Responder {
-    let pool = &state.system.db_pool; // fixed field name
-    let settings: ServerSettings = load_from_db(pool).await.unwrap();
-    
-    // convert to models::ServerSettings
-    let model_settings = ModelServerSettings {
-        allow_http: settings.allow_http,
-        force_https: settings.force_https,
-        // map other fields here...
-    };
-    
-    HttpResponse::Ok().json(model_settings)
+/// Mount routes for Rocket
+pub fn configure_routes(rocket: rocket::Rocket<rocket::Build>) -> rocket::Rocket<rocket::Build> {
+    rocket.mount(
+        "/",
+        routes![
+            view_settings,
+            update_settings
+        ],
+    )
 }

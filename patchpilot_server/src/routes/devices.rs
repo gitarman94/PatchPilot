@@ -22,6 +22,8 @@ pub async fn get_server_settings(pool: &State<DbPool>) -> ModelServerSettings {
             default_action_ttl_seconds: settings.default_action_ttl_seconds,
             action_polling_enabled: settings.action_polling_enabled,
             ping_target_ip: settings.ping_target_ip,
+            allow_http: settings.allow_http,
+            force_https: settings.force_https,
         }
     })
     .await
@@ -189,17 +191,16 @@ pub async fn register_or_update_device(
     Ok(Json(result))
 }
 
-/// Configure routes for Rocket
+/// Configure all device-related Rocket routes
 pub fn configure_routes(rocket: rocket::Rocket<rocket::Build>) -> rocket::Rocket<rocket::Build> {
-    rocket
-        .mount(
-            "/",
-            routes![
-                get_devices,
-                heartbeat,
-                get_device_details,
-                approve_device,
-                register_or_update_device
-            ],
-        )
+    rocket.mount(
+        "/",
+        routes![
+            get_devices,
+            heartbeat,
+            get_device_details,
+            approve_device,
+            register_or_update_device
+        ],
+    )
 }
