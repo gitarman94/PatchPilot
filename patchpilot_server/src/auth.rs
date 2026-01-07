@@ -35,7 +35,21 @@ pub struct AuthUser {
     pub username: String,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum UserRole {
+    Admin,
+    User,
+}
+
 impl AuthUser {
+    /// Check if user has a role
+    pub fn has_role(&self, role: &UserRole) -> bool {
+        match role {
+            UserRole::Admin => self.id == 1, // id 1 is admin
+            UserRole::User => true,
+        }
+    }
+
     /// Log an action to the audit table
     pub fn audit(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) {
         let _ = diesel::insert_into(audit::table)
@@ -57,22 +71,22 @@ impl<'r> FromRequest<'r> for AuthUser {
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         let cookie = match request.cookies().get_private("user_id") {
             Some(c) => c,
-            None => return Outcome::Failure((Status::Unauthorized, ())),
+            None => return Outcome::Failure(Status::Unauthorized),
         };
 
         let user_id = match cookie.value().parse::<i32>() {
             Ok(v) => v,
-            Err(_) => return Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => return Outcome::Failure(Status::Unauthorized),
         };
 
         let pool = match request.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Failure((Status::InternalServerError, ())),
+            _ => return Outcome::Failure(Status::InternalServerError),
         };
 
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
+            Err(_) => return Outcome::Failure(Status::InternalServerError),
         };
 
         use crate::schema::users::dsl::{users, id as col_id, username as col_username};
@@ -83,7 +97,7 @@ impl<'r> FromRequest<'r> for AuthUser {
             .first::<(i32, String)>(&mut conn)
         {
             Ok((uid, uname)) => Outcome::Success(AuthUser { id: uid, username: uname }),
-            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => Outcome::Failure(Status::Unauthorized),
         }
     }
 }
