@@ -8,8 +8,6 @@ pub mod pages;
 pub mod users_groups;
 pub mod roles;
 
-use actix_web::web;
-
 /// API routes
 pub fn api_routes() -> Vec<Route> {
         routes![
