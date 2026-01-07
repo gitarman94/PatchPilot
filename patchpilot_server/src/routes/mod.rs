@@ -5,7 +5,6 @@ pub mod actions;
 pub mod settings;
 pub mod history;
 pub mod pages;
-pub mod auth;
 pub mod users_groups;
 pub mod roles;
 
@@ -51,7 +50,11 @@ pub fn page_routes() -> Vec<Route> {
 
 /// Auth routes (login/logout)
 pub fn auth_routes() -> Vec<Route> {
-    routes![auth::login_page, auth::login, auth::logout]
+    routes![
+        crate::auth::login_page,
+        crate::auth::login,
+        crate::auth::logout
+    ]
 }
 
 /// Users & Groups routes

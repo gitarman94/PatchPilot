@@ -24,10 +24,10 @@ use crate::auth::AuthUser;
 
 #[launch]
 fn rocket() -> _ {
-    // 1️⃣ Initialize DB + logging
+    //1 Initialize DB + logging
     let pool: DbPool = initialize();
 
-    // 2️⃣ Ensure default admin exists
+    //2 Ensure default admin exists
     {
         let mut conn = get_conn(&pool);
         if let Err(e) = create_default_admin(&mut conn) {
@@ -35,7 +35,7 @@ fn rocket() -> _ {
         }
     }
 
-    // 3️⃣ Load and initialize server settings
+    //3 Load and initialize server settings
     let server_settings = {
         let mut conn = get_conn(&pool);
         let mut settings = ServerSettings::load(&mut conn);
@@ -45,36 +45,35 @@ fn rocket() -> _ {
         let _ = settings.set_auto_refresh(&mut conn, settings.auto_refresh_enabled);
         let _ = settings.set_auto_refresh_interval(&mut conn, settings.auto_refresh_seconds);
 
-        // Explicitly save settings to use `save`
         settings.save(&mut conn);
 
         Arc::new(RwLock::new(settings))
     };
 
-    // 4️⃣ Spawn action TTL sweeper (background task)
+    //4 Spawn action TTL sweeper (background task)
     spawn_action_ttl_sweeper(pool.clone());
 
-    // 5️⃣ Build SystemState
+    //5 Build SystemState
     let system_state = SystemState::new(pool.clone());
 
-    // 6️⃣ Build AppState
+    //6 Build AppState
     let app_state = Arc::new(AppState {
         system: Arc::new(system_state),
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
         settings: server_settings.clone(),
     });
 
-    // 7️⃣ Spawn pending device cleanup task
+    //7 Spawn pending device cleanup task
     spawn_pending_cleanup(app_state.clone());
 
-    // 8️⃣ Example usage of AuthUser::log_user_action
+    //8 Example usage of AuthUser::audit
     {
         let mut conn = get_conn(&pool);
         let demo_user = AuthUser { id: 1, username: "admin".into() };
-        demo_user.log_user_action(&mut conn, "server_started", None);
+        demo_user.audit(&mut conn, "server_started", None);
     }
 
-    // 9️⃣ Log system memory info
+    //9 Log system memory info
     info!(
         "System memory: total {} MB, available {} MB",
         app_state.system.total_memory() / 1024 / 1024,
@@ -83,12 +82,12 @@ fn rocket() -> _ {
 
     info!("PatchPilot server ready");
 
-    // 10️⃣ Build Rocket
+    //10 Build Rocket
     rocket::build()
         .manage(pool)
         .manage(app_state)
         .mount("/api", routes::api_routes())
-        .mount("/auth", routes::auth_routes())
+        .mount("/auth", routes::auth_routes())           // auth routes now point to crate::auth
         .mount("/users-groups", routes::users_groups_routes())
         .mount("/roles", routes::roles_routes())
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
