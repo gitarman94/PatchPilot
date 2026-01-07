@@ -8,6 +8,8 @@ pub mod pages;
 pub mod users_groups;
 pub mod roles;
 
+use actix_web::web;
+
 /// API routes
 pub fn api_routes() -> Vec<Route> {
         routes![
@@ -34,6 +36,20 @@ pub fn api_routes() -> Vec<Route> {
         settings::view_settings,
         settings::update_settings,
     ]
+}
+
+pub fn configure(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope("/api")
+            .route("/devices/heartbeat", web::post().to(devices::heartbeat)) // fixed import
+            .configure(devices::configure)
+            .configure(actions::configure)
+            .configure(users_groups::configure)
+            .configure(roles::configure)
+            .configure(settings::configure)
+            .configure(history::configure)
+            .configure(pages::configure),
+    );
 }
 
 /// Page routes

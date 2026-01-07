@@ -32,7 +32,7 @@ pub fn spawn_action_ttl_task(state: Arc<AppState>) {
                 let expired_actions = actions::table
                     .filter(actions::expires_at.lt(now))
                     .filter(actions::canceled.eq(false))
-                    .load::<(String)>(&mut conn)
+                    .load::<String>(&mut conn)
                     .unwrap_or_default();
 
                 for action_id in expired_actions {

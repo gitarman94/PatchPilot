@@ -62,10 +62,9 @@ fn rocket() -> _ {
 
     // 5. Build AppState
     let app_state = Arc::new(AppState {
-        system: Arc::new(system_state),
-        pending_devices: Arc::new(RwLock::new(HashMap::new())),
-        settings: server_settings.clone(),
-        // db_pool and audit removed from AppState
+        db_pool: db_pool.clone(),
+        log_audit: audit_logger.clone(),
+        system: system_state.clone(),
     });
 
     // 6. Spawn background tasks

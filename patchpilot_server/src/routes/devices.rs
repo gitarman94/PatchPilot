@@ -8,6 +8,8 @@ use crate::auth::{AuthUser, UserRole};
 use crate::models::{Device, DeviceInfo, NewDevice, ServerSettings as ModelServerSettings};
 use crate::schema::devices::dsl::*;
 
+use actix_web::{post, HttpResponse, Responder};
+
 /// Helper: load server settings from DB
 pub async fn get_server_settings(pool: &State<DbPool>) -> ModelServerSettings {
     let pool_clone = pool.inner().clone();
@@ -41,6 +43,16 @@ pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Stat
     .map_err(|_| Status::InternalServerError)??;
 
     Ok(Json(devices_list))
+}
+
+#[post("/heartbeat")]
+pub async fn heartbeat() -> impl Responder {
+    HttpResponse::Ok().json({"status": "alive"})
+}
+
+// Keep any existing functions below
+pub fn configure(cfg: &mut actix_web::web::ServiceConfig) {
+    cfg.service(heartbeat);
 }
 
 /// Get details for a specific device

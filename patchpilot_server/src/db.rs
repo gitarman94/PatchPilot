@@ -129,6 +129,8 @@ pub fn load_settings(conn: &mut SqliteConnection) -> Result<crate::settings::Ser
 
     Ok(match row {
         Some(s) => crate::settings::ServerSettings {
+            allow_http: s.allow_http,
+            force_https: s.force_https,
             auto_approve_devices: s.auto_approve_devices,
             auto_refresh_enabled: s.auto_refresh_enabled,
             auto_refresh_seconds: s.auto_refresh_seconds,

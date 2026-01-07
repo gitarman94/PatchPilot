@@ -8,7 +8,8 @@ use crate::auth::AuthUser;
 use crate::routes::history::log_audit;
 use crate::schema::server_settings;
 use crate::db;
-use crate::models::ServerSettings as ModelSettings;
+use crate::models::ServerSettings as ModelServerSettings;
+use crate::settings::ServerSettings;
 
 /// Struct representing form submission for server settings
 #[derive(FromForm)]
@@ -50,6 +51,7 @@ pub async fn view_settings(
     context.insert("settings", settings);
     Ok(rocket_dyn_templates::Template::render("settings", &context))
 }
+
 
 #[post("/settings/update", data = "<form>")]
 pub async fn update_settings(
@@ -140,4 +142,18 @@ pub fn set_auto_refresh_interval(
     diesel::update(server_settings::table)
         .set(server_settings::auto_refresh_seconds.eq(value))
         .execute(conn)
+}
+
+pub async fn get_settings(state: actix_web::web::Data<Arc<SystemState>>) -> impl Responder {
+    let pool = &state.system.db_pool; // fixed field name
+    let settings: ServerSettings = load_from_db(pool).await.unwrap();
+    
+    // convert to models::ServerSettings
+    let model_settings = ModelServerSettings {
+        allow_http: settings.allow_http,
+        force_https: settings.force_https,
+        // map other fields here...
+    };
+    
+    HttpResponse::Ok().json(model_settings)
 }

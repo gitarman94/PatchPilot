@@ -97,6 +97,7 @@ pub struct Action {
     pub canceled: bool,
 }
 
+
 #[derive(Debug, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = actions)]
 pub struct NewAction {
@@ -172,6 +173,8 @@ pub struct AuditLog {
 #[diesel(table_name = server_settings)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ServerSettings {
+    pub allow_http: bool,
+    pub force_https: bool,
     pub id: i32,
     pub auto_approve_devices: bool,
     pub auto_refresh_enabled: bool,
