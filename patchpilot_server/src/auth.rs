@@ -3,12 +3,9 @@ use rocket::http::{Cookie, CookieJar, SameSite, Status};
 use rocket::response::{Redirect, content::RawHtml};
 use rocket::request::{FromRequest, Outcome, Request};
 use rocket::State;
-
 use diesel::prelude::*;
-
 use crate::db::DbPool;
 use crate::schema::{audit, users, roles, user_roles};
-
 use bcrypt::verify;
 use chrono::Utc;
 use std::fs::read_to_string;
@@ -60,22 +57,22 @@ impl<'r> FromRequest<'r> for AuthUser {
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         let cookie = match request.cookies().get_private("user_id") {
             Some(c) => c,
-            None => return Outcome::Error((Status::Unauthorized, ())),
+            None => return Outcome::Failure((Status::Unauthorized, ())),
         };
 
-        let user_id = match cookie.value().parse::<i32>() {
+        let user_id: i32 = match cookie.value().parse() {
             Ok(v) => v,
-            Err(_) => return Outcome::Error((Status::Unauthorized, ())),
+            Err(_) => return Outcome::Failure((Status::Unauthorized, ())),
         };
 
         let pool = match request.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Error((Status::InternalServerError, ())),
+            _ => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Error((Status::InternalServerError, ())),
+            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         match users::table
@@ -85,24 +82,14 @@ impl<'r> FromRequest<'r> for AuthUser {
             .select((users::id, users::username, roles::name))
             .first::<(i32, String, String)>(&mut conn)
         {
-            Ok((uid, uname, urole)) => {
-                Outcome::Success(AuthUser {
-                    id: uid,
-                    username: uname,
-                    role: urole,
-                })
-            }
-            Err(_) => Outcome::Error((Status::Unauthorized, ())),
+            Ok((uid, uname, urole)) => Outcome::Success(AuthUser { id: uid, username: uname, role: urole }),
+            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
         }
     }
 }
 
 #[post("/login", data = "<form>")]
-pub fn login(
-    form: Form<LoginForm>,
-    cookies: &CookieJar<'_>,
-    pool: &State<DbPool>,
-) -> Redirect {
+pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => return Redirect::to("/login"),
@@ -128,12 +115,7 @@ pub fn login(
     cookie.set_same_site(SameSite::Lax);
     cookies.add_private(cookie);
 
-    let auth_user = AuthUser {
-        id: row.0,
-        username: row.1.clone(),
-        role: row.3.clone(),
-    };
-
+    let auth_user = AuthUser { id: row.0, username: row.1.clone(), role: row.3.clone() };
     auth_user.audit(&mut conn, "login", None);
 
     Redirect::to("/dashboard")
@@ -141,11 +123,8 @@ pub fn login(
 
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
-    let user_id = cookies
-        .get_private("user_id")
-        .and_then(|c| c.value().parse::<i32>().ok());
-
-    cookies.remove_private(Cookie::from("user_id"));
+    let user_id = cookies.get_private("user_id").and_then(|c| c.value().parse::<i32>().ok());
+    cookies.remove_private(Cookie::named("user_id"));
 
     if let Some(uid) = user_id {
         if let Ok(mut conn) = pool.get() {
@@ -156,11 +135,7 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
                 .select((users::username, roles::name))
                 .first::<(String, String)>(&mut conn)
             {
-                let auth_user = AuthUser {
-                    id: uid,
-                    username: uname,
-                    role: urole,
-                };
+                let auth_user = AuthUser { id: uid, username: uname, role: urole };
                 auth_user.audit(&mut conn, "logout", None);
             }
         }
@@ -173,17 +148,13 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
 pub fn login_page() -> RawHtml<String> {
     RawHtml(
         read_to_string("templates/login.html")
-            .unwrap_or_else(|_| "<h1>Login page missing</h1>".to_string()),
+            .unwrap_or_else(|_| "<h1>Login page missing</h1>".to_string())
     )
 }
 
 pub async fn validate_token(token: &str) -> Result<AuthUser, ()> {
     if token == "testtoken" {
-        Ok(AuthUser {
-            id: 1,
-            username: "admin".into(),
-            role: "Admin".into(),
-        })
+        Ok(AuthUser { id: 1, username: "admin".into(), role: "Admin".into() })
     } else {
         Err(())
     }

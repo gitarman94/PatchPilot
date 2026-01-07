@@ -8,8 +8,6 @@ use crate::auth::{AuthUser, UserRole};
 use crate::models::{Device, DeviceInfo, NewDevice, ServerSettings as ModelServerSettings};
 use crate::schema::devices::dsl::*;
 
-use actix_web::{post, HttpResponse, Responder};
-
 /// Helper: load server settings from DB
 pub async fn get_server_settings(pool: &State<DbPool>) -> ModelServerSettings {
     let pool_clone = pool.inner().clone();
@@ -24,7 +22,6 @@ pub async fn get_server_settings(pool: &State<DbPool>) -> ModelServerSettings {
             default_action_ttl_seconds: settings.default_action_ttl_seconds,
             action_polling_enabled: settings.action_polling_enabled,
             ping_target_ip: settings.ping_target_ip,
-            // force_https and allow_http removed
         }
     })
     .await
@@ -45,14 +42,10 @@ pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Stat
     Ok(Json(devices_list))
 }
 
+/// Heartbeat endpoint
 #[post("/heartbeat")]
-pub async fn heartbeat() -> impl Responder {
-    HttpResponse::Ok().json({"status": "alive"})
-}
-
-// Keep any existing functions below
-pub fn configure(cfg: &mut actix_web::web::ServiceConfig) {
-    cfg.service(heartbeat);
+pub async fn heartbeat() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "status": "alive" }))
 }
 
 /// Get details for a specific device
@@ -194,4 +187,19 @@ pub async fn register_or_update_device(
     .map_err(|_| Status::InternalServerError)??;
 
     Ok(Json(result))
+}
+
+/// Configure routes for Rocket
+pub fn configure_routes(rocket: rocket::Rocket<rocket::Build>) -> rocket::Rocket<rocket::Build> {
+    rocket
+        .mount(
+            "/",
+            routes![
+                get_devices,
+                heartbeat,
+                get_device_details,
+                approve_device,
+                register_or_update_device
+            ],
+        )
 }
