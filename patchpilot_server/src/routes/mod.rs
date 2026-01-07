@@ -10,7 +10,7 @@ pub mod roles;
 
 /// API routes
 pub fn api_routes() -> Vec<Route> {
-        routes![
+    routes![
         // Devices
         devices::get_devices,
         devices::get_device_details,
@@ -33,21 +33,19 @@ pub fn api_routes() -> Vec<Route> {
         // Settings
         settings::view_settings,
         settings::update_settings,
-    ]
-}
 
-pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/api")
-            .route("/devices/heartbeat", web::post().to(devices::heartbeat)) // fixed import
-            .configure(devices::configure)
-            .configure(actions::configure)
-            .configure(users_groups::configure)
-            .configure(roles::configure)
-            .configure(settings::configure)
-            .configure(history::configure)
-            .configure(pages::configure),
-    );
+        // Users & Groups
+        users_groups::list_users_groups,
+        users_groups::add_user,
+        users_groups::delete_user,
+        users_groups::add_group,
+        users_groups::delete_group,
+
+        // Roles
+        roles::list_roles,
+        roles::add_role,
+        roles::delete_role,
+    ]
 }
 
 /// Page routes
@@ -67,26 +65,6 @@ pub fn auth_routes() -> Vec<Route> {
     routes![
         crate::auth::login_page,
         crate::auth::login,
-        crate::auth::logout
-    ]
-}
-
-/// Users & Groups routes
-pub fn users_groups_routes() -> Vec<Route> {
-    routes![
-        users_groups::list_users_groups,
-        users_groups::add_user,
-        users_groups::delete_user,
-        users_groups::add_group,
-        users_groups::delete_group
-    ]
-}
-
-/// Roles routes
-pub fn roles_routes() -> Vec<Route> {
-    routes![
-        roles::list_roles,
-        roles::add_role,
-        roles::delete_role
+        crate::auth::logout,
     ]
 }
