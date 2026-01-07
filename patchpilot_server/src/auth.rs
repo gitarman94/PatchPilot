@@ -8,11 +8,18 @@ use diesel::prelude::*;
 
 use crate::db::DbPool;
 use crate::schema::{audit, users, roles, user_roles};
-use crate::models::UserRow; // fixed import
 
 use bcrypt::verify;
 use chrono::Utc;
 use std::fs::read_to_string;
+
+/// Local struct representing a user from the database
+#[derive(Queryable)]
+struct User {
+    pub id: i32,
+    pub username: String,
+    pub password_hash: String,
+}
 
 /// Login form structure
 #[derive(FromForm)]

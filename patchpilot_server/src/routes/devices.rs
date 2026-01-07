@@ -41,6 +41,7 @@ pub async fn get_server_settings(pool: &State<DbPool>) -> Result<ModelServerSett
             load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
         // Convert crate::settings::ServerSettings -> models::ServerSettings
         Ok(ModelServerSettings {
+            id: settings.id, // <-- added this field
             auto_approve_devices: settings.auto_approve_devices,
             auto_refresh_enabled: settings.auto_refresh_enabled,
             auto_refresh_seconds: settings.auto_refresh_seconds,
