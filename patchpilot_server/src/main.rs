@@ -69,7 +69,7 @@ fn rocket() -> _ {
     //8 Example usage of AuthUser::audit
     {
         let mut conn = get_conn(&pool);
-        let demo_user = AuthUser { id: 1, username: "admin".into() };
+        let demo_user = AuthUser { id: 1, username: "admin".into(), role: "Admin".into() };
         demo_user.audit(&mut conn, "server_started", None);
     }
 

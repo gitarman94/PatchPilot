@@ -7,7 +7,8 @@ use rocket::State;
 use diesel::prelude::*;
 
 use crate::db::DbPool;
-use crate::schema::{audit, users};
+use crate::schema::audit;
+use crate::models::UserRow;
 
 use bcrypt::verify;
 use chrono::Utc;
@@ -18,15 +19,6 @@ use std::fs::read_to_string;
 pub struct LoginForm {
     pub username: String,
     pub password: String,
-}
-
-/// Diesel queryable user row
-#[derive(Queryable, Clone, Debug)]
-pub struct UserRow {
-    pub id: i32,
-    pub username: String,
-    pub password_hash: String,
-    pub role: String,
 }
 
 /// Authenticated user representation
@@ -45,7 +37,6 @@ pub enum UserRole {
 }
 
 impl AuthUser {
-    /// Log an action to the audit table
     pub fn audit(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) {
         let _ = diesel::insert_into(audit::table)
             .values((
@@ -58,7 +49,6 @@ impl AuthUser {
             .execute(conn);
     }
 
-    /// Check if the user has a given role
     pub fn has_role(&self, role: UserRole) -> bool {
         match role {
             UserRole::Admin => self.role == "Admin",
@@ -92,7 +82,7 @@ impl<'r> FromRequest<'r> for AuthUser {
             Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
-        use crate::schema::users::dsl::{users, id as col_id, username as col_username, user_role as col_role};
+        use crate::schema::users::dsl::{users, id as col_id, username as col_username, role as col_role};
 
         match users
             .filter(col_id.eq(user_id))
@@ -105,7 +95,6 @@ impl<'r> FromRequest<'r> for AuthUser {
     }
 }
 
-/// Handle login POST
 #[post("/login", data = "<form>")]
 pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
     let mut conn = match pool.get() {
@@ -113,9 +102,9 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
         Err(_) => return Redirect::to("/login"),
     };
 
-    use crate::schema::users::dsl::{users, id as col_id, password_hash as col_password_hash, user_role as col_role, username as col_username};
+    use crate::schema::users::dsl::{users, id as col_id, username as col_username, password_hash as col_password_hash, role as col_role};
 
-    let user = match users
+    let user_row = match users
         .filter(col_username.eq(&form.username))
         .select((col_id, col_username, col_password_hash, col_role))
         .first::<UserRow>(&mut conn)
@@ -125,21 +114,20 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
         _ => return Redirect::to("/login"),
     };
 
-    if !verify(&form.password, &user.password_hash).unwrap_or(false) {
+    if !verify(&form.password, &user_row.password_hash).unwrap_or(false) {
         return Redirect::to("/login");
     }
 
-    let mut cookie = Cookie::new("user_id", user.id.to_string());
+    let mut cookie = Cookie::new("user_id", user_row.id.to_string());
     cookie.set_same_site(SameSite::Lax);
     cookies.add_private(cookie);
 
-    let auth_user = AuthUser { id: user.id, username: user.username.clone(), role: user.role.clone() };
+    let auth_user = AuthUser { id: user_row.id, username: user_row.username.clone(), role: user_row.role.clone() };
     auth_user.audit(&mut conn, "login", None);
 
     Redirect::to("/dashboard")
 }
 
-/// Handle logout
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
     let user_id = cookies
@@ -150,7 +138,8 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
 
     if let Some(uid) = user_id {
         if let Ok(mut conn) = pool.get() {
-            use crate::schema::users::dsl::{users, id as col_id, username as col_username, user_role as col_role};
+            use crate::schema::users::dsl::{users, id as col_id, username as col_username, role as col_role};
+
             if let Ok((uname, urole)) = users
                 .filter(col_id.eq(uid))
                 .select((col_username, col_role))
@@ -165,7 +154,6 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
     Redirect::to("/login")
 }
 
-/// Serve login page
 #[get("/login")]
 pub fn login_page() -> RawHtml<String> {
     RawHtml(read_to_string("templates/login.html").unwrap_or_else(|_| "<h1>Login page missing</h1>".to_string()))

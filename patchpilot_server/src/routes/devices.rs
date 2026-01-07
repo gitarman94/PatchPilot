@@ -34,11 +34,11 @@ pub async fn get_device_details(
 }
 
 /// Helper: get current server settings
-pub async fn get_server_settings(pool: &State<DbPool>) -> Result<settings_dsl::ServerSettings, Status> {
-    let pool_clone = pool.inner().clone();
+pub async fn get_server_settings(pool: &State<DbPool>) -> Result<crate::models::ServerSettings, Status> {
+    let pool_inner = pool.inner().clone();
     rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
-        load_settings(&mut conn).map_err(|_| Status::InternalServerError)
+        let mut conn = pool_inner.get().map_err(|_| Status::InternalServerError)?;
+        crate::db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)
     })
     .await
     .map_err(|_| Status::InternalServerError)?
