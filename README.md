@@ -34,6 +34,8 @@ PatchPilot/
 │       ├── models.rs                  # Diesel models (Device, Action, AuditLog, User, Role, etc.)
 │       ├── schema.rs                  # Diesel schema for database tables
 │       ├── db.rs                       # Database pool & initialization
+│       ├── action_ttl.rs           # Expire old actions
+│       └── pending_cleanup.rs      # Cleanup pending devices
 │       │
 │       ├── routes/                    # HTTP routes (API + pages)
 │       │   ├── mod.rs                 # api_routes() + page_routes()
@@ -44,11 +46,6 @@ PatchPilot/
 │       │   ├── auth.rs                # Authentication endpoints
 │       │   ├── users_groups.rs        # User and group management API
 │       │   └── roles.rs               # Role-based permissions API
-│       │
-│       ├── tasks/                     # Background jobs
-│       │   ├── mod.rs
-│       │   ├── action_ttl.rs           # Expire old actions
-│       │   └── pending_cleanup.rs      # Cleanup pending devices
 │       │
 │       └── logger.rs                  # Diesel / app logging
 │
