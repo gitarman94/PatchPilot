@@ -1,27 +1,27 @@
-
 # EARLY DEVELOPMENT - WILL HAVE MANY BUGS
 
 # PatchPilot
 
-PatchPilot is a cross-platform patch client designed to manage and report software updates on Windows and Linux systems. It includes a lightweight Rust-based client with self-updating capabilities and a Rust-based backend server.
+PatchPilot is a **cross-platform patch management client** designed to monitor, report, and deploy software updates on Windows and Linux systems. It includes a lightweight Rust-based client with **self-updating capabilities** and a Rust-based backend server with authentication, role-based access, and audit logging.
 
 ---
 
 ## Features
 
-* 🦀 **Rust-based client** for speed and reliability
-* 🖥️ Works as a **Windows Service** and **Linux systemd service**
-* 🔄 **Self-updating** client from GitHub
-* 🔒 Secure, runs under a **non-root system user on Linux**
-* 📡 Reports missing updates and system info to central server
+* 🦀 **Rust-based client** for performance and reliability
+* 🖥️ Runs as **Windows Service** or **Linux systemd service**
+* 🔄 **Self-updating client** via GitHub releases
+* 🔒 Secure: runs under a **non-root system user** on Linux
+* 📡 Reports **missing updates, system info, and command results** to the central server
 * ⚙️ Configurable patch server address per client
+* 🛡 Role-based access control (RBAC) and authentication for server
+* 📜 Audit logging and history tracking
 
 ---
 
 ## Project Structure
 
 ```
-
 PatchPilot/
 │
 ├── patchpilot_server/                 # Rust-based backend server
@@ -29,31 +29,28 @@ PatchPilot/
 │   │
 │   └── src/
 │       ├── main.rs                    # Rocket entry point
-│       │
-│       ├── state.rs                   # AppState (system, pending devices, settings)
+│       ├── state.rs                   # AppState (system info, pending devices, settings)
 │       ├── settings.rs                # ServerSettings load/save
-│       │
-│       ├── models.rs                  # Diesel models (Device, Action, AuditLog, etc.)
-│       ├── schema.rs                  # Diesel schema (devices, actions, audit)
+│       ├── models.rs                  # Diesel models (Device, Action, AuditLog, User, Role, etc.)
+│       ├── schema.rs                  # Diesel schema for database tables
+│       ├── db.rs                       # Database pool & initialization
 │       │
 │       ├── routes/                    # HTTP routes (API + pages)
 │       │   ├── mod.rs                 # api_routes() + page_routes()
 │       │   ├── devices.rs             # Device registration, heartbeat, listing
-│       │   ├── actions.rs             # Action creation, completion
+│       │   ├── actions.rs             # Action creation and completion
 │       │   ├── settings.rs            # Server settings API
-│       │   ├── pages.rs               # HTML page api handlers
-│       │   └── history.rs             # Audit / history API
+│       │   ├── history.rs             # Audit/history API
+│       │   ├── auth.rs                # Authentication endpoints
+│       │   ├── users_groups.rs        # User and group management API
+│       │   └── roles.rs               # Role-based permissions API
 │       │
 │       ├── tasks/                     # Background jobs
 │       │   ├── mod.rs
 │       │   ├── action_ttl.rs           # Expire old actions
 │       │   └── pending_cleanup.rs      # Cleanup pending devices
 │       │
-│       ├── db/                        # Database plumbing
-│       │   ├── mod.rs
-│       │   ├── pool.rs                # DbPool + init_pool()
-│       │   ├── init.rs                # initialize_db()
-│       └── └── logger.rs              # Diesel / app logging
+│       └── logger.rs                  # Diesel / app logging
 │
 ├── patchpilot_client/                 # Rust client (Windows & Linux)
 │   ├── Cargo.toml
@@ -61,14 +58,10 @@ PatchPilot/
 │   └── src/
 │       ├── main.rs                    # Client entry point
 │       ├── service.rs                 # Windows service / Unix daemon glue
-│       │
 │       ├── system_info.rs             # CPU, RAM, disk, OS, network
 │       ├── device.rs                  # Register, adopt, heartbeat
-│       │
 │       ├── action.rs                  # CommandSpec, ServerCommand, CommandResult
 │       ├── command.rs                 # Polling, retries, result posting
-│       ├── remote_cmd.rs              # Shell / PowerShell execution
-│       │
 │       ├── self_update.rs             # Client self-update logic
 │       └── patchpilot_updater.rs      # Apply updates + restart
 │
@@ -76,17 +69,18 @@ PatchPilot/
 │   ├── navbar.html                    # Sidebar navigation
 │   ├── dashboard.html                 # Main dashboard
 │   ├── device_detail.html             # Single device view
-│   ├── settings.html                  # server and client policy Settings
-│   ├── devices.html                   # Table of all devices and basic information about each
-│   └── history.html                   # Audit / history page
+│   ├── settings.html                  # Server and client policy settings
+│   ├── devices.html                   # Table of all devices
+│   ├── history.html                   # Audit/history page
+│   ├── actions.html                   # List and manage actions
+│   └── audit.html                     # Detailed audit log view
 │
 └── static/                            # Static web assets
     ├── bootstrap.min.css
     ├── bootstrap.bundle.min.js
     ├── navbar.css
     └── favicon.ico
-
-````
+```
 
 ---
 
@@ -94,30 +88,26 @@ PatchPilot/
 
 ### Prerequisites
 
-* Rust toolchain (installed by default in the setup script)
+* Rust toolchain (installed automatically in the setup script)
 * Git
-* `systemd` (for automatic restart)
+* `systemd` for automatic restart
 
 ### Install/Update in One Command
 
 ```bash
-# Remove sudo at the beginning of lines if you're running as root
 sudo apt-get update
 sudo apt-get install -y curl git
 sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh)"
-````
+```
 
 This will:
 
-* Install necessary dependencies
-
+* Install dependencies
 * Download/Update the server
-
 * Set up systemd service
-
 * Start and enable it on boot
 
-* If you need to force reinstall:
+**Force reinstall:**
 
 ```bash
 sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh)" -- --force
@@ -145,22 +135,15 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPil
 * Builds and installs the Rust client
 * Creates `patchpilot` system user
 * Configures systemd service
-* Auto-updates on re-run
-* Script accepts `--force` or `-f` to forcibly reinstall (this will delete customizations)
+* Supports auto-updates
 
-### Update (Linux)
-
-To Update the Linux client:
+**Update client:**
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.sh)" -- --update
 ```
 
----
-
-### Uninstallation (Linux)
-
-To uninstall the Linux client completely:
+**Uninstall client:**
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.sh)" -- --uninstall
@@ -175,14 +158,14 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/ma
 * Windows 10/11
 * Admin privileges
 
-### Install/Update in One PowerShell Command
+### Install/Update
 
 ```powershell
 irm https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.ps1 | iex
 ```
 
 * Installs Rust toolchain if missing
-* Builds the client using `cargo`
+* Builds client with `cargo`
 * Registers Windows service
 * Sets up config and auto-update
 
@@ -192,19 +175,19 @@ irm https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update
 
 All clients (Linux & Windows) store:
 
-* Patch server URL → `server_url.txt`
-* Client ID (auto-generated) → `client_id.txt`
-* Optional config file → `config.json`
+* `server_url.txt` → Patch server URL
+* `client_id.txt` → Client ID (auto-generated)
+* Optional `config.json` → Custom client settings
 
-To change the server URL:
+Edit server URL:
 
 ```bash
 sudo nano /opt/patchpilot_client/server_url.txt
-# Or for Windows:
+# Windows:
 notepad "C:\ProgramData\RustPatchClient\server_url.txt"
 ```
 
-Restart the service/timer after edits.
+Restart service after edits.
 
 ---
 
@@ -230,41 +213,19 @@ Get-Service RustPatchClientService
 * Rust-based client shared across OSes
 * Self-updates from GitHub Releases using version/tag logic
 * Platform-specific system info collected via PowerShell or Rust crates
-* Communication via REST API to the Rust-based server
+* Communication via REST API to Rust-based server
+* Server includes authentication, roles, and audit logging
 
 ---
 
 ## 📜 License
 
-License Overview
-This project is licensed under a dual licensing model:
+Dual licensing:
 
-* Free for Personal Use: Individuals may use, modify, and distribute this software without cost for personal, non-commercial purposes.
-  
-* Paid License for Commercial Use:Organizations or individuals intending to use this software for commercial purposes must obtain a paid license.
-Terms of Use
+* **Free for Personal Use** – Free to use, modify, and distribute for non-commercial purposes
+* **Commercial Use** – Paid license required for commercial use
 
-1. Grant of License
-You are granted a non-exclusive, worldwide license to use this software under the following terms:
-    1. Personal Use: Individuals may download, install, and utilize this software without any payment or registration for personal, non-commercial purposes.
-    2. Commercial Use: Businesses and organizations must contact me to negotiate a paid license before using the software for any commercial purpose.
-    
-2. Definitions
-    * Personal Use: Refers to use by an individual for non-commercial, personal purposes.
-    * Commercial Use: Refers to use by businesses, organizations, or any activities conducted for profit.
-  
-3. Payment Terms
-    * Organizations utilizing the software for commercial purposes must pay the licensing fee determined by me. Payment details will be provided upon inquiry.
-  
-4. Compliance
-    * Users must comply with this license agreement. Violation of these terms may result in termination of the license.
-    * I reserve the right to enforce this agreement through appropriate legal actions.
-      
-5. Disclaimer
-This software is provided "as-is," without warranty of any kind. I shall not be liable for any damages arising from its use.
-
-6. Modifications
-I may modify the terms of this license at any time, with updates posted in this file. Continued use of the software constitutes acceptance of the new terms.
+See full license terms in the `LICENSE` file.
 
 ---
 
@@ -274,4 +235,9 @@ Questions or bugs? Open an issue on GitHub.
 
 ---
 
-```
+This version:
+
+* Adds missing **auth/users/roles** in server routes
+* Adds new templates: **actions.html** and **audit.html**
+* Updates project structure to match current files
+* Clarifies Linux & Windows install/update commands
