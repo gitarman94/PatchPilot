@@ -3,7 +3,6 @@ extern crate rocket;
 
 mod db;
 mod routes;
-mod tasks;
 mod models;
 mod schema;
 mod settings;
@@ -52,8 +51,7 @@ fn rocket() -> _ {
             default_action_ttl_seconds: settings.default_action_ttl_seconds,
             action_polling_enabled: settings.action_polling_enabled,
             ping_target_ip: settings.ping_target_ip,
-            force_https: settings.force_https,
-            allow_http: settings.allow_http,
+            // force_https and allow_http removed
         }))
     };
 
@@ -65,23 +63,7 @@ fn rocket() -> _ {
         system: Arc::new(system_state),
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
         settings: server_settings.clone(),
-        db_pool: pool.clone(),
-        audit: Some(Arc::new(
-            |conn, actor, action_type, target, details| {
-                let log = AuditLog {
-                    id: 0,
-                    actor: actor.to_string(),
-                    action_type: action_type.to_string(),
-                    target: target.map(|s| s.to_string()),
-                    details: details.map(|s| s.to_string()),
-                    created_at: chrono::Utc::now().naive_utc(),
-                };
-                diesel::insert_into(crate::schema::audit::table)
-                    .values(&log)
-                    .execute(conn)
-                    .ok();
-            },
-        )),
+        // db_pool and audit removed from AppState
     });
 
     // 6. Spawn background tasks
@@ -123,19 +105,17 @@ fn rocket() -> _ {
     #[cfg(feature = "tls")]
     {
         use rocket::config::{Config, TlsConfig};
-        if settings_read.force_https {
-            let figment = Config::figment()
-                .merge(("tls", TlsConfig::from_paths("certs/server.crt", "certs/server.key")));
-            return rocket::custom(figment)
-                .mount("/api", routes::api_routes())
-                .mount("/auth", routes::auth_routes())
-                .mount("/users-groups", routes::users_groups_routes())
-                .mount("/roles", routes::roles_routes())
-                .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
-                .mount("/", routes::page_routes())
-                .mount("/history", routes![routes::history::api_history])
-                .mount("/audit", routes![routes::history::api_audit]);
-        }
+        let figment = Config::figment()
+            .merge(("tls", TlsConfig::from_paths("certs/server.crt", "certs/server.key")));
+        return rocket::custom(figment)
+            .mount("/api", routes::api_routes())
+            .mount("/auth", routes::auth_routes())
+            .mount("/users-groups", routes::users_groups_routes())
+            .mount("/roles", routes::roles_routes())
+            .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
+            .mount("/", routes::page_routes())
+            .mount("/history", routes![routes::history::api_history])
+            .mount("/audit", routes![routes::history::api_audit]);
     }
 
     // Default: return the regular Rocket builder

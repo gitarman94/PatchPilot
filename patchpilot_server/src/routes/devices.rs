@@ -22,8 +22,7 @@ pub async fn get_server_settings(pool: &State<DbPool>) -> ModelServerSettings {
             default_action_ttl_seconds: settings.default_action_ttl_seconds,
             action_polling_enabled: settings.action_polling_enabled,
             ping_target_ip: settings.ping_target_ip,
-            force_https: settings.force_https,
-            allow_http: settings.allow_http,
+            // force_https and allow_http removed
         }
     })
     .await

@@ -26,7 +26,7 @@ pub async fn view_settings(
     state: &State<AppState>,
     _user: AuthUser,
 ) -> Result<rocket_dyn_templates::Template, Status> {
-    let pool = state.system.db_pool.clone();
+    let pool = state.system.pool.clone();
 
     let settings: ModelSettings = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
@@ -59,7 +59,7 @@ pub async fn update_settings(
 ) -> Status {
     let username = user.username.clone();
     let form = form.into_inner();
-    let pool = state.system.db_pool.clone();
+    let pool = state.system.pool.clone();
     let settings_arc = state.settings.clone();
 
     rocket::tokio::task::spawn_blocking(move || {
