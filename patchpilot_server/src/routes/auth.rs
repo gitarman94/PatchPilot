@@ -5,15 +5,13 @@ use rocket::request::{FromRequest, Outcome, Request};
 use rocket::State;
 
 use diesel::prelude::*;
-use diesel::SelectableHelper;
 
 use crate::db::DbPool;
 use crate::schema::{users, audit};
-use crate::models::AuditLog;
 
 use bcrypt::verify;
-use std::fs::read_to_string;
 use chrono::Utc;
+use std::fs::read_to_string;
 
 #[derive(FromForm)]
 pub struct LoginForm {
@@ -21,9 +19,7 @@ pub struct LoginForm {
     pub password: String,
 }
 
-#[derive(Queryable, Selectable, Clone, Debug)]
-#[diesel(table_name = users)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[derive(Queryable, Clone, Debug)]
 pub struct UserRow {
     pub id: i32,
     pub username: String,
@@ -42,33 +38,36 @@ impl<'r> FromRequest<'r> for AuthUser {
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         let cookies = request.cookies();
-        let Some(cookie) = cookies.get_private("user_id") else {
-            return Outcome::Failure((Status::Unauthorized, ()));
+
+        let cookie = match cookies.get_private("user_id") {
+            Some(c) => c,
+            None => return Outcome::Error((Status::Unauthorized, ())),
         };
 
-        let Ok(user_id) = cookie.value().parse::<i32>() else {
-            return Outcome::Failure((Status::Unauthorized, ()));
+        let user_id = match cookie.value().parse::<i32>() {
+            Ok(v) => v,
+            Err(_) => return Outcome::Error((Status::Unauthorized, ())),
         };
 
         let pool = match request.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Failure((Status::InternalServerError, ())),
+            _ => return Outcome::Error((Status::InternalServerError, ())),
         };
 
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
+            Err(_) => return Outcome::Error((Status::InternalServerError, ())),
         };
 
-        use crate::schema::users::dsl::*;
+        use crate::schema::users::dsl::{users, id as col_id, username as col_username};
 
         match users
-            .filter(id.eq(user_id))
-            .select((id, username))
+            .filter(col_id.eq(user_id))
+            .select((col_id, col_username))
             .first::<(i32, String)>(&mut conn)
         {
-            Ok((id, username)) => Outcome::Success(AuthUser { id, username }),
-            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
+            Ok((uid, uname)) => Outcome::Success(AuthUser { id: uid, username: uname }),
+            Err(_) => Outcome::Error((Status::Unauthorized, ())),
         }
     }
 }
@@ -84,10 +83,10 @@ pub fn login(
         Err(_) => return Redirect::to("/login"),
     };
 
-    use crate::schema::users::dsl::*;
+    use crate::schema::users::dsl::{users, username as col_username};
 
     let user = match users
-        .filter(username.eq(&form.username))
+        .filter(col_username.eq(&form.username))
         .first::<UserRow>(&mut conn)
         .optional()
     {
@@ -103,16 +102,14 @@ pub fn login(
     cookie.set_same_site(SameSite::Lax);
     cookies.add_private(cookie);
 
-    // audit: login event
-    let new_audit = (
-        audit::actor.eq(user.username.clone()),
-        audit::action_type.eq("login"),
-        audit::target.eq::<Option<String>>(None),
-        audit::details.eq::<Option<String>>(None),
-        audit::created_at.eq(Utc::now().naive_utc()),
-    );
     let _ = diesel::insert_into(audit::table)
-        .values(new_audit)
+        .values((
+            audit::actor.eq(user.username.clone()),
+            audit::action_type.eq("login"),
+            audit::target.eq::<Option<String>>(None),
+            audit::details.eq::<Option<String>>(None),
+            audit::created_at.eq(Utc::now().naive_utc()),
+        ))
         .execute(&mut conn);
 
     Redirect::to("/dashboard")
@@ -120,30 +117,29 @@ pub fn login(
 
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
-    // capture user id before removal
-    let user_id_opt = cookies
+    let user_id = cookies
         .get_private("user_id")
         .and_then(|c| c.value().parse::<i32>().ok());
 
-    cookies.remove_private(Cookie::named("user_id"));
+    cookies.remove_private(Cookie::from("user_id"));
 
-    if let Some(user_id) = user_id_opt {
+    if let Some(uid) = user_id {
         if let Ok(mut conn) = pool.get() {
-            use crate::schema::users::dsl::*;
-            if let Ok(username) = users
-                .filter(id.eq(user_id))
-                .select(username)
+            use crate::schema::users::dsl::{users, id as col_id, username as col_username};
+
+            if let Ok(uname) = users
+                .filter(col_id.eq(uid))
+                .select(col_username)
                 .first::<String>(&mut conn)
             {
-                let new_audit = (
-                    audit::actor.eq(username),
-                    audit::action_type.eq("logout"),
-                    audit::target.eq::<Option<String>>(None),
-                    audit::details.eq::<Option<String>>(None),
-                    audit::created_at.eq(Utc::now().naive_utc()),
-                );
                 let _ = diesel::insert_into(audit::table)
-                    .values(new_audit)
+                    .values((
+                        audit::actor.eq(uname),
+                        audit::action_type.eq("logout"),
+                        audit::target.eq::<Option<String>>(None),
+                        audit::details.eq::<Option<String>>(None),
+                        audit::created_at.eq(Utc::now().naive_utc()),
+                    ))
                     .execute(&mut conn);
             }
         }
