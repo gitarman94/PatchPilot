@@ -53,7 +53,8 @@ fn rocket() -> _ {
             default_action_ttl_seconds: settings.default_action_ttl_seconds,
             action_polling_enabled: settings.action_polling_enabled,
             ping_target_ip: settings.ping_target_ip,
-            // force_https and allow_http removed
+            allow_http: settings.allow_http,
+            force_https: settings.force_https,
         }))
     };
 
@@ -62,9 +63,10 @@ fn rocket() -> _ {
 
     // 5. Build AppState
     let app_state = Arc::new(AppState {
-        db_pool: db_pool.clone(),
-        log_audit: audit_logger.clone(),
+        db_pool: pool.clone(),
+        log_audit: Arc::new(|_, _, _, _, _| {}),
         system: system_state.clone(),
+        settings: server_settings.clone(),
     });
 
     // 6. Spawn background tasks
@@ -87,10 +89,8 @@ fn rocket() -> _ {
 
     info!("PatchPilot server ready");
 
-    // 9. HTTP/HTTPS setup
-    let settings_read = app_state.settings.read().unwrap();
-
-    let rocket_builder = rocket::build()
+    // 9. Build Rocket
+    rocket::build()
         .manage(pool)
         .manage(app_state)
         .mount("/api", routes::api_routes())
@@ -100,25 +100,5 @@ fn rocket() -> _ {
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
         .mount("/", routes::page_routes())
         .mount("/history", routes![routes::history::api_history])
-        .mount("/audit", routes![routes::history::api_audit]);
-
-    // Use TLS if requested and feature enabled
-    #[cfg(feature = "tls")]
-    {
-        use rocket::config::{Config, TlsConfig};
-        let figment = Config::figment()
-            .merge(("tls", TlsConfig::from_paths("certs/server.crt", "certs/server.key")));
-        return rocket::custom(figment)
-            .mount("/api", routes::api_routes())
-            .mount("/auth", routes::auth_routes())
-            .mount("/users-groups", routes::users_groups_routes())
-            .mount("/roles", routes::roles_routes())
-            .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
-            .mount("/", routes::page_routes())
-            .mount("/history", routes![routes::history::api_history])
-            .mount("/audit", routes![routes::history::api_audit]);
-    }
-
-    // Default: return the regular Rocket builder
-    rocket_builder
+        .mount("/audit", routes![routes::history::api_audit])
 }

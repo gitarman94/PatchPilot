@@ -97,7 +97,6 @@ pub struct Action {
     pub canceled: bool,
 }
 
-
 #[derive(Debug, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = actions)]
 pub struct NewAction {
