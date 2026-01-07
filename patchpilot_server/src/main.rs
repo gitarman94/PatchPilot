@@ -50,38 +50,46 @@ fn rocket() -> _ {
         Arc::new(RwLock::new(settings))
     };
 
-    // 4. Spawn action TTL task (background task)
-    spawn_action_ttl_task(Arc::new(AppState {
-        system: Arc::new(SystemState::new(pool.clone())),
-        pending_devices: Arc::new(RwLock::new(HashMap::new())),
-        settings: server_settings.clone(),
-        db_pool: pool.clone(),
-        log_audit: None, // optionally set a closure if you have audit logging
-    }));
-
-    // 5. Build SystemState
+    // 4. Build SystemState
     let system_state = SystemState::new(pool.clone());
 
-    // 6. Build AppState
+    // 5. Build AppState
     let app_state = Arc::new(AppState {
         system: Arc::new(system_state),
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
         settings: server_settings.clone(),
         db_pool: pool.clone(),
-        log_audit: None,
+        log_audit: Some(Arc::new(|conn, actor, action_type, target, details| {
+            // Example audit logging implementation
+            use crate::models::AuditLog;
+            use diesel::prelude::*;
+            let log = AuditLog {
+                id: 0,
+                actor: actor.to_string(),
+                action_type: action_type.to_string(),
+                target: target.map(|s| s.to_string()),
+                details: details.map(|s| s.to_string()),
+                created_at: chrono::Utc::now().naive_utc(),
+            };
+            diesel::insert_into(crate::schema::audit::table)
+                .values(&log)
+                .execute(conn)
+                .ok();
+        })),
     });
 
-    // 7. Spawn pending device cleanup task
+    // 6. Spawn background tasks
+    spawn_action_ttl_task(app_state.clone());
     spawn_pending_cleanup(app_state.clone());
 
-    // 8. Example usage of AuthUser::audit
+    // 7. Example usage of AuthUser::audit
     {
         let mut conn = get_conn(&pool);
         let demo_user = AuthUser { id: 1, username: "admin".into(), role: "Admin".into() };
         demo_user.audit(&mut conn, "server_started", None);
     }
 
-    // 9. Log system memory info
+    // 8. Log system memory info
     info!(
         "System memory: total {} MB, available {} MB",
         app_state.system.total_memory() / 1024 / 1024,
@@ -90,8 +98,12 @@ fn rocket() -> _ {
 
     info!("PatchPilot server ready");
 
-    // 10. Build Rocket
-    rocket::build()
+    // 9. HTTP/HTTPS handling
+    let settings_read = app_state.settings.read().unwrap();
+    let force_https = settings_read.force_https();
+    let allow_http = settings_read.allow_http();
+
+    let rocket_builder = rocket::build()
         .manage(pool)
         .manage(app_state)
         .mount("/api", routes::api_routes())
@@ -101,5 +113,17 @@ fn rocket() -> _ {
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
         .mount("/", routes::page_routes())
         .mount("/history", routes![routes::history::api_history])
-        .mount("/audit", routes![routes::history::api_audit])
+        .mount("/audit", routes![routes::history::api_audit]);
+
+    if force_https {
+        // TLS mode: provide server.crt & server.key
+        rocket_builder.configure(rocket::Config {
+            tls: Some(rocket::config::TlsConfig::from_paths("certs/server.crt", "certs/server.key")),
+            ..Default::default()
+        })
+    } else if allow_http {
+        rocket_builder // default HTTP
+    } else {
+        rocket_builder // fallback
+    }
 }

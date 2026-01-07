@@ -4,7 +4,6 @@ use rocket::form::Form;
 use rocket::http::Status;
 
 use diesel::prelude::*;
-
 use chrono::{Utc, Duration};
 use uuid::Uuid;
 
@@ -13,6 +12,7 @@ use crate::db::DbPool;
 use crate::models::{Action, NewAction, NewActionTarget};
 use crate::schema::{actions, action_targets};
 use crate::routes::history::log_audit;
+
 
 #[derive(FromForm)]
 pub struct SubmitActionForm {
@@ -52,9 +52,8 @@ pub async fn submit_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        // Create and insert ActionTarget
+        // Create target for device
         let target = NewActionTarget::pending(&new_action.id, &form.target_device_id);
-
         diesel::insert_into(action_targets::table)
             .values(&target)
             .execute(&mut conn)
@@ -85,14 +84,12 @@ pub async fn list_actions(
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Json<Vec<Action>>, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-
         let all_actions = actions::table
             .order(actions::created_at.desc())
             .load::<Action>(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
         log_audit(&mut conn, &user_name, "action.list", None, None).ok();
-
         Ok(Json(all_actions))
     })
     .await

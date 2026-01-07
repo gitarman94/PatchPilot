@@ -6,19 +6,21 @@ use crate::state::AppState;
 use crate::schema::action_targets;
 use diesel::prelude::*;
 
+/// Spawns a background task to clean up completed action_targets
 pub fn spawn_pending_cleanup(state: Arc<AppState>) {
     tokio::spawn(async move {
         loop {
             // Read cleanup interval from settings
             let interval_secs = {
                 let settings = state.settings.read().unwrap();
-                settings.auto_refresh_seconds
+                settings.auto_refresh_seconds.max(5) // minimum 5 seconds
             };
 
             tokio::time::sleep(Duration::from_secs(interval_secs as u64)).await;
 
-            // Only proceed if cleanup is enabled
-            if !state.settings.read().unwrap().action_polling_enabled {
+            // Only proceed if action polling/cleanup is enabled
+            let cleanup_enabled = state.settings.read().unwrap().action_polling_enabled;
+            if !cleanup_enabled {
                 continue;
             }
 
@@ -34,6 +36,7 @@ pub fn spawn_pending_cleanup(state: Arc<AppState>) {
                 .execute(&mut conn)
                 .unwrap_or(0);
 
+                // Log cleanup via audit closure
                 if deleted_count > 0 {
                     if let Some(audit) = state.log_audit.as_ref() {
                         let _ = audit(

@@ -12,9 +12,7 @@ use crate::schema::devices::dsl::*;
 #[get("/devices")]
 pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Status> {
     let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-    let result = devices
-        .load::<Device>(&mut conn)
-        .map_err(|_| Status::InternalServerError)?;
+    let result = devices.load::<Device>(&mut conn).map_err(|_| Status::InternalServerError)?;
     Ok(Json(result))
 }
 
@@ -30,28 +28,6 @@ pub async fn get_device_details(
         .first::<Device>(&mut conn)
         .map_err(|_| Status::NotFound)?;
     Ok(Json(device))
-}
-
-/// Helper: get current server settings
-pub async fn get_server_settings(pool: &State<DbPool>) -> Result<ModelServerSettings, Status> {
-    let pool_inner = pool.inner().clone();
-    rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool_inner.get().map_err(|_| Status::InternalServerError)?;
-        let settings: crate::settings::ServerSettings =
-            load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
-        // Convert crate::settings::ServerSettings -> models::ServerSettings
-        Ok(ModelServerSettings {
-            id: 0, // default because crate::settings::ServerSettings has no id field
-            auto_approve_devices: settings.auto_approve_devices,
-            auto_refresh_enabled: settings.auto_refresh_enabled,
-            auto_refresh_seconds: settings.auto_refresh_seconds,
-            default_action_ttl_seconds: settings.default_action_ttl_seconds,
-            action_polling_enabled: settings.action_polling_enabled,
-            ping_target_ip: settings.ping_target_ip,
-        })
-    })
-    .await
-    .map_err(|_| Status::InternalServerError)?
 }
 
 /// Approve a device
@@ -72,7 +48,7 @@ pub async fn approve_device(
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
         diesel::update(devices.filter(device_id.eq(&device_id_str)))
-            .set(approved.eq(true))
+            .set(crate::schema::devices::approved.eq(true))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
@@ -91,20 +67,6 @@ pub async fn approve_device(
     .map_err(|_| Status::InternalServerError)?
 }
 
-/// Heartbeat / health check endpoint
-#[get("/heartbeat")]
-pub async fn heartbeat(pool: &State<DbPool>) -> Result<Json<serde_json::Value>, Status> {
-    let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-    diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1"))
-        .get_result::<i32>(&mut conn)
-        .map_err(|_| Status::InternalServerError)?;
-
-    Ok(Json(serde_json::json!({
-        "status": "ok",
-        "timestamp": Utc::now().to_rfc3339()
-    })))
-}
-
 /// Register or update a device
 #[post("/register_or_update", data = "<info>")]
 pub async fn register_or_update_device(
@@ -119,7 +81,10 @@ pub async fn register_or_update_device(
     let username = user.username.clone();
     let info = info.into_inner();
     let pool_inner = pool.inner().clone();
-    let settings = get_server_settings(pool).await.unwrap_or_default();
+
+    let settings = crate::routes::devices::get_server_settings(pool)
+        .await
+        .unwrap_or_default();
 
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
         let mut conn = pool_inner.get().map_err(|_| Status::InternalServerError)?;

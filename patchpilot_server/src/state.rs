@@ -1,64 +1,76 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Mutex};
+use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
-use chrono::NaiveDateTime;
-use sysinfo::System;
+use chrono::Utc;
+use sysinfo::{System, SystemExt, CpuExt};
 
+use crate::models::{ServerSettings, AuditLog};
 use crate::db::DbPool;
-use crate::settings::ServerSettings;
 
+/// SystemState tracks current system metrics
 pub struct SystemState {
-    pub db_pool: DbPool,
-    pub system: Arc<Mutex<System>>,
+    system: RwLock<System>,
 }
 
 impl SystemState {
-    pub fn new(db_pool: DbPool) -> Self {
+    pub fn new(_pool: DbPool) -> Self {
         let mut sys = System::new_all();
         sys.refresh_all();
-
         Self {
-            db_pool,
-            system: Arc::new(Mutex::new(sys)),
+            system: RwLock::new(sys),
         }
-    }
-
-    pub fn total_memory(&self) -> u64 {
-        self.system.lock().unwrap().total_memory()
-    }
-
-    pub fn available_memory(&self) -> u64 {
-        self.system.lock().unwrap().available_memory()
     }
 
     pub fn refresh(&self) {
-        self.system.lock().unwrap().refresh_all();
+        let mut sys = self.system.write().unwrap();
+        sys.refresh_all();
+    }
+
+    pub fn total_memory(&self) -> u64 {
+        let sys = self.system.read().unwrap();
+        sys.total_memory()
+    }
+
+    pub fn available_memory(&self) -> u64 {
+        let sys = self.system.read().unwrap();
+        sys.available_memory()
     }
 }
 
+/// AppState holds server-wide state
 pub struct AppState {
     pub system: Arc<SystemState>,
-    pub pending_devices: Arc<RwLock<HashMap<String, NaiveDateTime>>>,
+    pub pending_devices: Arc<RwLock<HashMap<String, Instant>>>,
     pub settings: Arc<RwLock<ServerSettings>>,
+    pub audit: Option<Arc<dyn Fn(&mut diesel::SqliteConnection, &str, &str, Option<&str>, Option<&str>) + Send + Sync>>,
 }
 
 impl AppState {
-    pub fn new(db_pool: DbPool, settings: ServerSettings) -> Self {
-        Self {
-            system: Arc::new(SystemState::new(db_pool)),
-            pending_devices: Arc::new(RwLock::new(HashMap::new())),
-            settings: Arc::new(RwLock::new(settings)),
+    /// Logs an audit event if closure is attached
+    pub fn log_audit(
+        &self,
+        conn: &mut diesel::SqliteConnection,
+        actor: &str,
+        action_type: &str,
+        target: Option<&str>,
+        details: Option<&str>,
+    ) {
+        if let Some(ref f) = self.audit {
+            f(conn, actor, action_type, target, details);
         }
     }
 
-    pub fn system_info(&self) -> String {
-        let sys = &self.system;
-        sys.refresh();
+    /// Registers or updates a pending device heartbeat
+    pub fn update_pending_device(&self, device_id: &str) {
+        let mut pending = self.pending_devices.write().unwrap();
+        pending.insert(device_id.to_string(), Instant::now());
+    }
 
-        format!(
-            "Total Memory: {} MB, Available Memory: {} MB",
-            sys.total_memory() / 1024 / 1024,
-            sys.available_memory() / 1024 / 1024
-        )
+    /// Removes stale pending devices
+    pub fn cleanup_stale_devices(&self, max_age_secs: u64) {
+        let mut pending = self.pending_devices.write().unwrap();
+        let now = Instant::now();
+        pending.retain(|_, t| now.duration_since(*t).as_secs() < max_age_secs);
     }
 }
