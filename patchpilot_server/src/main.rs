@@ -64,7 +64,7 @@ fn rocket() -> _ {
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
         settings: server_settings.clone(),
         db_pool: pool.clone(),
-        log_audit: Some(Arc::new(|conn, actor, action_type, target, details| {
+        audit: Some(Arc::new(|conn, actor, action_type, target, details| {
             let log = AuditLog {
                 id: 0,
                 actor: actor.to_string(),
@@ -100,8 +100,9 @@ fn rocket() -> _ {
 
     info!("PatchPilot server ready");
 
-    // 9. HTTP/HTTPS
+    // 9. HTTP/HTTPS setup
     let settings_read = app_state.settings.read().unwrap();
+
     let rocket_builder = rocket::build()
         .manage(pool)
         .manage(app_state)
@@ -114,21 +115,25 @@ fn rocket() -> _ {
         .mount("/history", routes![routes::history::api_history])
         .mount("/audit", routes![routes::history::api_audit]);
 
+    // Use TLS if requested and feature enabled
     #[cfg(feature = "tls")]
     {
         use rocket::config::{Config, TlsConfig};
         if settings_read.force_https {
             let figment = Config::figment()
                 .merge(("tls", TlsConfig::from_paths("certs/server.crt", "certs/server.key")));
-            rocket::custom(figment)
-                .mount("/api", routes::api_routes()) // re-mount routes
-        } else {
-            rocket_builder
+            return rocket::custom(figment)
+                .mount("/api", routes::api_routes()) // re-mount routes for custom instance
+                .mount("/auth", routes::auth_routes())
+                .mount("/users-groups", routes::users_groups_routes())
+                .mount("/roles", routes::roles_routes())
+                .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
+                .mount("/", routes::page_routes())
+                .mount("/history", routes![routes::history::api_history])
+                .mount("/audit", routes![routes::history::api_audit]);
         }
     }
 
-    #[cfg(not(feature = "tls"))]
-    {
-        rocket_builder
-    }
+    // Default: return the regular Rocket builder
+    rocket_builder
 }

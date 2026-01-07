@@ -55,7 +55,7 @@ impl ServerSettings {
             .execute(conn)
     }
 
-    /// HTTP / HTTPS getters
+    /// HTTPS / HTTP getters
     pub fn force_https(&self) -> bool {
         self.force_https
     }
