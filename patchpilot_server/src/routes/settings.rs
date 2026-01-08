@@ -11,42 +11,24 @@ use serde::Serialize;
 use crate::state::AppState;
 use crate::auth::AuthUser;
 use crate::routes::history::log_audit;
-use crate::db::{self, ServerSettingsRow};
-use crate::models::ServerSettings as ModelServerSettings;
+use crate::db;
+use crate::models::ServerSettings;
 
+/// Form for updating settings
 #[derive(FromForm)]
 pub struct ServerSettingsForm {
+    pub auto_approve_devices: Option<bool>,
+    pub auto_refresh_enabled: Option<bool>,
+    pub auto_refresh_seconds: Option<i64>,
     pub default_action_ttl_seconds: Option<i64>,
-    pub default_pending_ttl_seconds: Option<i64>,
-    pub logging_enabled: Option<bool>,
-    pub default_user_role: Option<String>,
+    pub action_polling_enabled: Option<bool>,
+    pub ping_target_ip: Option<String>,
+    pub force_https: Option<bool>,
 }
 
 #[derive(Serialize)]
 struct SettingsContext {
-    settings: ModelServerSettings,
-}
-
-/// Convert DB row to model
-fn row_to_model(row: &ServerSettingsRow) -> ModelServerSettings {
-    ModelServerSettings {
-        default_action_ttl_seconds: row.default_action_ttl_seconds,
-        default_pending_ttl_seconds: row.default_pending_ttl_seconds,
-        logging_enabled: row.enable_logging,
-        default_user_role: row.default_role.clone(),
-    }
-}
-
-/// Convert model to DB row
-fn model_to_row(model: &ModelServerSettings) -> ServerSettingsRow {
-    ServerSettingsRow {
-        id: 1,
-        force_https: true, // keep existing default
-        default_action_ttl_seconds: model.default_action_ttl_seconds,
-        default_pending_ttl_seconds: model.default_pending_ttl_seconds,
-        enable_logging: model.logging_enabled,
-        default_role: model.default_user_role.clone(),
-    }
+    settings: ServerSettings,
 }
 
 /// VIEW SETTINGS PAGE
@@ -55,12 +37,11 @@ pub async fn view_settings(
     state: &State<AppState>,
     _user: AuthUser,
 ) -> Result<Template, Status> {
-    let pool = state.pool.clone();
+    let pool = state.db_pool.clone();
 
-    let settings_model: ModelServerSettings = rocket::tokio::task::spawn_blocking(move || {
+    let settings_model: ServerSettings = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let row = db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
-        Ok(row_to_model(&row))
+        db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
@@ -81,7 +62,7 @@ pub async fn update_settings(
 ) -> Status {
     let username = user.username.clone();
     let form = form.into_inner();
-    let pool = state.pool.clone();
+    let pool = state.db_pool.clone();
     let shared_settings = state.settings.clone();
 
     rocket::tokio::task::spawn_blocking(move || {
@@ -91,33 +72,42 @@ pub async fn update_settings(
         };
 
         // Load existing settings
-        let mut row = match db::load_settings(&mut conn) {
+        let mut settings = match db::load_settings(&mut conn) {
             Ok(s) => s,
             Err(_) => return,
         };
 
-        // Apply updates
+        // Apply changes from form
+        if let Some(v) = form.auto_approve_devices {
+            settings.auto_approve_devices = v;
+        }
+        if let Some(v) = form.auto_refresh_enabled {
+            settings.auto_refresh_enabled = v;
+        }
+        if let Some(v) = form.auto_refresh_seconds {
+            settings.auto_refresh_seconds = v;
+        }
         if let Some(v) = form.default_action_ttl_seconds {
-            row.default_action_ttl_seconds = v;
+            settings.default_action_ttl_seconds = v;
         }
-        if let Some(v) = form.default_pending_ttl_seconds {
-            row.default_pending_ttl_seconds = v;
+        if let Some(v) = form.action_polling_enabled {
+            settings.action_polling_enabled = v;
         }
-        if let Some(v) = form.logging_enabled {
-            row.enable_logging = v;
+        if let Some(v) = form.ping_target_ip {
+            settings.ping_target_ip = v;
         }
-        if let Some(v) = form.default_user_role {
-            row.default_role = v;
+        if let Some(v) = form.force_https {
+            settings.force_https = v;
         }
 
-        // Persist to DB
-        if db::save_settings(&mut conn, &row).is_err() {
+        // Save updated settings to DB
+        if db::save_settings(&mut conn, &settings).is_err() {
             return;
         }
 
-        // Update in-memory shared settings
+        // Update shared in-memory settings
         if let Ok(mut guard) = shared_settings.write() {
-            *guard = row_to_model(&row);
+            *guard = settings.clone();
         }
 
         // Audit log
