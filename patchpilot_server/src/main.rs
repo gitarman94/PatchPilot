@@ -35,21 +35,19 @@ fn rocket() -> _ {
         }
     }
 
-    // 3. Load server settings
+    // 3. Load server settings from DB and wrap in RwLock
     let server_settings = {
         let mut conn = get_conn(&pool);
-        let s = load_settings(&mut conn).unwrap_or_default(); // <- fixed
+        let db_settings = load_settings(&mut conn).unwrap_or_default();
 
         Arc::new(RwLock::new(ModelServerSettings {
-            id: s.id,
-            auto_approve_devices: s.auto_approve_devices,
-            auto_refresh_enabled: s.auto_refresh_enabled,
-            auto_refresh_seconds: s.auto_refresh_seconds,
-            default_action_ttl_seconds: s.default_action_ttl_seconds,
-            action_polling_enabled: s.action_polling_enabled,
-            ping_target_ip: s.ping_target_ip,
-            allow_http: s.allow_http,
-            force_https: s.force_https,
+            id: db_settings.id,
+            allow_http: db_settings.allow_http,
+            force_https: db_settings.force_https,
+            max_action_ttl: db_settings.max_action_ttl,
+            max_pending_age: db_settings.max_pending_age,
+            enable_logging: db_settings.enable_logging,
+            default_role: db_settings.default_role,
         }))
     };
 
@@ -95,8 +93,8 @@ fn rocket() -> _ {
         .manage(app_state)
         .mount("/api", routes::api_routes())
         .mount("/auth", routes::auth_routes())
-        .mount("/users-groups", routes::users_groups::users_groups_routes()) // ensure function exists
-        .mount("/roles", routes::roles::roles_routes())                        // ensure function exists
+        .mount("/users-groups", routes::users_groups::users_groups_routes())
+        .mount("/roles", routes::roles::roles_routes())
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
         .mount("/", routes::page_routes())
         .mount("/history", routes![routes::history::api_history])

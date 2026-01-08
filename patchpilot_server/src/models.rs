@@ -1,14 +1,13 @@
 use diesel::prelude::*;
 use chrono::{NaiveDateTime, Utc};
-use rocket::serde::{Serialize, Deserialize};
 use crate::schema::{devices, actions, action_targets, history_log, audit, server_settings};
+use serde::{Serialize, Deserialize};
 
 #[derive(Queryable, Identifiable, Selectable, Serialize, Deserialize, Debug)]
 #[diesel(table_name = devices)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Device {
-    pub id: i32,
-    pub device_id: String,
+    pub id: i64,
     pub device_name: String,
     pub hostname: String,
     pub os_name: String,
@@ -35,7 +34,7 @@ pub struct Device {
 #[derive(Insertable, AsChangeset)]
 #[diesel(table_name = devices)]
 pub struct NewDevice {
-    pub device_id: String,
+    pub id: i64,
     pub device_name: String,
     pub hostname: String,
     pub os_name: String,
@@ -78,7 +77,7 @@ pub struct SystemInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
-    pub device_id: String,
+    pub device_id: i64,
     pub system_info: SystemInfo,
     pub device_type: Option<String>,
     pub device_model: Option<String>,
@@ -88,7 +87,7 @@ pub struct DeviceInfo {
 #[diesel(table_name = actions)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Action {
-    pub id: String,
+    pub id: i64,
     pub action_type: String,
     pub parameters: Option<String>,
     pub author: Option<String>,
@@ -100,7 +99,7 @@ pub struct Action {
 #[derive(Debug, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = actions)]
 pub struct NewAction {
-    pub id: String,
+    pub id: i64,
     pub action_type: String,
     pub parameters: Option<String>,
     pub author: Option<String>,
@@ -113,9 +112,9 @@ pub struct NewAction {
 #[diesel(table_name = action_targets)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ActionTarget {
-    pub id: i32,
-    pub action_id: String,
-    pub device_id: String,
+    pub id: i64,
+    pub action_id: i64,
+    pub device_id: i64,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
@@ -124,18 +123,18 @@ pub struct ActionTarget {
 #[derive(Debug, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = action_targets)]
 pub struct NewActionTarget {
-    pub action_id: String,
-    pub device_id: String,
+    pub action_id: i64,
+    pub device_id: i64,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
 }
 
 impl NewActionTarget {
-    pub fn pending(action_id: &str, device_id: &str) -> Self {
+    pub fn pending(action_id: i64, device_id: i64) -> Self {
         Self {
-            action_id: action_id.to_string(),
-            device_id: device_id.to_string(),
+            action_id,
+            device_id,
             status: "Pending".to_string(),
             last_update: Utc::now().naive_utc(),
             response: None,
@@ -148,7 +147,7 @@ impl NewActionTarget {
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct HistoryLog {
     pub id: i32,
-    pub action_id: Option<String>,
+    pub action_id: Option<i64>,
     pub device_name: Option<String>,
     pub actor: Option<String>,
     pub action_type: String,
@@ -168,17 +167,14 @@ pub struct AuditLog {
     pub created_at: NaiveDateTime,
 }
 
-#[derive(Debug, Queryable, Selectable, Serialize, Deserialize, Default)]
-#[diesel(table_name = server_settings)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
+#[diesel(table_name = crate::schema::server_settings)]
 pub struct ServerSettings {
     pub id: i32,
     pub allow_http: bool,
     pub force_https: bool,
-    pub auto_approve_devices: bool,
-    pub auto_refresh_enabled: bool,
-    pub auto_refresh_seconds: i64,
-    pub default_action_ttl_seconds: i64,
-    pub action_polling_enabled: bool,
-    pub ping_target_ip: String,
+    pub max_action_ttl: i64,
+    pub max_pending_age: i64,
+    pub enable_logging: bool,
+    pub default_role: String,
 }

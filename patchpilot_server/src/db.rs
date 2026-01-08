@@ -155,8 +155,8 @@ pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettings) -> 
     if let Some(row) = existing {
         diesel::update(server_settings.filter(id.eq(row.id)))
             .set((
-                allow_http.eq(settings.allow_http),
-                force_https.eq(settings.force_https),
+                server_settings::allow_http.eq(settings.allow_http),
+                server_settings::force_https.eq(settings.force_https),
                 auto_approve_devices.eq(settings.auto_approve_devices),
                 auto_refresh_enabled.eq(settings.auto_refresh_enabled),
                 auto_refresh_seconds.eq(settings.auto_refresh_seconds),
@@ -168,8 +168,8 @@ pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettings) -> 
     } else {
         diesel::insert_into(server_settings)
             .values((
-                allow_http.eq(settings.allow_http),
-                force_https.eq(settings.force_https),
+                server_settings::allow_http.eq(settings.allow_http),
+                server_settings::force_https.eq(settings.force_https),
                 auto_approve_devices.eq(settings.auto_approve_devices),
                 auto_refresh_enabled.eq(settings.auto_refresh_enabled),
                 auto_refresh_seconds.eq(settings.auto_refresh_seconds),

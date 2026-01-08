@@ -1,7 +1,7 @@
 diesel::table! {
     devices (id) {
-        id -> Integer,
-        device_id -> Text,
+        id -> BigInt,
+        device_id -> BigInt,
         device_name -> Text,
         hostname -> Text,
         os_name -> Text,
@@ -19,7 +19,7 @@ diesel::table! {
         network_throughput -> BigInt,
         device_type -> Text,
         device_model -> Text,
-        uptime -> Nullable<BigInt>,              // Nullable numeric (nanoseconds / seconds)
+        uptime -> Nullable<BigInt>,
         updates_available -> Bool,
         network_interfaces -> Nullable<Text>,
         ip_address -> Nullable<Text>,
@@ -28,7 +28,7 @@ diesel::table! {
 
 diesel::table! {
     actions (id) {
-        id -> Text,
+        id -> BigInt,
         action_type -> Text,
         parameters -> Nullable<Text>,
         author -> Nullable<Text>,
@@ -40,9 +40,9 @@ diesel::table! {
 
 diesel::table! {
     action_targets (id) {
-        id -> Integer,
-        action_id -> Nullable<Text>,
-        device_id -> Text,
+        id -> BigInt,
+        action_id -> BigInt,
+        device_id -> BigInt,
         status -> Text,
         last_update -> Timestamp,
         response -> Nullable<Text>,
@@ -51,8 +51,8 @@ diesel::table! {
 
 diesel::table! {
     history_log (id) {
-        id -> Integer,
-        action_id -> Nullable<Text>,
+        id -> BigInt,
+        action_id -> BigInt,
         device_name -> Nullable<Text>,
         actor -> Nullable<Text>,
         action_type -> Text,
@@ -121,6 +121,8 @@ diesel::table! {
         default_action_ttl_seconds -> BigInt,
         action_polling_enabled -> Bool,
         ping_target_ip -> Text,
+        allow_http -> Bool,
+        force_https -> Bool,
     }
 }
 
