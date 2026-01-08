@@ -1,8 +1,12 @@
+// src/state.rs
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
-
 use sysinfo::System;
+
+use diesel::prelude::*;
+use diesel::result::QueryResult;
+
 use crate::models::ServerSettings;
 use crate::db::DbPool;
 
@@ -50,6 +54,8 @@ pub struct AppState {
     pub pending_devices: Arc<RwLock<HashMap<String, Instant>>>,
     pub settings: Arc<RwLock<ServerSettings>>,
     pub db_pool: DbPool,
+
+    /// Optional audit logger closure that returns a Diesel QueryResult<()>
     pub log_audit: Option<
         Arc<
             dyn Fn(
@@ -58,7 +64,8 @@ pub struct AppState {
                     &str,
                     Option<&str>,
                     Option<&str>,
-                ) + Send
+                ) -> QueryResult<()>
+                + Send
                 + Sync,
         >,
     >,
@@ -66,6 +73,7 @@ pub struct AppState {
 
 impl AppState {
     /// Logs an audit event if closure is attached
+    /// returns Ok(()) if logged (or if no closure attached)
     pub fn log_audit(
         &self,
         conn: &mut diesel::SqliteConnection,
@@ -73,9 +81,11 @@ impl AppState {
         action_type: &str,
         target: Option<&str>,
         details: Option<&str>,
-    ) {
+    ) -> QueryResult<()> {
         if let Some(ref f) = self.log_audit {
-            f(conn, actor, action_type, target, details);
+            f(conn, actor, action_type, target, details)
+        } else {
+            Ok(())
         }
     }
 

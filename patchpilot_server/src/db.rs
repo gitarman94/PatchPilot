@@ -1,3 +1,4 @@
+// src/db.rs
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 use diesel::sqlite::SqliteConnection;
@@ -13,6 +14,7 @@ pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
 
 pub fn ensure_server_settings_imported() {
+    // Keep schema symbol referenced so diesel codegen isn't optimized away
     let _ = server_settings::table;
 }
 
@@ -41,17 +43,21 @@ pub fn initialize() -> DbPool {
     init_pool()
 }
 
+/// This struct must match the `server_settings` table in `schema.rs`
 #[derive(Queryable, Insertable, AsChangeset, Debug, Clone, Default)]
 #[diesel(table_name = server_settings)]
 pub struct ServerSettingsRow {
     pub id: i32,
-    pub force_https: bool,
+    pub auto_approve_devices: bool,
+    pub auto_refresh_enabled: bool,
+    pub auto_refresh_seconds: i64,
     pub default_action_ttl_seconds: i64,
-    pub default_pending_ttl_seconds: i64,
-    pub enable_logging: bool,
-    pub default_role: String,
+    pub action_polling_enabled: bool,
+    pub ping_target_ip: String,
+    pub force_https: bool,
 }
 
+/// Load server settings (returns a DB row struct). If not found, create a default row and return it.
 pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsRow> {
     use crate::schema::server_settings::dsl::*;
     match server_settings.first::<ServerSettingsRow>(conn) {
@@ -59,13 +65,15 @@ pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsR
         Err(diesel::result::Error::NotFound) => {
             let default = ServerSettingsRow {
                 id: 1,
-                force_https: true,
+                auto_approve_devices: false,
+                auto_refresh_enabled: true,
+                auto_refresh_seconds: 30,
                 default_action_ttl_seconds: 3600,
-                default_pending_ttl_seconds: 600,
-                enable_logging: true,
-                default_role: "user".to_string(),
+                action_polling_enabled: true,
+                ping_target_ip: "8.8.8.8".to_string(),
+                force_https: false,
             };
-            diesel::insert_into(server_settings::table)
+            diesel::insert_into(server_settings::table())
                 .values(&default)
                 .execute(conn)?;
             Ok(default)
@@ -74,25 +82,35 @@ pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsR
     }
 }
 
+/// Save server settings row (replace the single-row record)
 pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettingsRow) -> QueryResult<()> {
-    diesel::replace_into(server_settings::table)
+    // Use replace_into to overwrite the single row
+    diesel::replace_into(server_settings::table())
         .values(settings)
         .execute(conn)?;
     Ok(())
 }
 
-pub fn insert_history(conn: &mut SqliteConnection, entry: &HistoryLog) -> QueryResult<usize> {
-    diesel::insert_into(history_log::table)
+/// New history record (Insertable)
+#[derive(Insertable)]
+#[diesel(table_name = history_log)]
+pub struct NewHistory<'a> {
+    pub action_id: i64,
+    pub device_name: Option<&'a str>,
+    pub actor: Option<&'a str>,
+    pub action_type: &'a str,
+    pub details: Option<&'a str>,
+    pub created_at: NaiveDateTime,
+}
+
+/// Insert a history entry (accepts a NewHistory or constructs from a HistoryLog)
+pub fn insert_history(conn: &mut SqliteConnection, entry: &NewHistory<'_>) -> QueryResult<usize> {
+    diesel::insert_into(history_log::table())
         .values(entry)
         .execute(conn)
 }
 
-pub fn fetch_history(conn: &mut SqliteConnection) -> QueryResult<Vec<HistoryLog>> {
-    history_log::table
-        .order(history_log::created_at.desc())
-        .load(conn)
-}
-
+/// New audit record (Insertable) - lifetimes for borrowed str values
 #[derive(Insertable)]
 #[diesel(table_name = audit)]
 pub struct NewAudit<'a> {
@@ -103,18 +121,15 @@ pub struct NewAudit<'a> {
     pub created_at: NaiveDateTime,
 }
 
+/// Insert an audit entry from an AuditLog struct (if caller already has one)
 pub fn insert_audit(conn: &mut SqliteConnection, entry: &AuditLog) -> QueryResult<usize> {
-    diesel::insert_into(audit::table)
+    diesel::insert_into(audit::table())
         .values(entry)
         .execute(conn)
 }
 
-pub fn fetch_audit(conn: &mut SqliteConnection) -> QueryResult<Vec<AuditLog>> {
-    audit::table
-        .order(audit::created_at.desc())
-        .load(conn)
-}
-
+/// Synchronous convenience: log audit using a DB connection
+/// Returns Diesel QueryResult<()>
 pub fn log_audit(
     conn: &mut SqliteConnection,
     username_val: &str,
@@ -129,27 +144,36 @@ pub fn log_audit(
         details: details_val,
         created_at: Utc::now().naive_utc(),
     };
-    diesel::insert_into(audit::table)
+    diesel::insert_into(audit::table())
         .values(&new_audit)
         .execute(conn)?;
     Ok(())
 }
 
+/// Update action TTL by adjusting expires_at (ensuring it does not exceed server default)
+/// `settings_row` is the server_settings row so we can enforce default_action_ttl_seconds
 pub fn update_action_ttl(
     conn: &mut SqliteConnection,
     action_id_val: i64,
-    new_ttl: i64,
-    settings: &ServerSettingsRow,
+    new_ttl_seconds: i64,
+    settings_row: &ServerSettingsRow,
 ) -> QueryResult<usize> {
-    let ttl_to_set = std::cmp::min(new_ttl, settings.default_action_ttl_seconds);
-    diesel::update(actions::table.filter(actions::id.eq(action_id_val)))
-        .set(actions::default_action_ttl_seconds.eq(ttl_to_set))
+    use crate::schema::actions::dsl as actions_dsl;
+    let ttl_to_set = std::cmp::min(new_ttl_seconds, settings_row.default_action_ttl_seconds);
+    let new_expiry = Utc::now().naive_utc() + chrono::Duration::seconds(ttl_to_set);
+    diesel::update(actions_dsl::actions.filter(actions_dsl::id.eq(action_id_val)))
+        .set(actions_dsl::expires_at.eq(new_expiry))
         .execute(conn)
 }
 
+/// Fetch remaining TTL (seconds) for a given action (returns remaining seconds as i64)
 pub fn fetch_action_ttl(conn: &mut SqliteConnection, action_id_val: i64) -> QueryResult<i64> {
-    actions::table
-        .filter(actions::id.eq(action_id_val))
-        .select(actions::default_action_ttl_seconds)
-        .first(conn)
+    use crate::schema::actions::dsl as actions_dsl;
+    let expires_at: NaiveDateTime = actions_dsl::actions
+        .filter(actions_dsl::id.eq(action_id_val))
+        .select(actions_dsl::expires_at)
+        .first(conn)?;
+    let now = Utc::now().naive_utc();
+    let remaining = (expires_at - now).num_seconds();
+    Ok(std::cmp::max(0, remaining))
 }

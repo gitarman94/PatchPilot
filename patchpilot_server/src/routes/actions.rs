@@ -1,3 +1,4 @@
+// src/routes/actions.rs
 use rocket::{get, post, delete, State};
 use rocket::serde::json::Json;
 use rocket::form::Form;
@@ -6,7 +7,7 @@ use diesel::prelude::*;
 use chrono::{Utc, Duration};
 
 use crate::auth::AuthUser;
-use crate::db::{DbPool, log_audit};
+use crate::db::{DbPool, log_audit as db_log_audit};
 use crate::models::{Action, NewAction, NewActionTarget};
 use crate::schema::{actions, action_targets};
 
@@ -43,31 +44,31 @@ pub async fn submit_action(
             canceled: false,
         };
 
-        diesel::insert_into(actions::table)
+        diesel::insert_into(actions::table())
             .values(&new_action)
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        let action_id: i64 = actions::table
+        let action_id: i64 = actions::table()
             .select(actions::id)
             .order(actions::id.desc())
             .first(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
         let target = NewActionTarget::pending(action_id, form.target_device_id);
-        diesel::insert_into(action_targets::table)
+        diesel::insert_into(action_targets::table())
             .values(&target)
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        log_audit(
-            &pool,
+        // Use synchronous DB log_audit (accepts &mut conn)
+        let _ = db_log_audit(
+            &mut conn,
             &username,
             "action.submit",
             Some(&action_id.to_string()),
             Some(&format!("Target device: {}", form.target_device_id)),
-        )
-        .map_err(|_| Status::InternalServerError)?;
+        );
 
         Ok(Status::Created)
     })
@@ -86,12 +87,13 @@ pub async fn list_actions(
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Json<Vec<Action>>, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let all_actions = actions::table
+        let all_actions = actions::table()
             .order(actions::created_at.desc())
             .load::<Action>(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        log_audit(&pool, &username, "action.list", None, None).ok();
+        let _ = db_log_audit(&mut conn, &username, "action.list", None, None);
+
         Ok(Json(all_actions))
     })
     .await
@@ -111,14 +113,18 @@ pub async fn cancel_action(
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         let now = Utc::now().naive_utc();
-
-        diesel::update(actions::table.filter(actions::id.eq(action_id_param)))
+        diesel::update(actions::table().filter(actions::id.eq(action_id_param)))
             .set(actions::expires_at.eq(now))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        log_audit(&pool, &username, "action.cancel", Some(&action_id_param.to_string()), None)
-            .map_err(|_| Status::InternalServerError)?;
+        let _ = db_log_audit(
+            &mut conn,
+            &username,
+            "action.cancel",
+            Some(&action_id_param.to_string()),
+            None,
+        );
 
         Ok(Status::Ok)
     })
@@ -133,10 +139,9 @@ pub async fn list_action_targets(
     action_id_param: i64,
 ) -> Result<Json<Vec<(i64, String, Option<String>)>>, Status> {
     let pool = pool.inner().clone();
-
     let targets = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<(i64, String, Option<String>)>, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let results = action_targets::table
+        let results = action_targets::table()
             .filter(action_targets::action_id.eq(action_id_param))
             .select((action_targets::device_id, action_targets::status, action_targets::response))
             .load::<(i64, String, Option<String>)>(&mut conn)
@@ -161,12 +166,10 @@ pub async fn update_action_ttl(
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         let new_expiry = Utc::now().naive_utc() + Duration::seconds(ttl_seconds);
-
-        diesel::update(actions::table.filter(actions::id.eq(action_id)))
+        diesel::update(actions::table().filter(actions::id.eq(action_id)))
             .set(actions::expires_at.eq(new_expiry))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
-
         Ok(Status::Ok)
     })
     .await
@@ -185,16 +188,15 @@ pub async fn pending_cleanup(
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         let cutoff = Utc::now().naive_utc();
-
         diesel::delete(
-            action_targets::table
+            action_targets::table()
                 .filter(action_targets::status.eq("completed"))
                 .filter(action_targets::last_update.lt(cutoff)),
         )
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
 
-        log_audit(&pool, &username, "action.pending_cleanup", None, None).ok();
+        let _ = db_log_audit(&mut conn, &username, "action.pending_cleanup", None, None);
         Ok(Status::Ok)
     })
     .await
@@ -213,9 +215,8 @@ pub async fn report_action_result(
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-
         diesel::update(
-            action_targets::table
+            action_targets::table()
                 .filter(action_targets::action_id.eq(action_id_param))
                 .filter(action_targets::device_id.eq(device_id_param)),
         )
@@ -226,7 +227,6 @@ pub async fn report_action_result(
         ))
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
-
         Ok(Status::Ok)
     })
     .await

@@ -1,6 +1,6 @@
+// src/routes/settings.rs
 use rocket::{
-    get, post,
-    State,
+    get, post, State,
     form::{Form, FromForm},
     http::Status,
 };
@@ -10,9 +10,8 @@ use serde::Serialize;
 
 use crate::state::AppState;
 use crate::auth::AuthUser;
-use crate::routes::history::log_audit;
 use crate::db;
-use crate::models::ServerSettings;
+use crate::settings::ServerSettings;
 
 #[derive(FromForm)]
 pub struct ServerSettingsForm {
@@ -30,25 +29,26 @@ struct SettingsContext {
     settings: ServerSettings,
 }
 
+/// View settings page
 #[get("/settings")]
 pub async fn view_settings(
     state: &State<AppState>,
     _user: AuthUser,
 ) -> Result<Template, Status> {
     let pool = state.db_pool.clone();
-
     let settings_model: ServerSettings = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)
+        // Use the app-level settings loader to convert DB row -> app struct
+        Ok(ServerSettings::load(&mut conn))
     })
     .await
-    .map_err(|_| Status::InternalServerError)?
-    ?;
+    .map_err(|_| Status::InternalServerError)??;
 
     let context = SettingsContext { settings: settings_model };
     Ok(Template::render("settings", &context))
 }
 
+/// Update settings
 #[post("/settings/update", data = "<form>")]
 pub async fn update_settings(
     state: &State<AppState>,
@@ -62,7 +62,9 @@ pub async fn update_settings(
 
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<(), ()> {
         let mut conn = pool.get().map_err(|_| ())?;
-        let mut settings = db::load_settings(&mut conn).map_err(|_| ())?;
+
+        // Load into the app-level ServerSettings struct
+        let mut settings = ServerSettings::load(&mut conn);
 
         if let Some(v) = form.auto_approve_devices { settings.auto_approve_devices = v; }
         if let Some(v) = form.auto_refresh_enabled { settings.auto_refresh_enabled = v; }
@@ -72,13 +74,17 @@ pub async fn update_settings(
         if let Some(v) = form.ping_target_ip { settings.ping_target_ip = v; }
         if let Some(v) = form.force_https { settings.force_https = v; }
 
-        db::save_settings(&mut conn, &settings).map_err(|_| ())?;
+        // Persist using the app-level save helper
+        settings.save(&mut conn);
 
+        // Update in-memory shared settings
         if let Ok(mut guard) = shared_settings.write() {
             *guard = settings.clone();
         }
 
-        let _ = log_audit(&mut conn, &username, "update_settings", None, Some("Updated server settings"));
+        // Log audit using synchronous DB log helper
+        let _ = db::log_audit(&mut conn, &username, "update_settings", None, Some("Updated server settings"));
+
         Ok(())
     })
     .await;
@@ -89,11 +95,6 @@ pub async fn update_settings(
     }
 }
 
-pub fn configure_routes(
-    rocket: rocket::Rocket<rocket::Build>,
-) -> rocket::Rocket<rocket::Build> {
-    rocket.mount("/", routes![
-        view_settings,
-        update_settings,
-    ])
+pub fn configure_routes(rocket: rocket::Rocket<rocket::Build>) -> rocket::Rocket<rocket::Build> {
+    rocket.mount("/", routes![view_settings, update_settings])
 }

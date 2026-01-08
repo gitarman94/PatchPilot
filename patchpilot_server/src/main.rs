@@ -1,3 +1,4 @@
+// src/main.rs
 #[macro_use]
 extern crate rocket;
 
@@ -13,54 +14,38 @@ mod pending_cleanup;
 
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
-
 use log::info;
 use rocket::fs::FileServer;
 
-use crate::db::{
-    initialize,
-    get_conn,
-    load_settings,
-    DbPool,
-};
+use crate::db::{initialize, get_conn, DbPool};
 use crate::action_ttl::spawn_action_ttl_task;
 use crate::pending_cleanup::spawn_pending_cleanup;
 use crate::state::{AppState, SystemState};
-use crate::models::ServerSettings;
+use crate::settings::ServerSettings;
 use crate::auth::AuthUser;
 
 #[launch]
 fn rocket() -> _ {
-
     // Initialize DB + Logger
     let pool: DbPool = initialize();
 
-    // Load Server Settings
+    // Load Server Settings (app-level struct)
     let settings = {
         let mut conn = get_conn(&pool);
-        let s = load_settings(&mut conn)
-            .expect("Failed to load server settings");
+        let s = ServerSettings::load(&mut conn);
         Arc::new(RwLock::new(s))
     };
 
     // System + App State
     let system_state = SystemState::new(pool.clone());
-
     let app_state = Arc::new(AppState {
         db_pool: pool.clone(),
         system: system_state.clone(),
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
         settings: settings.clone(),
-
-        // real audit logger wired to DB
+        // real audit logger wired to DB; closure returns Diesel QueryResult<()>
         log_audit: Some(Arc::new(move |conn, actor, action, target, details| {
-            let _ = crate::db::log_audit(
-                conn,
-                actor,
-                action,
-                target,
-                details,
-            );
+            crate::db::log_audit(conn, actor, action, target, details)
         })),
     });
 
@@ -76,7 +61,7 @@ fn rocket() -> _ {
             username: "admin".to_string(),
             role: "Admin".to_string(),
         };
-        user.audit(&mut conn, "server_started", None);
+        let _ = user.audit(&mut conn, "server_started", None);
     }
 
     // System Info Logging
@@ -85,7 +70,6 @@ fn rocket() -> _ {
         app_state.system.total_memory() / 1024 / 1024,
         app_state.system.available_memory() / 1024 / 1024
     );
-
     info!("PatchPilot server ready");
 
     // Rocket Build

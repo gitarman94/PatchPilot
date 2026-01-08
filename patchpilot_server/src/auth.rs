@@ -1,3 +1,4 @@
+// src/auth.rs
 use rocket::form::Form;
 use rocket::http::{Cookie, CookieJar, SameSite, Status};
 use rocket::response::{Redirect, content::RawHtml};
@@ -6,7 +7,7 @@ use rocket::State;
 use diesel::prelude::*;
 use crate::db::DbPool;
 use crate::schema::{audit, users, roles, user_roles};
-use bcrypt::verify;
+use bcrypt::{verify, hash};
 use chrono::Utc;
 use std::fs::read_to_string;
 
@@ -30,8 +31,9 @@ pub enum UserRole {
 }
 
 impl AuthUser {
-    pub fn audit(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) {
-        let _ = diesel::insert_into(audit::table)
+    /// Write a simple audit record using a provided SqliteConnection
+    pub fn audit(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) -> QueryResult<()> {
+        let _ = diesel::insert_into(audit::table())
             .values((
                 audit::actor.eq(&self.username),
                 audit::action_type.eq(action),
@@ -39,7 +41,8 @@ impl AuthUser {
                 audit::details.eq::<Option<String>>(None),
                 audit::created_at.eq(Utc::now().naive_utc()),
             ))
-            .execute(conn);
+            .execute(conn)?;
+        Ok(())
     }
 
     pub fn has_role(&self, role: UserRole) -> bool {
@@ -55,6 +58,7 @@ impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        // Check cookie for user_id
         let cookie = match request.cookies().get_private("user_id") {
             Some(c) => c,
             None => return Outcome::Failure((Status::Unauthorized, ())),
@@ -65,28 +69,30 @@ impl<'r> FromRequest<'r> for AuthUser {
             Err(_) => return Outcome::Failure((Status::Unauthorized, ())),
         };
 
+        // Get DB pool from state
         let pool = match request.guard::<&State<DbPool>>().await {
-            Outcome::Success(p) => p,
+            Outcome::Success(p) => p.inner().clone(),
             _ => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
+        // Get a connection
         let mut conn = match pool.get() {
             Ok(c) => c,
             Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
-        match users::table
+        // Query user & role
+        match users::table()
             .filter(users::id.eq(user_id))
-            .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
-            .left_outer_join(roles::table.on(roles::id.eq(user_roles::role_id)))
+            .left_outer_join(user_roles::table().on(user_roles::user_id.eq(users::id)))
+            .left_outer_join(roles::table().on(roles::id.eq(user_roles::role_id)))
             .select((users::id, users::username, roles::name.nullable()))
             .first::<(i32, String, Option<String>)>(&mut conn)
         {
-            Ok((uid, uname, urole)) => Outcome::Success(AuthUser {
-                id: uid,
-                username: uname,
-                role: urole.unwrap_or("User".into()),
-            }),
+            Ok((uid, uname, urole)) => {
+                let role = urole.unwrap_or_else(|| "User".to_string());
+                Outcome::Success(AuthUser { id: uid, username: uname, role })
+            }
             Err(_) => Outcome::Failure((Status::Unauthorized, ())),
         }
     }
@@ -99,10 +105,10 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
         Err(_) => return Redirect::to("/login"),
     };
 
-    let row = match users::table
+    let row = match users::table()
         .filter(users::username.eq(&form.username))
-        .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
-        .left_outer_join(roles::table.on(roles::id.eq(user_roles::role_id)))
+        .left_outer_join(user_roles::table().on(user_roles::user_id.eq(users::id)))
+        .left_outer_join(roles::table().on(roles::id.eq(user_roles::role_id)))
         .select((users::id, users::username, users::password_hash, roles::name.nullable()))
         .first::<(i32, String, String, Option<String>)>(&mut conn)
         .optional()
@@ -122,10 +128,10 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
     let auth_user = AuthUser {
         id: row.0,
         username: row.1.clone(),
-        role: row.3.unwrap_or("User".into()),
+        role: row.3.unwrap_or_else(|| "User".into()),
     };
-    auth_user.audit(&mut conn, "login", None);
 
+    let _ = auth_user.audit(&mut conn, "login", None);
     Redirect::to("/dashboard")
 }
 
@@ -136,19 +142,19 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
 
     if let Some(uid) = user_id {
         if let Ok(mut conn) = pool.get() {
-            if let Ok((uname, urole)) = users::table
+            if let Ok((uname, urole)) = users::table()
                 .filter(users::id.eq(uid))
-                .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
-                .left_outer_join(roles::table.on(roles::id.eq(user_roles::role_id)))
+                .left_outer_join(user_roles::table().on(user_roles::user_id.eq(users::id)))
+                .left_outer_join(roles::table().on(roles::id.eq(user_roles::role_id)))
                 .select((users::username, roles::name.nullable()))
                 .first::<(String, Option<String>)>(&mut conn)
             {
                 let auth_user = AuthUser {
                     id: uid,
                     username: uname,
-                    role: urole.unwrap_or("User".into()),
+                    role: urole.unwrap_or_else(|| "User".into()),
                 };
-                auth_user.audit(&mut conn, "logout", None);
+                let _ = auth_user.audit(&mut conn, "logout", None);
             }
         }
     }
@@ -160,11 +166,11 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
 pub fn login_page() -> RawHtml<String> {
     RawHtml(
         read_to_string("templates/login.html")
-            .unwrap_or_else(|_| "<h1>Login page missing</h1>".to_string())
+            .unwrap_or_else(|_| "<h1>Login page missing</h1>".to_string()),
     )
 }
 
-// Simple token validation
+// Simple token validation helper (example)
 pub async fn validate_token(token: &str) -> Result<AuthUser, ()> {
     if token == "testtoken" {
         Ok(AuthUser {
