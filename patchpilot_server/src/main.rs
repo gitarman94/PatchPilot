@@ -32,9 +32,8 @@ use crate::auth::AuthUser;
 
 #[launch]
 fn rocket() -> _ {
-    // -----------------------------
+
     // Initialize DB + Logger
-    // -----------------------------
     let pool: DbPool = initialize();
 
     {
@@ -44,9 +43,8 @@ fn rocket() -> _ {
         }
     }
 
-    // -----------------------------
+
     // Load Server Settings
-    // -----------------------------
     let settings = {
         let mut conn = get_conn(&pool);
         let s = load_settings(&mut conn)
@@ -54,9 +52,8 @@ fn rocket() -> _ {
         Arc::new(RwLock::new(s))
     };
 
-    // -----------------------------
+
     // System + App State
-    // -----------------------------
     let system_state = SystemState::new(pool.clone());
 
     let app_state = Arc::new(AppState {
@@ -77,15 +74,13 @@ fn rocket() -> _ {
         })),
     });
 
-    // -----------------------------
+
     // Background Tasks
-    // -----------------------------
     spawn_action_ttl_task(app_state.clone());
     spawn_pending_cleanup(app_state.clone());
 
-    // -----------------------------
+
     // Startup Audit Event
-    // -----------------------------
     {
         let mut conn = get_conn(&pool);
         let user = AuthUser {
@@ -96,9 +91,8 @@ fn rocket() -> _ {
         user.audit(&mut conn, "server_started", None);
     }
 
-    // -----------------------------
+
     // System Info Logging
-    // -----------------------------
     info!(
         "System memory: total {} MB, available {} MB",
         app_state.system.total_memory() / 1024 / 1024,
@@ -107,9 +101,8 @@ fn rocket() -> _ {
 
     info!("PatchPilot server ready");
 
-    // -----------------------------
+
     // Rocket Build
-    // -----------------------------
     rocket::build()
         .manage(pool)
         .manage(app_state)
