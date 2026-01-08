@@ -89,7 +89,7 @@ pub async fn approve_device(
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
         diesel::update(devices.filter(device_id.eq(&device_id_str)))
-            .set(crate::schema::devices::approved.eq(true))
+            .set(approved.eq(true))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 

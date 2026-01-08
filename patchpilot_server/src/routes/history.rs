@@ -23,6 +23,7 @@ pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, 
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Json(result))
 }
 
@@ -36,6 +37,7 @@ pub async fn api_audit(pool: &State<DbPool>) -> Result<Json<Vec<AuditLog>>, Stat
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Json(result))
 }
 
@@ -57,15 +59,17 @@ pub fn log_audit(
     details_val: Option<&str>,
 ) -> diesel::QueryResult<()> {
     let entry = AuditLog {
-        id: 0, // auto-incremented
+        id: 0, // will be auto-incremented by SQLite
         actor: actor_val.to_string(),
         action_type: action_type_val.to_string(),
         target: target_val.map(|s| s.to_string()),
         details: details_val.map(|s| s.to_string()),
         created_at: Utc::now().naive_utc(),
     };
+
     diesel::insert_into(audit)
         .values(&entry)
         .execute(conn)?;
+
     Ok(())
 }
