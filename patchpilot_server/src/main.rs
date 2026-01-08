@@ -12,18 +12,29 @@ mod action_ttl;
 mod pending_cleanup;
 
 use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
+
 use log::info;
 use rocket::fs::FileServer;
 
-use crate::db::{initialize, get_conn, create_default_admin, DbPool, load_settings};
+use crate::db::{
+    initialize,
+    get_conn,
+    create_default_admin,
+    load_settings,
+    DbPool,
+};
 use crate::action_ttl::spawn_action_ttl_task;
 use crate::pending_cleanup::spawn_pending_cleanup;
 use crate::state::{AppState, SystemState};
-use crate::models::{ServerSettings as ModelServerSettings};
+use crate::models::ServerSettings;
 use crate::auth::AuthUser;
 
 #[launch]
 fn rocket() -> _ {
+    // -----------------------------
+    // Initialize DB + Logger
+    // -----------------------------
     let pool: DbPool = initialize();
 
     {
@@ -33,43 +44,61 @@ fn rocket() -> _ {
         }
     }
 
-    let server_settings = {
+    // -----------------------------
+    // Load Server Settings
+    // -----------------------------
+    let settings = {
         let mut conn = get_conn(&pool);
-        let db_settings = load_settings(&mut conn).unwrap_or_default();
-
-        Arc::new(RwLock::new(ModelServerSettings {
-            id: db_settings.id,
-            force_https: db_settings.force_https,
-            max_action_ttl: db_settings.max_action_ttl,
-            max_pending_age: db_settings.max_pending_age,
-            enable_logging: db_settings.enable_logging,
-            default_role: db_settings.default_role,
-        }))
+        let s = load_settings(&mut conn)
+            .expect("Failed to load server settings");
+        Arc::new(RwLock::new(s))
     };
 
+    // -----------------------------
+    // System + App State
+    // -----------------------------
     let system_state = SystemState::new(pool.clone());
 
     let app_state = Arc::new(AppState {
         db_pool: pool.clone(),
-        log_audit: Some(Arc::new(|_, _, _, _, _| {})),
         system: system_state.clone(),
-        pending_devices: Arc::new(RwLock::new(std::collections::HashMap::new())),
-        settings: server_settings.clone(),
+        pending_devices: Arc::new(RwLock::new(HashMap::new())),
+        settings: settings.clone(),
+
+        // real audit logger wired to DB
+        log_audit: Some(Arc::new(move |conn, actor, action, target, details| {
+            let _ = crate::db::log_audit(
+                conn,
+                actor,
+                action,
+                target,
+                details,
+            );
+        })),
     });
 
+    // -----------------------------
+    // Background Tasks
+    // -----------------------------
     spawn_action_ttl_task(app_state.clone());
     spawn_pending_cleanup(app_state.clone());
 
+    // -----------------------------
+    // Startup Audit Event
+    // -----------------------------
     {
         let mut conn = get_conn(&pool);
-        let demo_user = AuthUser {
+        let user = AuthUser {
             id: 1,
-            username: "admin".into(),
-            role: "Admin".into(),
+            username: "admin".to_string(),
+            role: "Admin".to_string(),
         };
-        demo_user.audit(&mut conn, "server_started", None);
+        user.audit(&mut conn, "server_started", None);
     }
 
+    // -----------------------------
+    // System Info Logging
+    // -----------------------------
     info!(
         "System memory: total {} MB, available {} MB",
         app_state.system.total_memory() / 1024 / 1024,
@@ -78,6 +107,9 @@ fn rocket() -> _ {
 
     info!("PatchPilot server ready");
 
+    // -----------------------------
+    // Rocket Build
+    // -----------------------------
     rocket::build()
         .manage(pool)
         .manage(app_state)
@@ -85,8 +117,8 @@ fn rocket() -> _ {
         .mount("/auth", routes::auth_routes())
         .mount("/users-groups", routes::users_groups::users_groups_routes())
         .mount("/roles", routes::roles::roles_routes())
-        .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
-        .mount("/", routes::page_routes())
         .mount("/history", routes![routes::history::api_history])
         .mount("/audit", routes![routes::history::api_audit])
+        .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
+        .mount("/", routes::page_routes())
 }
