@@ -73,7 +73,7 @@ pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsR
                 ping_target_ip: "8.8.8.8".to_string(),
                 force_https: false,
             };
-            diesel::insert_into(server_settings::table())
+            diesel::insert_into(server_settings::table) // <- fixed
                 .values(&default)
                 .execute(conn)?;
             Ok(default)
@@ -85,7 +85,7 @@ pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsR
 /// Save server settings row (replace the single-row record)
 pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettingsRow) -> QueryResult<()> {
     // Use replace_into to overwrite the single row
-    diesel::replace_into(server_settings::table())
+    diesel::replace_into(server_settings::table) // <- fixed
         .values(settings)
         .execute(conn)?;
     Ok(())
@@ -105,7 +105,7 @@ pub struct NewHistory<'a> {
 
 /// Insert a history entry (accepts a NewHistory or constructs from a HistoryLog)
 pub fn insert_history(conn: &mut SqliteConnection, entry: &NewHistory<'_>) -> QueryResult<usize> {
-    diesel::insert_into(history_log::table())
+    diesel::insert_into(history_log::table) // <- fixed
         .values(entry)
         .execute(conn)
 }
@@ -123,7 +123,7 @@ pub struct NewAudit<'a> {
 
 /// Insert an audit entry from an AuditLog struct (if caller already has one)
 pub fn insert_audit(conn: &mut SqliteConnection, entry: &AuditLog) -> QueryResult<usize> {
-    diesel::insert_into(audit::table())
+    diesel::insert_into(audit::table) // <- fixed
         .values(entry)
         .execute(conn)
 }
@@ -144,7 +144,7 @@ pub fn log_audit(
         details: details_val,
         created_at: Utc::now().naive_utc(),
     };
-    diesel::insert_into(audit::table())
+    diesel::insert_into(audit::table) // <- fixed
         .values(&new_audit)
         .execute(conn)?;
     Ok(())
@@ -161,7 +161,7 @@ pub fn update_action_ttl(
     use crate::schema::actions::dsl as actions_dsl;
     let ttl_to_set = std::cmp::min(new_ttl_seconds, settings_row.default_action_ttl_seconds);
     let new_expiry = Utc::now().naive_utc() + chrono::Duration::seconds(ttl_to_set);
-    diesel::update(actions_dsl::actions.filter(actions_dsl::id.eq(action_id_val)))
+    diesel::update(actions_dsl::actions.filter(actions_dsl::id.eq(action_id_val))) // <- fixed
         .set(actions_dsl::expires_at.eq(new_expiry))
         .execute(conn)
 }
