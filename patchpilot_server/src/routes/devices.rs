@@ -5,30 +5,8 @@ use chrono::Utc;
 
 use crate::db::{DbPool, log_audit};
 use crate::auth::{AuthUser, UserRole};
-use crate::models::{Device, DeviceInfo, NewDevice, ServerSettings as ModelServerSettings};
+use crate::models::{Device, DeviceInfo, NewDevice};
 use crate::schema::devices::dsl::*;
-
-/// Helper: load server settings from DB
-pub async fn get_server_settings(pool: &State<DbPool>) -> ModelServerSettings {
-    let pool_clone = pool.inner().clone();
-    rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool_clone.get().expect("Failed to get DB connection");
-        let settings = crate::settings::ServerSettings::load(&mut conn);
-        ModelServerSettings {
-            id: 0,
-            auto_approve_devices: settings.auto_approve_devices,
-            auto_refresh_enabled: settings.auto_refresh_enabled,
-            auto_refresh_seconds: settings.auto_refresh_seconds,
-            default_action_ttl_seconds: settings.default_action_ttl_seconds,
-            action_polling_enabled: settings.action_polling_enabled,
-            ping_target_ip: settings.ping_target_ip,
-            allow_http: settings.allow_http,
-            force_https: settings.force_https,
-        }
-    })
-    .await
-    .expect("Failed to load server settings")
-}
 
 /// Get all devices
 #[get("/devices")]
@@ -36,7 +14,10 @@ pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Stat
     let pool_clone = pool.inner().clone();
     let devices_list = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
-        devices.load::<Device>(&mut conn).map_err(|_| Status::InternalServerError)
+        devices
+            .select(Device::as_select()) // Ensures correct Diesel mapping
+            .load::<Device>(&mut conn)
+            .map_err(|_| Status::InternalServerError)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
@@ -60,7 +41,8 @@ pub async fn get_device_details(
     let device_opt = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
         devices
-            .filter(device_id.eq(device_id_param))
+            .filter(id.eq(device_id_param)) // Use `id` instead of `device_id`
+            .select(Device::as_select())
             .first::<Device>(&mut conn)
             .map_err(|_| Status::NotFound)
     })
@@ -86,7 +68,7 @@ pub async fn approve_device(
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
-        diesel::update(devices.filter(device_id.eq(device_id_param)))
+        diesel::update(devices.filter(id.eq(device_id_param)))
             .set(approved.eq(true))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
@@ -121,18 +103,18 @@ pub async fn register_or_update_device(
     let info = info.into_inner();
     let pool_inner = pool.inner().clone();
 
-    let settings = get_server_settings(pool).await;
-
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
         let mut conn = pool_inner.get().map_err(|_| Status::InternalServerError)?;
+
         let existing = devices
-            .filter(device_id.eq(info.device_id))
+            .filter(id.eq(info.device_id))
+            .select(Device::as_select())
             .first::<Device>(&mut conn)
             .optional()
             .map_err(|_| Status::InternalServerError)?;
 
-        let mut updated = NewDevice {
-            device_id: info.device_id,
+        let updated = NewDevice {
+            id: info.device_id, // matches DB `id`
             device_name: info.system_info.os_name.clone(),
             hostname: info.system_info.os_name.clone(),
             os_name: info.system_info.os_name.clone(),
@@ -156,13 +138,9 @@ pub async fn register_or_update_device(
             ip_address: info.system_info.ip_address.clone(),
         };
 
-        if settings.auto_approve_devices {
-            updated.approved = true;
-        }
-
         diesel::insert_into(devices)
             .values(&updated)
-            .on_conflict(device_id)
+            .on_conflict(id)
             .do_update()
             .set(&updated)
             .execute(&mut conn)

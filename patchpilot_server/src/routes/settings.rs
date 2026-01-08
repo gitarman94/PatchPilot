@@ -9,18 +9,16 @@ use crate::routes::history::log_audit;
 use crate::schema::server_settings;
 use crate::db;
 use crate::models::ServerSettings as ModelServerSettings;
-use crate::settings::ServerSettings;
 
 #[derive(FromForm)]
 pub struct ServerSettingsForm {
-    pub auto_approve_devices: Option<bool>,
-    pub auto_refresh_enabled: Option<bool>,
-    pub auto_refresh_seconds: Option<i64>,
-    pub default_action_ttl_seconds: Option<i64>,
-    pub action_polling_enabled: Option<bool>,
-    pub ping_target_ip: Option<String>,
+    pub max_action_ttl: Option<i64>,
+    pub max_pending_age: Option<i64>,
+    pub enable_logging: Option<bool>,
+    pub default_role: Option<String>,
 }
 
+/// View current server settings
 #[get("/settings")]
 pub async fn view_settings(
     state: &State<AppState>,
@@ -30,20 +28,7 @@ pub async fn view_settings(
 
     let settings: ModelServerSettings = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let s: ServerSettings = db::load_settings(&mut conn)
-            .map_err(|_| Status::InternalServerError)?;
-
-        Ok(ModelServerSettings {
-            id: s.id,
-            auto_approve_devices: s.auto_approve_devices,
-            auto_refresh_enabled: s.auto_refresh_enabled,
-            auto_refresh_seconds: s.auto_refresh_seconds,
-            default_action_ttl_seconds: s.default_action_ttl_seconds,
-            action_polling_enabled: s.action_polling_enabled,
-            ping_target_ip: s.ping_target_ip,
-            allow_http: s.allow_http,
-            force_https: s.force_https,
-        })
+        db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
@@ -53,6 +38,7 @@ pub async fn view_settings(
     Ok(rocket_dyn_templates::Template::render("settings", &context))
 }
 
+/// Update server settings
 #[post("/settings/update", data = "<form>")]
 pub async fn update_settings(
     state: &State<AppState>,
@@ -65,43 +51,41 @@ pub async fn update_settings(
     let settings_arc = state.settings.clone();
 
     rocket::tokio::task::spawn_blocking(move || {
+        // Get DB connection
         let mut conn = match pool.get() {
             Ok(c) => c,
             Err(_) => return,
         };
 
-        let mut settings: ServerSettings = match db::load_settings(&mut conn) {
+        // Load current settings
+        let mut settings: ModelServerSettings = match db::load_settings(&mut conn) {
             Ok(s) => s,
             Err(_) => return,
         };
 
-        if let Some(v) = form.auto_approve_devices {
-            let _ = set_auto_approve(&mut conn, v);
-            settings.auto_approve_devices = v;
+        // Apply changes from form
+        if let Some(v) = form.max_action_ttl {
+            settings.max_action_ttl = v;
         }
-        if let Some(v) = form.auto_refresh_enabled {
-            let _ = set_auto_refresh(&mut conn, v);
-            settings.auto_refresh_enabled = v;
+        if let Some(v) = form.max_pending_age {
+            settings.max_pending_age = v;
         }
-        if let Some(v) = form.auto_refresh_seconds {
-            let _ = set_auto_refresh_interval(&mut conn, v);
-            settings.auto_refresh_seconds = v;
+        if let Some(v) = form.enable_logging {
+            settings.enable_logging = v;
         }
-        if let Some(v) = form.default_action_ttl_seconds {
-            settings.default_action_ttl_seconds = v;
-        }
-        if let Some(v) = form.action_polling_enabled {
-            settings.action_polling_enabled = v;
-        }
-        if let Some(v) = form.ping_target_ip {
-            settings.ping_target_ip = v;
+        if let Some(v) = form.default_role {
+            settings.default_role = v;
         }
 
+        // Save updated settings back to DB
         let _ = db::save_settings(&mut conn, &settings);
+
+        // Update shared in-memory settings
         if let Ok(mut shared) = settings_arc.write() {
             *shared = settings.clone();
         }
 
+        // Log audit entry
         let _ = log_audit(
             &mut conn,
             &username,
@@ -116,33 +100,47 @@ pub async fn update_settings(
     Status::Ok
 }
 
-pub fn set_auto_approve(
-    conn: &mut SqliteConnection,
-    value: bool,
-) -> diesel::QueryResult<usize> {
-    diesel::update(server_settings::table)
-        .set(server_settings::auto_approve_devices.eq(value))
-        .execute(conn)
-}
-
-pub fn set_auto_refresh(
-    conn: &mut SqliteConnection,
-    value: bool,
-) -> diesel::QueryResult<usize> {
-    diesel::update(server_settings::table)
-        .set(server_settings::auto_refresh_enabled.eq(value))
-        .execute(conn)
-}
-
-pub fn set_auto_refresh_interval(
+/// Helper: update max_action_ttl
+pub fn set_max_action_ttl(
     conn: &mut SqliteConnection,
     value: i64,
 ) -> diesel::QueryResult<usize> {
     diesel::update(server_settings::table)
-        .set(server_settings::auto_refresh_seconds.eq(value))
+        .set(server_settings::max_action_ttl.eq(value))
         .execute(conn)
 }
 
+/// Helper: update max_pending_age
+pub fn set_max_pending_age(
+    conn: &mut SqliteConnection,
+    value: i64,
+) -> diesel::QueryResult<usize> {
+    diesel::update(server_settings::table)
+        .set(server_settings::max_pending_age.eq(value))
+        .execute(conn)
+}
+
+/// Helper: update enable_logging
+pub fn set_enable_logging(
+    conn: &mut SqliteConnection,
+    value: bool,
+) -> diesel::QueryResult<usize> {
+    diesel::update(server_settings::table)
+        .set(server_settings::enable_logging.eq(value))
+        .execute(conn)
+}
+
+/// Helper: update default_role
+pub fn set_default_role(
+    conn: &mut SqliteConnection,
+    value: &str,
+) -> diesel::QueryResult<usize> {
+    diesel::update(server_settings::table)
+        .set(server_settings::default_role.eq(value))
+        .execute(conn)
+}
+
+/// Mount all settings-related routes
 pub fn configure_routes(rocket: rocket::Rocket<rocket::Build>) -> rocket::Rocket<rocket::Build> {
     rocket.mount("/", routes![view_settings, update_settings])
 }

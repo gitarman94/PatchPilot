@@ -126,23 +126,27 @@ pub struct NewAudit<'a> {
 pub fn load_settings(conn: &mut SqliteConnection) -> Result<ServerSettings, diesel::result::Error> {
     use crate::schema::server_settings::dsl::*;
 
-    let row = server_settings
-        .first::<ServerSettingsRow>(conn)
-        .optional()?;
+    let row = server_settings.first::<ServerSettingsRow>(conn).optional()?;
 
     Ok(match row {
         Some(s) => ServerSettings {
-            id: s.id,
+            id: s.id as i64,
             allow_http: s.allow_http,
             force_https: s.force_https,
-            auto_approve_devices: s.auto_approve_devices,
-            auto_refresh_enabled: s.auto_refresh_enabled,
-            auto_refresh_seconds: s.auto_refresh_seconds,
-            default_action_ttl_seconds: s.default_action_ttl_seconds,
-            action_polling_enabled: s.action_polling_enabled,
-            ping_target_ip: s.ping_target_ip,
+            max_action_ttl: s.max_action_ttl,
+            max_pending_age: s.max_pending_age,
+            enable_logging: s.enable_logging,
+            default_role: s.default_role,
         },
-        None => ServerSettings::default(),
+        None => ServerSettings {
+            id: 1,
+            allow_http: true,
+            force_https: false,
+            max_action_ttl: 3600,
+            max_pending_age: 86400,
+            enable_logging: true,
+            default_role: "User".to_string(),
+        },
     })
 }
 
@@ -155,27 +159,23 @@ pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettings) -> 
     if let Some(row) = existing {
         diesel::update(server_settings.filter(id.eq(row.id)))
             .set((
-                server_settings::allow_http.eq(settings.allow_http),
-                server_settings::force_https.eq(settings.force_https),
-                auto_approve_devices.eq(settings.auto_approve_devices),
-                auto_refresh_enabled.eq(settings.auto_refresh_enabled),
-                auto_refresh_seconds.eq(settings.auto_refresh_seconds),
-                default_action_ttl_seconds.eq(settings.default_action_ttl_seconds),
-                action_polling_enabled.eq(settings.action_polling_enabled),
-                ping_target_ip.eq(&settings.ping_target_ip),
+                allow_http.eq(settings.allow_http),
+                force_https.eq(settings.force_https),
+                max_action_ttl.eq(settings.max_action_ttl),
+                max_pending_age.eq(settings.max_pending_age),
+                enable_logging.eq(settings.enable_logging),
+                default_role.eq(&settings.default_role),
             ))
             .execute(conn)?;
     } else {
         diesel::insert_into(server_settings)
             .values((
-                server_settings::allow_http.eq(settings.allow_http),
-                server_settings::force_https.eq(settings.force_https),
-                auto_approve_devices.eq(settings.auto_approve_devices),
-                auto_refresh_enabled.eq(settings.auto_refresh_enabled),
-                auto_refresh_seconds.eq(settings.auto_refresh_seconds),
-                default_action_ttl_seconds.eq(settings.default_action_ttl_seconds),
-                action_polling_enabled.eq(settings.action_polling_enabled),
-                ping_target_ip.eq(&settings.ping_target_ip),
+                allow_http.eq(settings.allow_http),
+                force_https.eq(settings.force_https),
+                max_action_ttl.eq(settings.max_action_ttl),
+                max_pending_age.eq(settings.max_pending_age),
+                enable_logging.eq(settings.enable_logging),
+                default_role.eq(&settings.default_role),
             ))
             .execute(conn)?;
     }
@@ -189,10 +189,8 @@ pub struct ServerSettingsRow {
     pub id: i32,
     pub allow_http: bool,
     pub force_https: bool,
-    pub auto_approve_devices: bool,
-    pub auto_refresh_enabled: bool,
-    pub auto_refresh_seconds: i64,
-    pub default_action_ttl_seconds: i64,
-    pub action_polling_enabled: bool,
-    pub ping_target_ip: String,
+    pub max_action_ttl: i64,
+    pub max_pending_age: i64,
+    pub enable_logging: bool,
+    pub default_role: String,
 }
