@@ -132,7 +132,7 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
     let user_id = cookies.get_private("user_id").and_then(|c| c.value().parse::<i32>().ok());
-    cookies.remove_private(Cookie::build("user_id", "").finish());
+    cookies.remove_private(Cookie::build("user_id").finish());
 
     if let Some(uid) = user_id {
         if let Ok(mut conn) = pool.get() {

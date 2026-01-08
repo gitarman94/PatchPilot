@@ -1,6 +1,7 @@
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 use diesel::sqlite::SqliteConnection;
+use diesel::associations::HasTable;
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use chrono::{Utc, NaiveDateTime};
 use std::env;
@@ -11,12 +12,10 @@ use crate::schema::{audit, server_settings, history_log, actions};
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
 
-/// Ensure server_settings import is used to silence warning
 pub fn ensure_server_settings_imported() {
     let _ = server_settings::table;
 }
 
-/// Initialize logger
 pub fn init_logger() {
     Logger::try_with_str("info")
         .unwrap()
@@ -26,27 +25,22 @@ pub fn init_logger() {
         .unwrap();
 }
 
-/// Initialize DB connection pool
 pub fn init_pool() -> DbPool {
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
     Pool::builder().build(manager).expect("Failed to create DB pool")
 }
 
-/// Get a single connection from the pool
 pub fn get_conn(pool: &DbPool) -> DbConn {
     pool.get().expect("Failed to get DB connection")
 }
 
-/// Initialize logger and pool (no migrations)
 pub fn initialize() -> DbPool {
     init_logger();
     ensure_server_settings_imported();
     init_pool()
 }
 
-
-// SERVER SETTINGS
 #[derive(Queryable, Insertable, AsChangeset, Debug, Clone, Default)]
 #[diesel(table_name = server_settings)]
 pub struct ServerSettingsRow {
@@ -58,7 +52,6 @@ pub struct ServerSettingsRow {
     pub default_role: String,
 }
 
-/// Load the server settings (or default if missing)
 pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsRow> {
     use crate::schema::server_settings::dsl::*;
     match server_settings.first::<ServerSettingsRow>(conn) {
@@ -81,17 +74,13 @@ pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsR
     }
 }
 
-/// Save server settings (insert or update)
 pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettingsRow) -> QueryResult<()> {
-    // `replace_into` automatically inserts or updates the row in SQLite
     diesel::replace_into(server_settings::table)
         .values(settings)
         .execute(conn)?;
     Ok(())
 }
 
-
-// HISTORY LOG
 pub fn insert_history(conn: &mut SqliteConnection, entry: &HistoryLog) -> QueryResult<usize> {
     diesel::insert_into(history_log::table)
         .values(entry)
@@ -104,8 +93,6 @@ pub fn fetch_history(conn: &mut SqliteConnection) -> QueryResult<Vec<HistoryLog>
         .load(conn)
 }
 
-
-// AUDIT LOG
 #[derive(Insertable)]
 #[diesel(table_name = audit)]
 pub struct NewAudit<'a> {
@@ -128,7 +115,6 @@ pub fn fetch_audit(conn: &mut SqliteConnection) -> QueryResult<Vec<AuditLog>> {
         .load(conn)
 }
 
-/// Helper: audit logging
 pub fn log_audit(
     conn: &mut SqliteConnection,
     username_val: &str,
@@ -149,8 +135,6 @@ pub fn log_audit(
     Ok(())
 }
 
-
-// ACTION TTL
 pub fn update_action_ttl(
     conn: &mut SqliteConnection,
     action_id_val: i64,
