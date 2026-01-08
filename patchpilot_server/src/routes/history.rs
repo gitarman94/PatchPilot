@@ -1,7 +1,6 @@
 use rocket::{get, State, http::Status};
 use rocket::serde::json::Json;
 use diesel::prelude::*;
-use chrono::Utc;
 
 use crate::db::{DbPool, log_audit as db_log_audit};
 use crate::models::{HistoryLog, AuditLog};

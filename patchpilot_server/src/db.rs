@@ -6,8 +6,8 @@ use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use chrono::{Utc, NaiveDateTime};
 use std::env;
 
-use crate::models::{HistoryLog, AuditLog};
-use crate::schema::{audit, server_settings, history_log, actions};
+use crate::models::AuditLog;
+use crate::schema::{audit, server_settings, history_log};
 
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;

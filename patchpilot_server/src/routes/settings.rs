@@ -5,7 +5,6 @@ use rocket::{
     http::Status,
 };
 use rocket_dyn_templates::Template;
-use diesel::prelude::*;
 use serde::Serialize;
 
 use crate::state::AppState;
