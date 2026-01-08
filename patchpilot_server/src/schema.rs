@@ -121,7 +121,6 @@ diesel::table! {
         default_action_ttl_seconds -> BigInt,
         action_polling_enabled -> Bool,
         ping_target_ip -> Text,
-        allow_http -> Bool,
         force_https -> Bool,
     }
 }

@@ -30,7 +30,6 @@ pub enum UserRole {
 }
 
 impl AuthUser {
-    // Write audit record
     pub fn audit(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) {
         let _ = diesel::insert_into(audit::table)
             .values((
@@ -78,12 +77,12 @@ impl<'r> FromRequest<'r> for AuthUser {
 
         match users::table
             .filter(users::id.eq(user_id))
-            .inner_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
-            .inner_join(roles::table.on(roles::id.eq(user_roles::role_id)))
-            .select((users::id, users::username, roles::name))
-            .first::<(i32, String, String)>(&mut conn)
+            .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
+            .left_outer_join(roles::table.on(roles::id.eq(user_roles::role_id)))
+            .select((users::id, users::username, roles::name.nullable()))
+            .first::<(i32, String, Option<String>)>(&mut conn)
         {
-            Ok((uid, uname, urole)) => Outcome::Success(AuthUser { id: uid, username: uname, role: urole }),
+            Ok((uid, uname, urole)) => Outcome::Success(AuthUser { id: uid, username: uname, role: urole.unwrap_or("User".into()) }),
             Err(_) => Outcome::Failure(Status::Unauthorized),
         }
     }
@@ -98,10 +97,10 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
 
     let row = match users::table
         .filter(users::username.eq(&form.username))
-        .inner_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
-        .inner_join(roles::table.on(roles::id.eq(user_roles::role_id)))
-        .select((users::id, users::username, users::password_hash, roles::name))
-        .first::<(i32, String, String, String)>(&mut conn)
+        .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
+        .left_outer_join(roles::table.on(roles::id.eq(user_roles::role_id)))
+        .select((users::id, users::username, users::password_hash, roles::name.nullable()))
+        .first::<(i32, String, String, Option<String>)>(&mut conn)
         .optional()
     {
         Ok(Some(r)) => r,
@@ -116,7 +115,7 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
     cookie.set_same_site(SameSite::Lax);
     cookies.add_private(cookie);
 
-    let auth_user = AuthUser { id: row.0, username: row.1.clone(), role: row.3.clone() };
+    let auth_user = AuthUser { id: row.0, username: row.1.clone(), role: row.3.unwrap_or("User".into()) };
     auth_user.audit(&mut conn, "login", None);
 
     Redirect::to("/dashboard")
@@ -131,12 +130,12 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
         if let Ok(mut conn) = pool.get() {
             if let Ok((uname, urole)) = users::table
                 .filter(users::id.eq(uid))
-                .inner_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
-                .inner_join(roles::table.on(roles::id.eq(user_roles::role_id)))
-                .select((users::username, roles::name))
-                .first::<(String, String)>(&mut conn)
+                .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
+                .left_outer_join(roles::table.on(roles::id.eq(user_roles::role_id)))
+                .select((users::username, roles::name.nullable()))
+                .first::<(String, Option<String>)>(&mut conn)
             {
-                let auth_user = AuthUser { id: uid, username: uname, role: urole };
+                let auth_user = AuthUser { id: uid, username: uname, role: urole.unwrap_or("User".into()) };
                 auth_user.audit(&mut conn, "logout", None);
             }
         }

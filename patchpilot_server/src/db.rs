@@ -131,7 +131,6 @@ pub fn load_settings(conn: &mut SqliteConnection) -> Result<ServerSettings, dies
     Ok(match row {
         Some(s) => ServerSettings {
             id: s.id as i64,
-            allow_http: s.allow_http,
             force_https: s.force_https,
             max_action_ttl: s.max_action_ttl,
             max_pending_age: s.max_pending_age,
@@ -140,7 +139,6 @@ pub fn load_settings(conn: &mut SqliteConnection) -> Result<ServerSettings, dies
         },
         None => ServerSettings {
             id: 1,
-            allow_http: true,
             force_https: false,
             max_action_ttl: 3600,
             max_pending_age: 86400,
@@ -159,7 +157,6 @@ pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettings) -> 
     if let Some(row) = existing {
         diesel::update(server_settings.filter(id.eq(row.id)))
             .set((
-                allow_http.eq(settings.allow_http),
                 force_https.eq(settings.force_https),
                 max_action_ttl.eq(settings.max_action_ttl),
                 max_pending_age.eq(settings.max_pending_age),
@@ -170,7 +167,6 @@ pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettings) -> 
     } else {
         diesel::insert_into(server_settings)
             .values((
-                allow_http.eq(settings.allow_http),
                 force_https.eq(settings.force_https),
                 max_action_ttl.eq(settings.max_action_ttl),
                 max_pending_age.eq(settings.max_pending_age),
@@ -187,7 +183,6 @@ pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettings) -> 
 #[derive(Queryable)]
 pub struct ServerSettingsRow {
     pub id: i32,
-    pub allow_http: bool,
     pub force_https: bool,
     pub max_action_ttl: i64,
     pub max_pending_age: i64,

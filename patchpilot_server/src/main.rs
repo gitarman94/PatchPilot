@@ -39,7 +39,6 @@ fn rocket() -> _ {
 
         Arc::new(RwLock::new(ModelServerSettings {
             id: db_settings.id,
-            allow_http: db_settings.allow_http,
             force_https: db_settings.force_https,
             max_action_ttl: db_settings.max_action_ttl,
             max_pending_age: db_settings.max_pending_age,

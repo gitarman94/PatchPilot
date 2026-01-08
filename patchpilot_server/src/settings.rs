@@ -18,7 +18,6 @@ pub struct ServerSettings {
 
     // HTTPS / HTTP options
     pub force_https: bool,
-    pub allow_http: bool,
 }
 
 impl ServerSettings {
@@ -34,7 +33,6 @@ impl ServerSettings {
             action_polling_enabled: s.action_polling_enabled,
             ping_target_ip: s.ping_target_ip,
             force_https: s.force_https,
-            allow_http: s.allow_http,
         }
     }
 
@@ -49,7 +47,6 @@ impl ServerSettings {
             action_polling_enabled: self.action_polling_enabled,
             ping_target_ip: self.ping_target_ip.clone(),
             force_https: self.force_https,
-            allow_http: self.allow_http,
         };
 
         let _ = db::save_settings(conn, &s);
@@ -83,10 +80,6 @@ impl ServerSettings {
     pub fn force_https(&self) -> bool {
         self.force_https
     }
-
-    pub fn allow_http(&self) -> bool {
-        self.allow_http
-    }
 }
 
 impl Default for ServerSettings {
@@ -99,7 +92,6 @@ impl Default for ServerSettings {
             action_polling_enabled: true,
             ping_target_ip: "8.8.8.8".to_string(),
             force_https: false,
-            allow_http: true,
         }
     }
 }

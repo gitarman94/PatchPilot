@@ -171,7 +171,6 @@ pub struct AuditLog {
 #[diesel(table_name = crate::schema::server_settings)]
 pub struct ServerSettings {
     pub id: i64,
-    pub allow_http: bool,
     pub force_https: bool,
     pub max_action_ttl: i64,
     pub max_pending_age: i64,
