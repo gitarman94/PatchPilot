@@ -11,7 +11,6 @@ use crate::db;
 use crate::models::ServerSettings as ModelServerSettings;
 use crate::settings::ServerSettings;
 
-/// Struct representing form submission for server settings
 #[derive(FromForm)]
 pub struct ServerSettingsForm {
     pub auto_approve_devices: Option<bool>,
@@ -35,7 +34,7 @@ pub async fn view_settings(
             .map_err(|_| Status::InternalServerError)?;
 
         Ok(ModelServerSettings {
-            id: 1,
+            id: s.id,
             auto_approve_devices: s.auto_approve_devices,
             auto_refresh_enabled: s.auto_refresh_enabled,
             auto_refresh_seconds: s.auto_refresh_seconds,
@@ -117,7 +116,6 @@ pub async fn update_settings(
     Status::Ok
 }
 
-/* Direct DB setters — actively used */
 pub fn set_auto_approve(
     conn: &mut SqliteConnection,
     value: bool,
@@ -145,13 +143,6 @@ pub fn set_auto_refresh_interval(
         .execute(conn)
 }
 
-/// Mount routes for Rocket
 pub fn configure_routes(rocket: rocket::Rocket<rocket::Build>) -> rocket::Rocket<rocket::Build> {
-    rocket.mount(
-        "/",
-        routes![
-            view_settings,
-            update_settings
-        ],
-    )
+    rocket.mount("/", routes![view_settings, update_settings])
 }

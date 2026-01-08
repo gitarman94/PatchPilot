@@ -19,6 +19,7 @@ pub struct SubmitActionForm {
     pub ttl_seconds: Option<i64>,
 }
 
+/// Submit a new action
 #[post("/actions/submit", data = "<form>")]
 pub async fn submit_action(
     pool: &State<DbPool>,
@@ -35,9 +36,8 @@ pub async fn submit_action(
         let ttl = form.ttl_seconds.unwrap_or(3600);
         let expires_at = Utc::now().naive_utc() + Duration::seconds(ttl);
 
-        // Use i64 IDs now
         let new_action = NewAction {
-            id: Utc::now().timestamp_millis(), // unique i64 ID based on timestamp
+            id: Utc::now().timestamp_millis(), // unique i64 ID
             action_type: form.command,
             parameters: None,
             author: Some(user_name.clone()),
@@ -72,6 +72,7 @@ pub async fn submit_action(
     .map_err(|_| Status::InternalServerError)?
 }
 
+/// List all actions
 #[get("/actions")]
 pub async fn list_actions(
     pool: &State<DbPool>,
@@ -94,6 +95,7 @@ pub async fn list_actions(
     .map_err(|_| Status::InternalServerError)?
 }
 
+/// Cancel an existing action
 #[post("/actions/cancel/<action_id_param>")]
 pub async fn cancel_action(
     pool: &State<DbPool>,
@@ -105,10 +107,10 @@ pub async fn cancel_action(
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        let now = Utc::now().naive_utc();
 
-        let new_expiry = Utc::now().naive_utc();
         diesel::update(actions::table.filter(actions::id.eq(action_id_param)))
-            .set(actions::expires_at.eq(new_expiry))
+            .set(actions::expires_at.eq(now))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
@@ -127,6 +129,7 @@ pub async fn cancel_action(
     .map_err(|_| Status::InternalServerError)?
 }
 
+/// List targets for a specific action
 #[get("/actions/targets/<action_id_param>")]
 pub async fn list_action_targets(
     pool: &State<DbPool>,
@@ -153,6 +156,7 @@ pub async fn list_action_targets(
     Ok(Json(targets))
 }
 
+/// Update action TTL
 #[post("/actions/update_ttl/<action_id>/<ttl_seconds>")]
 pub async fn update_action_ttl(
     pool: &State<DbPool>,
@@ -162,10 +166,10 @@ pub async fn update_action_ttl(
 ) -> Result<Status, Status> {
     let pool = pool.inner().clone();
 
-    rocket::tokio::task::spawn_blocking(move || -> Result<_, Status> {
+    rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-
         let new_expiry = Utc::now().naive_utc() + Duration::seconds(ttl_seconds);
+
         diesel::update(actions::table.filter(actions::id.eq(action_id)))
             .set(actions::expires_at.eq(new_expiry))
             .execute(&mut conn)
@@ -177,6 +181,7 @@ pub async fn update_action_ttl(
     .map_err(|_| Status::InternalServerError)?
 }
 
+/// Cleanup completed action_targets older than now
 #[delete("/actions/pending_cleanup")]
 pub async fn pending_cleanup(
     pool: &State<DbPool>,
@@ -205,6 +210,7 @@ pub async fn pending_cleanup(
     .map_err(|_| Status::InternalServerError)?
 }
 
+/// Report result for an action on a specific device
 #[post("/actions/report_result/<action_id_param>/<device_id_param>", data = "<body>")]
 pub async fn report_action_result(
     pool: &State<DbPool>,

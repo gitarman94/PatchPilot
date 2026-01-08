@@ -189,7 +189,7 @@ pub async fn register_or_update_device(
     Ok(Json(result))
 }
 
-/// Configure all device-related Rocket routes
+/// Mount all device-related Rocket routes
 pub fn configure_routes(rocket: rocket::Rocket<rocket::Build>) -> rocket::Rocket<rocket::Build> {
     rocket.mount(
         "/",

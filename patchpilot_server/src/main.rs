@@ -24,10 +24,8 @@ use crate::auth::AuthUser;
 
 #[launch]
 fn rocket() -> _ {
-    // 1. Initialize DB + logging
     let pool: DbPool = initialize();
 
-    // 2. Ensure default admin exists
     {
         let mut conn = get_conn(&pool);
         if let Err(e) = create_default_admin(&mut conn) {
@@ -35,7 +33,6 @@ fn rocket() -> _ {
         }
     }
 
-    // 3. Load server settings from DB and wrap in RwLock
     let server_settings = {
         let mut conn = get_conn(&pool);
         let db_settings = load_settings(&mut conn).unwrap_or_default();
@@ -51,10 +48,8 @@ fn rocket() -> _ {
         }))
     };
 
-    // 4. Build SystemState
     let system_state = SystemState::new(pool.clone());
 
-    // 5. Build AppState
     let app_state = Arc::new(AppState {
         db_pool: pool.clone(),
         log_audit: Some(Arc::new(|_, _, _, _, _| {})),
@@ -63,11 +58,9 @@ fn rocket() -> _ {
         settings: server_settings.clone(),
     });
 
-    // 6. Spawn background tasks
     spawn_action_ttl_task(app_state.clone());
     spawn_pending_cleanup(app_state.clone());
 
-    // 7. Example usage of AuthUser::audit
     {
         let mut conn = get_conn(&pool);
         let demo_user = AuthUser {
@@ -78,7 +71,6 @@ fn rocket() -> _ {
         demo_user.audit(&mut conn, "server_started", None);
     }
 
-    // 8. Log system memory info
     info!(
         "System memory: total {} MB, available {} MB",
         app_state.system.total_memory() / 1024 / 1024,
@@ -87,7 +79,6 @@ fn rocket() -> _ {
 
     info!("PatchPilot server ready");
 
-    // 9. Build Rocket
     rocket::build()
         .manage(pool)
         .manage(app_state)

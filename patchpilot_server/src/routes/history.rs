@@ -6,7 +6,6 @@ use chrono::Utc;
 
 use crate::db::DbPool;
 use crate::models::{HistoryLog, AuditLog};
-
 use crate::schema::history_log::dsl::{history_log, created_at as history_created_at};
 use crate::schema::audit::dsl::{audit, created_at as audit_created_at};
 
@@ -14,6 +13,7 @@ use crate::schema::audit::dsl::{audit, created_at as audit_created_at};
 #[get("/api/history")]
 pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, Status> {
     let pool = pool.inner().clone();
+
     let result: Vec<HistoryLog> = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         history_log
@@ -31,17 +31,18 @@ pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, 
 #[get("/api/audit")]
 pub async fn api_audit(pool: &State<DbPool>) -> Result<Json<Vec<AuditLog>>, Status> {
     let pool = pool.inner().clone();
-    let result = rocket::tokio::task::spawn_blocking(move || {
+
+    let result: Vec<AuditLog> = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        Ok::<_, Status>(get_latest_audit(&mut conn))
+        get_latest_audit(&mut conn)
     })
     .await
-    .map_err(|_| Status::InternalServerError)??;
+    .map_err(|_| Status::InternalServerError)?;
 
     Ok(Json(result))
 }
 
-/// Internal helper: fetch latest audit entries
+/// Internal helper: fetch latest 100 audit entries
 pub fn get_latest_audit(conn: &mut SqliteConnection) -> Vec<AuditLog> {
     audit
         .order(audit_created_at.desc())
@@ -59,7 +60,7 @@ pub fn log_audit(
     details_val: Option<&str>,
 ) -> diesel::QueryResult<()> {
     let entry = AuditLog {
-        id: 0, // will be auto-incremented by SQLite
+        id: 0, // SQLite auto-increment
         actor: actor_val.to_string(),
         action_type: action_type_val.to_string(),
         target: target_val.map(|s| s.to_string()),
