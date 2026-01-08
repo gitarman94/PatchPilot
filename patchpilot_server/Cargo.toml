@@ -10,7 +10,8 @@ rocket_dyn_templates = { version = "0.2", features = ["handlebars"] }
 diesel = { version = "2.3.3", features = ["sqlite", "r2d2", "chrono", "serde_json"] }
 diesel_migrations = "2.1.0"
 
-bcrypt = "0.14"
+bcrypt = "0.17.1"
+futures = "0.3"
 
 r2d2 = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
