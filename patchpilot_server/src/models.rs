@@ -1,13 +1,20 @@
+// src/models.rs
 use diesel::prelude::*;
 use chrono::{NaiveDateTime, Utc};
-use crate::schema::{devices, actions, action_targets, history_log, audit, server_settings};
 use serde::{Serialize, Deserialize};
 
-#[derive(Queryable, Identifiable, Selectable, Serialize, Deserialize, Debug)]
+use crate::schema::{
+    devices, actions, action_targets, history_log, audit, users, roles, user_roles, server_settings,
+    user_groups, groups,
+};
+
+
+// Device models
+#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = devices)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Device {
     pub id: i64,
+    pub device_id: i64,
     pub device_name: String,
     pub hostname: String,
     pub os_name: String,
@@ -25,16 +32,16 @@ pub struct Device {
     pub network_throughput: i64,
     pub device_type: String,
     pub device_model: String,
-    pub uptime: Option<i64>,
+    pub uptime: Option<String>,
     pub updates_available: bool,
     pub network_interfaces: Option<String>,
     pub ip_address: Option<String>,
 }
 
-#[derive(Insertable, AsChangeset)]
+#[derive(Debug, Insertable, AsChangeset)]
 #[diesel(table_name = devices)]
 pub struct NewDevice {
-    pub id: i64,
+    pub device_id: i64,
     pub device_name: String,
     pub hostname: String,
     pub os_name: String,
@@ -52,40 +59,16 @@ pub struct NewDevice {
     pub network_throughput: i64,
     pub device_type: String,
     pub device_model: String,
-    pub uptime: Option<i64>,
+    pub uptime: Option<String>,
     pub updates_available: bool,
     pub network_interfaces: Option<String>,
     pub ip_address: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SystemInfo {
-    pub os_name: String,
-    pub architecture: String,
-    pub cpu_usage: f32,
-    pub cpu_count: i32,
-    pub cpu_brand: String,
-    pub ram_total: i64,
-    pub ram_used: i64,
-    pub disk_total: i64,
-    pub disk_free: i64,
-    pub disk_health: String,
-    pub network_throughput: i64,
-    pub network_interfaces: Option<String>,
-    pub ip_address: Option<String>,
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeviceInfo {
-    pub device_id: i64,
-    pub system_info: SystemInfo,
-    pub device_type: Option<String>,
-    pub device_model: Option<String>,
-}
-
-#[derive(Debug, Queryable, Selectable, Serialize, Deserialize)]
+// Action models
+#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = actions)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Action {
     pub id: i64,
     pub action_type: String,
@@ -99,7 +82,6 @@ pub struct Action {
 #[derive(Debug, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = actions)]
 pub struct NewAction {
-    pub id: i64,
     pub action_type: String,
     pub parameters: Option<String>,
     pub author: Option<String>,
@@ -110,7 +92,6 @@ pub struct NewAction {
 
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = action_targets)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ActionTarget {
     pub id: i64,
     pub action_id: i64,
@@ -142,35 +123,90 @@ impl NewActionTarget {
     }
 }
 
-#[derive(Debug, Queryable, Selectable, Insertable, Serialize, Deserialize)]
+
+// History log model
+#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = history_log)]
 pub struct HistoryLog {
     pub id: i64,
-    pub action: String,
-    pub target: String,
-    pub user: Option<String>,
-    pub device: Option<String>,
-    pub timestamp: chrono::NaiveDateTime,
+    pub action_id: i64,
+    pub device_name: Option<String>,
+    pub actor: Option<String>,
+    pub action_type: String,
+    pub details: Option<String>,
+    pub created_at: NaiveDateTime,
 }
 
-#[derive(Debug, Queryable, Selectable, Insertable, Serialize, Deserialize)]
+
+// Audit log model
+#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = audit)]
 pub struct AuditLog {
-    pub id: i64,
-    pub user_id: String,
-    pub action: String,
-    pub details: Option<String>,
+    pub id: i32,
+    pub actor: String,
+    pub action_type: String,
     pub target: Option<String>,
-    pub timestamp: chrono::NaiveDateTime,
+    pub details: Option<String>,
+    pub created_at: NaiveDateTime,
 }
 
-#[derive(Debug, Queryable, Selectable, Serialize, Deserialize, Clone, Default)]
+
+// User / Roles models
+#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
+#[diesel(table_name = users)]
+pub struct User {
+    pub id: i32,
+    pub username: String,
+    pub password_hash: String,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
+#[diesel(table_name = roles)]
+pub struct Role {
+    pub id: i32,
+    pub name: String,
+}
+
+#[derive(Debug, Queryable, Identifiable, Associations, Serialize, Deserialize)]
+#[diesel(belongs_to(User))]
+#[diesel(belongs_to(Role))]
+#[diesel(table_name = user_roles)]
+pub struct UserRole {
+    pub id: i32,
+    pub user_id: i32,
+    pub role_id: i32,
+}
+
+#[derive(Debug, Queryable, Identifiable, Associations, Serialize, Deserialize)]
+#[diesel(belongs_to(User))]
+#[diesel(belongs_to(Group))]
+#[diesel(table_name = user_groups)]
+pub struct UserGroup {
+    pub id: i32,
+    pub user_id: i32,
+    pub group_id: i32,
+}
+
+#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
+#[diesel(table_name = groups)]
+pub struct Group {
+    pub id: i32,
+    pub name: String,
+    pub description: Option<String>,
+}
+
+
+// Server Settings
+#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize, Clone)]
 #[diesel(table_name = server_settings)]
 pub struct ServerSettings {
-    pub id: i64,
+    pub id: i32,
+    pub auto_approve_devices: bool,
+    pub auto_refresh_enabled: bool,
+    pub auto_refresh_seconds: i64,
+    pub default_action_ttl_seconds: i64,
+    pub action_polling_enabled: bool,
+    pub ping_target_ip: String,
     pub force_https: bool,
-    pub max_action_ttl: i64,
-    pub max_pending_age: i64,
-    pub enable_logging: bool,
-    pub default_role: String,
 }

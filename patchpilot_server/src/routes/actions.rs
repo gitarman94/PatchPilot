@@ -35,13 +35,13 @@ pub async fn submit_action(
 
         let ttl = form.ttl_seconds.unwrap_or(3600);
         let expires_at = Utc::now().naive_utc() + Duration::seconds(ttl);
+        let created_at = Utc::now().naive_utc();
 
         let new_action = NewAction {
-            id: Utc::now().timestamp_millis(), // unique i64 ID
             action_type: form.command,
             parameters: None,
             author: Some(user_name.clone()),
-            created_at: Utc::now().naive_utc(),
+            created_at,
             expires_at,
             canceled: false,
         };
@@ -51,7 +51,14 @@ pub async fn submit_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        let target = NewActionTarget::pending(new_action.id, form.target_device_id);
+        // Retrieve the inserted action ID
+        let action_id: i64 = actions::table
+            .select(actions::id)
+            .order(actions::id.desc())
+            .first(&mut conn)
+            .map_err(|_| Status::InternalServerError)?;
+
+        let target = NewActionTarget::pending(action_id, form.target_device_id);
         diesel::insert_into(action_targets::table)
             .values(&target)
             .execute(&mut conn)
@@ -61,7 +68,7 @@ pub async fn submit_action(
             &mut conn,
             &user_name,
             "action.submit",
-            Some(&new_action.id.to_string()),
+            Some(&action_id.to_string()),
             Some(&format!("Target device: {}", form.target_device_id)),
         )
         .map_err(|_| Status::InternalServerError)?;

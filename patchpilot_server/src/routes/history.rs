@@ -68,7 +68,8 @@ pub async fn log_audit(
             &action_type_val,
             target_val.as_deref(),
             details_val.as_deref(),
-        ).map_err(|_| Status::InternalServerError)
+        )
+        .map_err(|_| Status::InternalServerError)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;

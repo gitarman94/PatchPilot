@@ -6,6 +6,7 @@ use rocket::{
 };
 use rocket_dyn_templates::Template;
 use diesel::prelude::*;
+use serde::Serialize;
 
 use crate::state::AppState;
 use crate::auth::AuthUser;
@@ -21,6 +22,10 @@ pub struct ServerSettingsForm {
     pub default_role: Option<String>,
 }
 
+#[derive(Serialize)]
+struct SettingsContext {
+    settings: ModelServerSettings,
+}
 
 /// VIEW SETTINGS PAGE
 #[get("/settings")]
@@ -37,12 +42,12 @@ pub async fn view_settings(
     .await
     .map_err(|_| Status::InternalServerError)??;
 
-    let mut context = std::collections::HashMap::new();
-    context.insert("settings", settings);
+    let context = SettingsContext {
+        settings: settings.clone(),
+    };
 
     Ok(Template::render("settings", &context))
 }
-
 
 /// UPDATE SETTINGS
 #[post("/settings/update", data = "<form>")]
@@ -95,7 +100,7 @@ pub async fn update_settings(
 
         // Audit log
         let _ = log_audit(
-            &pool,
+            &mut conn,
             &username,
             "update_settings",
             None,
@@ -107,7 +112,6 @@ pub async fn update_settings(
 
     Status::Ok
 }
-
 
 /// ROUTE MOUNTING
 pub fn configure_routes(
