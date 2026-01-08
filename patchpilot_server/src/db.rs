@@ -3,10 +3,10 @@ use diesel::sqlite::SqliteConnection;
 use diesel::prelude::*;
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use std::env;
-use chrono::Utc;
+use chrono::{Utc, NaiveDateTime};
 
-use crate::models::{ServerSettings, DeviceInfo};
-use crate::schema::{audit, server_settings, users, roles, user_roles};
+use crate::models::{ServerSettings, HistoryLog, AuditLog};
+use crate::schema::{audit, server_settings, history_log};
 
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
@@ -51,104 +51,32 @@ pub fn initialize() -> DbPool {
     init_pool()
 }
 
-/// Create default admin user if DB is empty
-pub fn create_default_admin(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
-    use crate::schema::users::dsl::{users, username, password_hash, id as user_id};
-    use crate::schema::roles::dsl::{roles, name, id as role_id};
-    use crate::schema::user_roles::dsl::{user_roles, user_id as ur_user_id, role_id as ur_role_id};
+// SERVER SETTINGS 
 
-    let count: i64 = users.count().get_result(conn)?;
-    if count == 0 {
-        let hash = bcrypt::hash("pass1234", bcrypt::DEFAULT_COST).unwrap();
-
-        diesel::insert_into(users)
-            .values((username.eq("admin"), password_hash.eq(hash)))
-            .execute(conn)?;
-
-        // Fetch IDs
-        let admin_id_val: i32 = users
-            .filter(username.eq("admin"))
-            .select(user_id)
-            .first(conn)?;
-
-        let admin_role_id_val: i32 = roles
-            .filter(name.eq("Admin"))
-            .select(role_id)
-            .first(conn)?;
-
-        // Assign Admin role
-        diesel::insert_into(user_roles)
-            .values((ur_user_id.eq(admin_id_val), ur_role_id.eq(admin_role_id_val)))
-            .execute(conn)?;
-
-        println!("✅ Default admin created (admin / pass1234)");
+/// Load the server settings (or default if missing)
+pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettings> {
+    match server_settings::table.first::<ServerSettings>(conn) {
+        Ok(s) => Ok(s),
+        Err(diesel::result::Error::NotFound) => {
+            // Insert default settings if none exist
+            let default = ServerSettings {
+                id: 1,
+                force_https: true,
+                max_action_ttl: 3600,
+                max_pending_age: 600,
+                enable_logging: true,
+                default_role: "user".to_string(),
+            };
+            diesel::insert_into(server_settings::table)
+                .values(&default)
+                .execute(conn)?;
+            Ok(default)
+        }
+        Err(e) => Err(e),
     }
-    Ok(())
 }
 
-/// Audit logging helper
-pub fn log_audit(
-    conn: &mut SqliteConnection,
-    username_val: &str,
-    action_val: &str,
-    target_val: Option<&str>,
-    details_val: Option<&str>,
-) -> Result<(), diesel::result::Error> {
-    use crate::schema::audit::dsl::*;
-
-    let new_audit = NewAudit {
-        actor: username_val,
-        action_type: action_val,
-        target: target_val,
-        details: details_val,
-        created_at: Utc::now().naive_utc(),
-    };
-
-    diesel::insert_into(audit)
-        .values(&new_audit)
-        .execute(conn)?;
-
-    Ok(())
-}
-
-/// Struct for audit entries
-#[derive(Insertable)]
-#[diesel(table_name = audit)]
-pub struct NewAudit<'a> {
-    pub actor: &'a str,
-    pub action_type: &'a str,
-    pub target: Option<&'a str>,
-    pub details: Option<&'a str>,
-    pub created_at: chrono::NaiveDateTime,
-}
-
-/// Get current server settings from DB
-pub fn load_settings(conn: &mut SqliteConnection) -> Result<ServerSettings, diesel::result::Error> {
-    use crate::schema::server_settings::dsl::*;
-
-    let row = server_settings.first::<ServerSettingsRow>(conn).optional()?;
-
-    Ok(match row {
-        Some(s) => ServerSettings {
-            id: s.id as i64,
-            force_https: s.force_https,
-            max_action_ttl: s.max_action_ttl,
-            max_pending_age: s.max_pending_age,
-            enable_logging: s.enable_logging,
-            default_role: s.default_role,
-        },
-        None => ServerSettings {
-            id: 1,
-            force_https: false,
-            max_action_ttl: 3600,
-            max_pending_age: 86400,
-            enable_logging: true,
-            default_role: "User".to_string(),
-        },
-    })
-}
-
-/// Save server settings to DB (insert or update)
+/// Save server settings (insert or update)
 pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettings) -> Result<(), diesel::result::Error> {
     use crate::schema::server_settings::dsl::*;
 
@@ -188,4 +116,92 @@ pub struct ServerSettingsRow {
     pub max_pending_age: i64,
     pub enable_logging: bool,
     pub default_role: String,
+}
+
+// HISTORY LOG 
+
+pub fn insert_history(conn: &mut SqliteConnection, entry: &HistoryLog) -> QueryResult<usize> {
+    diesel::insert_into(history_log::table)
+        .values(entry)
+        .execute(conn)
+}
+
+pub fn fetch_history(conn: &mut SqliteConnection) -> QueryResult<Vec<HistoryLog>> {
+    history_log::table
+        .order(history_log::timestamp.desc())
+        .load(conn)
+}
+
+// AUDIT LOG 
+
+#[derive(Insertable)]
+#[diesel(table_name = audit)]
+pub struct NewAudit<'a> {
+    pub actor: &'a str,
+    pub action_type: &'a str,
+    pub target: Option<&'a str>,
+    pub details: Option<&'a str>,
+    pub created_at: NaiveDateTime,
+}
+
+pub fn insert_audit(conn: &mut SqliteConnection, entry: &AuditLog) -> QueryResult<usize> {
+    diesel::insert_into(audit::table)
+        .values(entry)
+        .execute(conn)
+}
+
+pub fn fetch_audit(conn: &mut SqliteConnection) -> QueryResult<Vec<AuditLog>> {
+    audit::table
+        .order(audit::timestamp.desc())
+        .load(conn)
+}
+
+/// Helper: audit logging
+pub fn log_audit(
+    conn: &mut SqliteConnection,
+    username_val: &str,
+    action_val: &str,
+    target_val: Option<&str>,
+    details_val: Option<&str>,
+) -> Result<(), diesel::result::Error> {
+    let new_audit = NewAudit {
+        actor: username_val,
+        action_type: action_val,
+        target: target_val,
+        details: details_val,
+        created_at: Utc::now().naive_utc(),
+    };
+
+    diesel::insert_into(audit::table)
+        .values(&new_audit)
+        .execute(conn)?;
+
+    Ok(())
+}
+
+// ACTION TTL 
+
+use crate::schema::actions;
+
+pub fn update_action_ttl(
+    conn: &mut SqliteConnection,
+    action_id_val: i64,
+    new_ttl: i64,
+    settings: &ServerSettings,
+) -> QueryResult<usize> {
+    let ttl_to_set = if new_ttl > settings.max_action_ttl {
+        settings.max_action_ttl
+    } else {
+        new_ttl
+    };
+    diesel::update(actions::table.filter(actions::id.eq(action_id_val)))
+        .set(actions::ttl.eq(ttl_to_set))
+        .execute(conn)
+}
+
+pub fn fetch_action_ttl(conn: &mut SqliteConnection, action_id_val: i64) -> QueryResult<i64> {
+    actions::table
+        .filter(actions::id.eq(action_id_val))
+        .select(actions::ttl)
+        .first(conn)
 }

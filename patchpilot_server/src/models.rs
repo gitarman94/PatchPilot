@@ -142,33 +142,30 @@ impl NewActionTarget {
     }
 }
 
-#[derive(Debug, Queryable, Selectable, Serialize)]
+#[derive(Debug, Queryable, Selectable, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = history_log)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct HistoryLog {
     pub id: i64,
-    pub action_id: Option<i64>,
-    pub device_name: Option<String>,
-    pub actor: Option<String>,
-    pub action_type: String,
-    pub details: Option<String>,
-    pub created_at: NaiveDateTime,
+    pub action: String,
+    pub target: String,
+    pub user: Option<String>,
+    pub device: Option<String>,
+    pub timestamp: chrono::NaiveDateTime,
 }
 
-#[derive(Debug, Queryable, Insertable, Selectable, Serialize, Deserialize)]
+#[derive(Debug, Queryable, Selectable, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = audit)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct AuditLog {
     pub id: i64,
-    pub actor: String,
-    pub action_type: String,
-    pub target: Option<String>,
+    pub user_id: String,
+    pub action: String,
     pub details: Option<String>,
-    pub created_at: NaiveDateTime,
+    pub target: Option<String>,
+    pub timestamp: chrono::NaiveDateTime,
 }
 
-#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
-#[diesel(table_name = crate::schema::server_settings)]
+#[derive(Debug, Queryable, Selectable, Serialize, Deserialize, Clone, Default)]
+#[diesel(table_name = server_settings)]
 pub struct ServerSettings {
     pub id: i64,
     pub force_https: bool,

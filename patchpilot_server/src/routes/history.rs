@@ -4,7 +4,7 @@ use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use chrono::Utc;
 
-use crate::db::DbPool;
+use crate::db::{DbPool, log_audit as db_log_audit};
 use crate::models::{HistoryLog, AuditLog};
 use crate::schema::history_log::dsl::{history_log, created_at as history_created_at};
 use crate::schema::audit::dsl::{audit, created_at as audit_created_at};
@@ -27,50 +27,51 @@ pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, 
     Ok(Json(result))
 }
 
-/// API: GET /api/audit
+/// API: GET /api/audit (latest 100 entries)
 #[get("/api/audit")]
 pub async fn api_audit(pool: &State<DbPool>) -> Result<Json<Vec<AuditLog>>, Status> {
     let pool = pool.inner().clone();
 
     let result: Vec<AuditLog> = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        get_latest_audit(&mut conn)
+        audit
+            .order(audit_created_at.desc())
+            .limit(100)
+            .load::<AuditLog>(&mut conn)
+            .map_err(|_| Status::InternalServerError)
     })
     .await
-    .map_err(|_| Status::InternalServerError)?;
+    .map_err(|_| Status::InternalServerError)??;
 
     Ok(Json(result))
 }
 
-/// Internal helper: fetch latest 100 audit entries
-pub fn get_latest_audit(conn: &mut SqliteConnection) -> Vec<AuditLog> {
-    audit
-        .order(audit_created_at.desc())
-        .limit(100)
-        .load::<AuditLog>(conn)
-        .unwrap_or_default()
-}
-
-/// Helper function to log administrative actions to the audit log
-pub fn log_audit(
-    conn: &mut SqliteConnection,
+/// Async helper: log an audit action
+pub async fn log_audit(
+    pool: &DbPool,
     actor_val: &str,
     action_type_val: &str,
     target_val: Option<&str>,
     details_val: Option<&str>,
-) -> diesel::QueryResult<()> {
-    let entry = AuditLog {
-        id: 0, // SQLite auto-increment
-        actor: actor_val.to_string(),
-        action_type: action_type_val.to_string(),
-        target: target_val.map(|s| s.to_string()),
-        details: details_val.map(|s| s.to_string()),
-        created_at: Utc::now().naive_utc(),
-    };
+) -> Result<(), Status> {
+    let pool = pool.clone();
+    let actor_val = actor_val.to_string();
+    let action_type_val = action_type_val.to_string();
+    let target_val = target_val.map(|s| s.to_string());
+    let details_val = details_val.map(|s| s.to_string());
 
-    diesel::insert_into(audit)
-        .values(&entry)
-        .execute(conn)?;
+    rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        db_log_audit(
+            &mut conn,
+            &actor_val,
+            &action_type_val,
+            target_val.as_deref(),
+            details_val.as_deref(),
+        ).map_err(|_| Status::InternalServerError)
+    })
+    .await
+    .map_err(|_| Status::InternalServerError)??;
 
     Ok(())
 }
