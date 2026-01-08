@@ -1,165 +1,124 @@
 use diesel::prelude::*;
-use chrono::{NaiveDateTime, Utc};
-use rocket::serde::{Serialize, Deserialize};
-use crate::schema::{devices, actions, action_targets, history_log, audit, server_settings};
+use serde::{Deserialize, Serialize};
+use chrono::NaiveDateTime;
 
-#[derive(Queryable, Identifiable, Selectable, Serialize, Deserialize, Debug)]
+use crate::schema::{
+    users,
+    roles,
+    user_roles,
+    devices,
+    actions,
+    action_targets,
+    audit,
+    server_settings,
+};
+
+// User account
+#[derive(Debug, Queryable, Identifiable, Serialize)]
+#[diesel(table_name = users)]
+pub struct User {
+    pub id: i32,
+    pub username: String,
+    pub password_hash: String,
+}
+
+// New user insertable
+#[derive(Insertable)]
+#[diesel(table_name = users)]
+pub struct NewUser<'a> {
+    pub username: &'a str,
+    pub password_hash: &'a str,
+}
+
+// Role definition
+#[derive(Debug, Queryable, Identifiable, Serialize)]
+#[diesel(table_name = roles)]
+pub struct Role {
+    pub id: i32,
+    pub name: String,
+}
+
+// User-role join
+#[derive(Debug, Queryable, Identifiable)]
+#[diesel(primary_key(user_id, role_id))]
+#[diesel(table_name = user_roles)]
+pub struct UserRole {
+    pub user_id: i32,
+    pub role_id: i32,
+}
+
+// Device registered with server
+#[derive(Debug, Queryable, Identifiable, Serialize)]
 #[diesel(table_name = devices)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Device {
     pub id: i32,
-    pub device_id: String,
-    pub device_name: String,
     pub hostname: String,
-    pub os_name: String,
-    pub architecture: String,
-    pub last_checkin: NaiveDateTime,
+    pub ip_address: String,
     pub approved: bool,
-    pub cpu_usage: f32,
-    pub cpu_count: i32,
-    pub cpu_brand: String,
-    pub ram_total: i64,
-    pub ram_used: i64,
-    pub disk_total: i64,
-    pub disk_free: i64,
-    pub disk_health: String,
-    pub network_throughput: i64,
-    pub device_type: String,
-    pub device_model: String,
-    pub uptime: Option<i64>,
-    pub updates_available: bool,
-    pub network_interfaces: Option<String>,
-    pub ip_address: Option<String>,
+    pub last_seen: NaiveDateTime,
 }
 
-#[derive(Insertable, AsChangeset)]
+// Insertable device
+#[derive(Insertable)]
 #[diesel(table_name = devices)]
-pub struct NewDevice {
-    pub device_id: String,
-    pub device_name: String,
-    pub hostname: String,
-    pub os_name: String,
-    pub architecture: String,
-    pub last_checkin: NaiveDateTime,
+pub struct NewDevice<'a> {
+    pub hostname: &'a str,
+    pub ip_address: &'a str,
     pub approved: bool,
-    pub cpu_usage: f32,
-    pub cpu_count: i32,
-    pub cpu_brand: String,
-    pub ram_total: i64,
-    pub ram_used: i64,
-    pub disk_total: i64,
-    pub disk_free: i64,
-    pub disk_health: String,
-    pub network_throughput: i64,
-    pub device_type: String,
-    pub device_model: String,
-    pub uptime: Option<i64>,
-    pub updates_available: bool,
-    pub network_interfaces: Option<String>,
-    pub ip_address: Option<String>,
+    pub last_seen: NaiveDateTime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SystemInfo {
-    pub os_name: String,
-    pub architecture: String,
-    pub cpu_usage: f32,
-    pub cpu_count: i32,
-    pub cpu_brand: String,
-    pub ram_total: i64,
-    pub ram_used: i64,
-    pub disk_total: i64,
-    pub disk_free: i64,
-    pub disk_health: String,
-    pub network_throughput: i64,
-    pub network_interfaces: Option<String>,
-    pub ip_address: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeviceInfo {
-    pub device_id: String,
-    pub system_info: SystemInfo,
-    pub device_type: Option<String>,
-    pub device_model: Option<String>,
-}
-
-#[derive(Debug, Queryable, Selectable, Serialize, Deserialize)]
+// Action pushed to devices
+#[derive(Debug, Queryable, Identifiable, Serialize)]
 #[diesel(table_name = actions)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Action {
     pub id: String,
-    pub action_type: String,
-    pub parameters: Option<String>,
-    pub author: Option<String>,
+    pub name: String,
+    pub script: String,
     pub created_at: NaiveDateTime,
-    pub expires_at: NaiveDateTime,
-    pub canceled: bool,
+    pub expires_at: Option<NaiveDateTime>,
+    pub enabled: bool,
 }
 
-#[derive(Debug, Insertable, Serialize, Deserialize)]
+// Insertable action
+#[derive(Insertable)]
 #[diesel(table_name = actions)]
-pub struct NewAction {
-    pub id: String,
-    pub action_type: String,
-    pub parameters: Option<String>,
-    pub author: Option<String>,
+pub struct NewAction<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub script: &'a str,
     pub created_at: NaiveDateTime,
-    pub expires_at: NaiveDateTime,
-    pub canceled: bool,
+    pub expires_at: Option<NaiveDateTime>,
+    pub enabled: bool,
 }
 
-#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
+// Action execution state per device
+#[derive(Debug, Queryable, Identifiable, Serialize)]
 #[diesel(table_name = action_targets)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ActionTarget {
     pub id: i32,
-    pub action_id: String,
-    pub device_id: String,
-    pub status: String,
-    pub last_update: NaiveDateTime,
-    pub response: Option<String>,
-}
-
-#[derive(Debug, Insertable, Serialize, Deserialize)]
-#[diesel(table_name = action_targets)]
-pub struct NewActionTarget {
-    pub action_id: String,
-    pub device_id: String,
-    pub status: String,
-    pub last_update: NaiveDateTime,
-    pub response: Option<String>,
-}
-
-impl NewActionTarget {
-    pub fn pending(action_id: &str, device_id: &str) -> Self {
-        Self {
-            action_id: action_id.to_string(),
-            device_id: device_id.to_string(),
-            status: "Pending".to_string(),
-            last_update: Utc::now().naive_utc(),
-            response: None,
-        }
-    }
-}
-
-#[derive(Debug, Queryable, Selectable, Serialize)]
-#[diesel(table_name = history_log)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct HistoryLog {
-    pub id: i32,
     pub action_id: Option<String>,
-    pub device_name: Option<String>,
-    pub actor: Option<String>,
-    pub action_type: String,
-    pub details: Option<String>,
-    pub created_at: NaiveDateTime,
+    pub device_id: String,
+    pub status: String,
+    pub last_update: NaiveDateTime,
+    pub response: Option<String>,
 }
 
-#[derive(Debug, Queryable, Insertable, Selectable, Serialize, Deserialize)]
+// Insertable action target
+#[derive(Insertable)]
+#[diesel(table_name = action_targets)]
+pub struct NewActionTarget<'a> {
+    pub action_id: Option<&'a str>,
+    pub device_id: &'a str,
+    pub status: &'a str,
+    pub last_update: NaiveDateTime,
+    pub response: Option<&'a str>,
+}
+
+// Audit log entry
+#[derive(Debug, Queryable, Identifiable, Serialize)]
 #[diesel(table_name = audit)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct AuditLog {
+pub struct Audit {
     pub id: i32,
     pub actor: String,
     pub action_type: String,
@@ -168,12 +127,21 @@ pub struct AuditLog {
     pub created_at: NaiveDateTime,
 }
 
-#[derive(Debug, Queryable, Selectable, Serialize, Deserialize, Default)]
-#[diesel(table_name = server_settings)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+// Insertable audit record
+#[derive(Insertable)]
+#[diesel(table_name = audit)]
+pub struct NewAudit<'a> {
+    pub actor: &'a str,
+    pub action_type: &'a str,
+    pub target: Option<&'a str>,
+    pub details: Option<&'a str>,
+    pub created_at: NaiveDateTime,
+}
+
+// Diesel-facing server settings row
+// Field order must match DB schema exactly
+#[derive(Debug, Queryable)]
 pub struct ServerSettings {
-    pub allow_http: bool,
-    pub force_https: bool,
     pub id: i32,
     pub auto_approve_devices: bool,
     pub auto_refresh_enabled: bool,
@@ -181,4 +149,26 @@ pub struct ServerSettings {
     pub default_action_ttl_seconds: i64,
     pub action_polling_enabled: bool,
     pub ping_target_ip: String,
+    pub allow_http: bool,
+    pub force_https: bool,
+}
+
+// Shared enum used by routes and TTL cleanup
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum ActionStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+}
+
+impl ActionStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ActionStatus::Pending => "pending",
+            ActionStatus::Running => "running",
+            ActionStatus::Completed => "completed",
+            ActionStatus::Failed => "failed",
+        }
+    }
 }

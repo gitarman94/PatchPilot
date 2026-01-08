@@ -1,13 +1,12 @@
 use std::sync::Arc;
 use std::time::Duration;
-use rocket::tokio;
 
+use rocket::tokio;
 use chrono::Utc;
 use diesel::prelude::*;
 
 use crate::state::AppState;
 use crate::schema::{actions, action_targets};
-use crate::models::ActionTarget;
 
 pub fn spawn_action_ttl_task(state: Arc<AppState>) {
     tokio::spawn(async move {
@@ -17,6 +16,7 @@ pub fn spawn_action_ttl_task(state: Arc<AppState>) {
                 let settings = state.settings.read().unwrap();
                 settings.auto_refresh_seconds
             };
+
             tokio::time::sleep(Duration::from_secs(interval_secs as u64)).await;
 
             // Skip if polling is disabled
@@ -28,20 +28,21 @@ pub fn spawn_action_ttl_task(state: Arc<AppState>) {
             if let Ok(mut conn) = state.db_pool.get() {
                 let now = Utc::now().naive_utc();
 
-                // Find expired actions
-                let expired_actions = actions::table
+                // Select only action IDs that have expired and are not canceled
+                let expired_action_ids: Vec<String> = actions::table
+                    .select(actions::id)
                     .filter(actions::expires_at.lt(now))
                     .filter(actions::canceled.eq(false))
-                    .load::<String>(&mut conn)
+                    .load(&mut conn)
                     .unwrap_or_default();
 
-                for action_id in expired_actions {
-                    // Cancel the action
+                for action_id in expired_action_ids {
+                    // Mark action as canceled
                     let _ = diesel::update(actions::table.filter(actions::id.eq(&action_id)))
                         .set(actions::canceled.eq(true))
                         .execute(&mut conn);
 
-                    // Mark all pending targets as expired
+                    // Mark pending targets as expired
                     let _ = diesel::update(
                         action_targets::table
                             .filter(action_targets::action_id.eq(&action_id))
@@ -53,7 +54,7 @@ pub fn spawn_action_ttl_task(state: Arc<AppState>) {
                     ))
                     .execute(&mut conn);
 
-                    // Log audit
+                    // Audit log
                     if let Some(audit) = state.log_audit.as_ref() {
                         let _ = audit(
                             &mut conn,

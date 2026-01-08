@@ -30,7 +30,8 @@ pub fn init_logger() {
 
 /// Initialize DB connection pool
 pub fn init_pool() -> DbPool {
-    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
+    let database_url =
+        env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
     Pool::builder()
         .build(manager)
@@ -50,7 +51,9 @@ pub fn initialize() -> DbPool {
 }
 
 /// Create default admin user if DB is empty
-pub fn create_default_admin(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
+pub fn create_default_admin(
+    conn: &mut SqliteConnection,
+) -> Result<(), diesel::result::Error> {
     use crate::schema::{users, roles, user_roles};
 
     let count: i64 = users::dsl::users.count().get_result(conn)?;
@@ -58,10 +61,12 @@ pub fn create_default_admin(conn: &mut SqliteConnection) -> Result<(), diesel::r
         let hash = bcrypt::hash("pass1234", bcrypt::DEFAULT_COST).unwrap();
 
         diesel::insert_into(users::dsl::users)
-            .values((users::username.eq("admin"), users::password_hash.eq(hash)))
+            .values((
+                users::username.eq("admin"),
+                users::password_hash.eq(hash),
+            ))
             .execute(conn)?;
 
-        // Fetch IDs
         let admin_id: i32 = users::dsl::users
             .filter(users::dsl::username.eq("admin"))
             .select(users::dsl::id)
@@ -72,13 +77,16 @@ pub fn create_default_admin(conn: &mut SqliteConnection) -> Result<(), diesel::r
             .select(roles::dsl::id)
             .first(conn)?;
 
-        // Assign Admin role
         diesel::insert_into(user_roles::dsl::user_roles)
-            .values((user_roles::user_id.eq(admin_id), user_roles::role_id.eq(admin_role_id)))
+            .values((
+                user_roles::user_id.eq(admin_id),
+                user_roles::role_id.eq(admin_role_id),
+            ))
             .execute(conn)?;
 
         println!("✅ Default admin created (admin / pass1234)");
     }
+
     Ok(())
 }
 
@@ -119,8 +127,24 @@ pub struct NewAudit<'a> {
     pub created_at: chrono::NaiveDateTime,
 }
 
+/// Struct representing a row in server_settings
+#[derive(Queryable)]
+pub struct ServerSettingsRow {
+    pub id: i32,
+    pub auto_approve_devices: bool,
+    pub auto_refresh_enabled: bool,
+    pub auto_refresh_seconds: i64,
+    pub default_action_ttl_seconds: i64,
+    pub action_polling_enabled: bool,
+    pub ping_target_ip: String,
+    pub allow_http: bool,
+    pub force_https: bool,
+}
+
 /// Get current server settings from DB
-pub fn load_settings(conn: &mut SqliteConnection) -> Result<crate::settings::ServerSettings, diesel::result::Error> {
+pub fn load_settings(
+    conn: &mut SqliteConnection,
+) -> Result<crate::settings::ServerSettings, diesel::result::Error> {
     use crate::schema::server_settings::dsl::*;
 
     let row = server_settings
@@ -129,24 +153,30 @@ pub fn load_settings(conn: &mut SqliteConnection) -> Result<crate::settings::Ser
 
     Ok(match row {
         Some(s) => crate::settings::ServerSettings {
-            allow_http: s.allow_http,
-            force_https: s.force_https,
+            id: s.id,
             auto_approve_devices: s.auto_approve_devices,
             auto_refresh_enabled: s.auto_refresh_enabled,
             auto_refresh_seconds: s.auto_refresh_seconds,
             default_action_ttl_seconds: s.default_action_ttl_seconds,
             action_polling_enabled: s.action_polling_enabled,
             ping_target_ip: s.ping_target_ip,
+            allow_http: s.allow_http,
+            force_https: s.force_https,
         },
         None => crate::settings::ServerSettings::default(),
     })
 }
 
 /// Save server settings to DB (insert or update)
-pub fn save_settings(conn: &mut SqliteConnection, settings: &crate::settings::ServerSettings) -> Result<(), diesel::result::Error> {
+pub fn save_settings(
+    conn: &mut SqliteConnection,
+    settings: &crate::settings::ServerSettings,
+) -> Result<(), diesel::result::Error> {
     use crate::schema::server_settings::dsl::*;
 
-    let existing = server_settings.first::<ServerSettingsRow>(conn).optional()?;
+    let existing = server_settings
+        .first::<ServerSettingsRow>(conn)
+        .optional()?;
 
     if let Some(row) = existing {
         diesel::update(server_settings.filter(id.eq(row.id)))
@@ -157,6 +187,8 @@ pub fn save_settings(conn: &mut SqliteConnection, settings: &crate::settings::Se
                 default_action_ttl_seconds.eq(settings.default_action_ttl_seconds),
                 action_polling_enabled.eq(settings.action_polling_enabled),
                 ping_target_ip.eq(&settings.ping_target_ip),
+                allow_http.eq(settings.allow_http),
+                force_https.eq(settings.force_https),
             ))
             .execute(conn)?;
     } else {
@@ -168,21 +200,11 @@ pub fn save_settings(conn: &mut SqliteConnection, settings: &crate::settings::Se
                 default_action_ttl_seconds.eq(settings.default_action_ttl_seconds),
                 action_polling_enabled.eq(settings.action_polling_enabled),
                 ping_target_ip.eq(&settings.ping_target_ip),
+                allow_http.eq(settings.allow_http),
+                force_https.eq(settings.force_https),
             ))
             .execute(conn)?;
     }
 
     Ok(())
-}
-
-/// Struct representing a row in server_settings
-#[derive(Queryable)]
-pub struct ServerSettingsRow {
-    pub id: i32,
-    pub auto_approve_devices: bool,
-    pub auto_refresh_enabled: bool,
-    pub auto_refresh_seconds: i64,
-    pub default_action_ttl_seconds: i64,
-    pub action_polling_enabled: bool,
-    pub ping_target_ip: String,
 }

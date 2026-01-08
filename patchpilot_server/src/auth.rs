@@ -30,6 +30,7 @@ pub enum UserRole {
 }
 
 impl AuthUser {
+    // Write audit record
     pub fn audit(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) {
         let _ = diesel::insert_into(audit::table)
             .values((
@@ -57,22 +58,22 @@ impl<'r> FromRequest<'r> for AuthUser {
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         let cookie = match request.cookies().get_private("user_id") {
             Some(c) => c,
-            None => return Outcome::Failure((Status::Unauthorized, ())),
+            None => return Outcome::Failure(Status::Unauthorized),
         };
 
         let user_id: i32 = match cookie.value().parse() {
             Ok(v) => v,
-            Err(_) => return Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => return Outcome::Failure(Status::Unauthorized),
         };
 
         let pool = match request.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Failure((Status::InternalServerError, ())),
+            _ => return Outcome::Failure(Status::InternalServerError),
         };
 
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
+            Err(_) => return Outcome::Failure(Status::InternalServerError),
         };
 
         match users::table
@@ -83,7 +84,7 @@ impl<'r> FromRequest<'r> for AuthUser {
             .first::<(i32, String, String)>(&mut conn)
         {
             Ok((uid, uname, urole)) => Outcome::Success(AuthUser { id: uid, username: uname, role: urole }),
-            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => Outcome::Failure(Status::Unauthorized),
         }
     }
 }
@@ -152,6 +153,7 @@ pub fn login_page() -> RawHtml<String> {
     )
 }
 
+// Simple token validation
 pub async fn validate_token(token: &str) -> Result<AuthUser, ()> {
     if token == "testtoken" {
         Ok(AuthUser { id: 1, username: "admin".into(), role: "Admin".into() })

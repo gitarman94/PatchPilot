@@ -41,7 +41,7 @@ fn rocket() -> _ {
     // 3. Load server settings
     let server_settings = {
         let mut conn = get_conn(&pool);
-        let s = settings::ServerSettings::load(&mut conn);
+        let s = settings::load_settings(&mut conn).unwrap_or_default();
 
         Arc::new(RwLock::new(ModelServerSettings {
             id: s.id,
@@ -57,7 +57,7 @@ fn rocket() -> _ {
     };
 
     // 4. Build SystemState
-    let system_state = SystemState::new(pool.clone()); // Already returns Arc<SystemState>
+    let system_state = SystemState::new(pool.clone());
 
     // 5. Build AppState
     let app_state = Arc::new(AppState {
@@ -98,8 +98,8 @@ fn rocket() -> _ {
         .manage(app_state)
         .mount("/api", routes::api_routes())
         .mount("/auth", routes::auth_routes())
-        .mount("/users-groups", routes::users_groups_routes())
-        .mount("/roles", routes::roles_routes())
+        .mount("/users-groups", routes::users_groups::users_groups_routes())
+        .mount("/roles", routes::roles::roles_routes())
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
         .mount("/", routes::page_routes())
         .mount("/history", routes![routes::history::api_history])
