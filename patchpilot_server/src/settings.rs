@@ -23,7 +23,7 @@ pub struct ServerSettings {
 impl ServerSettings {
     /// Load settings from DB, fallback to default
     pub fn load(conn: &mut SqliteConnection) -> Self {
-        let s: ModelServerSettings = db::load_settings(conn).unwrap_or_default();
+        let s: db::ServerSettingsRow = db::load_settings(conn).unwrap_or_else(|_| db::ServerSettingsRow::default());
 
         Self {
             auto_approve_devices: s.auto_approve_devices,
@@ -38,7 +38,7 @@ impl ServerSettings {
 
     /// Save settings to DB
     pub fn save(&self, conn: &mut SqliteConnection) {
-        let s = ModelServerSettings {
+        let s = db::ServerSettingsRow { 
             id: 1, // always use the single row ID
             auto_approve_devices: self.auto_approve_devices,
             auto_refresh_enabled: self.auto_refresh_enabled,
@@ -48,7 +48,6 @@ impl ServerSettings {
             ping_target_ip: self.ping_target_ip.clone(),
             force_https: self.force_https,
         };
-
         let _ = db::save_settings(conn, &s);
     }
 
