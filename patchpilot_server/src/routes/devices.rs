@@ -54,14 +54,13 @@ pub async fn heartbeat() -> Json<serde_json::Value> {
 #[get("/device/<device_id_param>")]
 pub async fn get_device_details(
     pool: &State<DbPool>,
-    device_id_param: &str,
+    device_id_param: i64,
 ) -> Result<Json<Device>, Status> {
-    let device_id_str = device_id_param.to_string();
     let pool_clone = pool.inner().clone();
     let device_opt = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
         devices
-            .filter(device_id.eq(&device_id_str))
+            .filter(device_id.eq(device_id_param))
             .first::<Device>(&mut conn)
             .map_err(|_| Status::NotFound)
     })
@@ -75,7 +74,7 @@ pub async fn get_device_details(
 #[post("/approve/<device_id_param>")]
 pub async fn approve_device(
     pool: &State<DbPool>,
-    device_id_param: &str,
+    device_id_param: i64,
     user: AuthUser,
 ) -> Result<Status, Status> {
     if !user.has_role(UserRole::Admin) {
@@ -83,12 +82,11 @@ pub async fn approve_device(
     }
 
     let username = user.username.clone();
-    let device_id_str = device_id_param.to_string();
     let pool_clone = pool.inner().clone();
 
     rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
-        diesel::update(devices.filter(device_id.eq(&device_id_str)))
+        diesel::update(devices.filter(device_id.eq(device_id_param)))
             .set(approved.eq(true))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
@@ -97,7 +95,7 @@ pub async fn approve_device(
             &mut conn,
             &username,
             "approve_device",
-            Some(&device_id_str),
+            Some(&device_id_param.to_string()),
             Some("Device approved"),
         )
         .map_err(|_| Status::InternalServerError)?;
@@ -128,13 +126,13 @@ pub async fn register_or_update_device(
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
         let mut conn = pool_inner.get().map_err(|_| Status::InternalServerError)?;
         let existing = devices
-            .filter(device_id.eq(&info.device_id))
+            .filter(device_id.eq(info.device_id))
             .first::<Device>(&mut conn)
             .optional()
             .map_err(|_| Status::InternalServerError)?;
 
         let mut updated = NewDevice {
-            device_id: info.device_id.clone(),
+            device_id: info.device_id,
             device_name: info.system_info.os_name.clone(),
             hostname: info.system_info.os_name.clone(),
             os_name: info.system_info.os_name.clone(),
@@ -174,7 +172,7 @@ pub async fn register_or_update_device(
             &mut conn,
             &username,
             "register_or_update_device",
-            Some(&info.device_id),
+            Some(&info.device_id.to_string()),
             Some("Device registered or updated"),
         )
         .map_err(|_| Status::InternalServerError)?;

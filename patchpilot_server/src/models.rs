@@ -146,7 +146,7 @@ impl NewActionTarget {
 #[diesel(table_name = history_log)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct HistoryLog {
-    pub id: i32,
+    pub id: i64,
     pub action_id: Option<i64>,
     pub device_name: Option<String>,
     pub actor: Option<String>,
@@ -159,7 +159,7 @@ pub struct HistoryLog {
 #[diesel(table_name = audit)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct AuditLog {
-    pub id: i32,
+    pub id: i64,
     pub actor: String,
     pub action_type: String,
     pub target: Option<String>,
@@ -170,7 +170,7 @@ pub struct AuditLog {
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::server_settings)]
 pub struct ServerSettings {
-    pub id: i32,
+    pub id: i64,
     pub allow_http: bool,
     pub force_https: bool,
     pub max_action_ttl: i64,
