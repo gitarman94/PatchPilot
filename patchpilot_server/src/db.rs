@@ -5,7 +5,6 @@ use diesel::sqlite::SqliteConnection;
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use chrono::{Utc, NaiveDateTime};
 use std::env;
-
 use crate::models::AuditLog;
 use crate::schema::{audit, server_settings, history_log};
 
@@ -56,10 +55,10 @@ pub struct ServerSettingsRow {
     pub force_https: bool,
 }
 
-/// Load server settings (returns a DB row struct). If not found, create a default row and return it.
+/// Load server settings (returns a DB row struct).
+/// If not found, create a default row and return it.
 pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsRow> {
     use crate::schema::server_settings::dsl as ss_dsl;
-
     match ss_dsl::server_settings.first::<ServerSettingsRow>(conn) {
         Ok(s) => Ok(s),
         Err(diesel::result::Error::NotFound) => {
@@ -126,9 +125,7 @@ pub struct NewAudit<'a> {
 /// Insert an audit entry from an AuditLog struct by converting into NewAudit
 pub fn insert_audit(conn: &mut SqliteConnection, entry: &AuditLog) -> QueryResult<usize> {
     use crate::schema::audit::dsl as audit_dsl;
-
     // Convert AuditLog (owned types) into NewAudit (borrowed references)
-    // This code assumes AuditLog fields are named: actor, action_type, target, details, created_at
     let new = NewAudit {
         actor: &entry.actor,
         action_type: &entry.action_type,
@@ -136,7 +133,6 @@ pub fn insert_audit(conn: &mut SqliteConnection, entry: &AuditLog) -> QueryResul
         details: entry.details.as_deref(),
         created_at: entry.created_at,
     };
-
     diesel::insert_into(audit_dsl::audit)
         .values(&new)
         .execute(conn)
@@ -151,18 +147,16 @@ pub fn log_audit(
     target_val: Option<&str>,
     details_val: Option<&str>,
 ) -> QueryResult<()> {
-    use crate::schema::audit::dsl as audit_dsl;
-
-    let new_audit = NewAudit {
-        actor: username_val,
-        action_type: action_val,
-        target: target_val,
-        details: details_val,
+    // Build an AuditLog and delegate to insert_audit so insert_audit gets used
+    let audit_entry = AuditLog {
+        id: 0, // placeholder, DB will assign primary key
+        actor: username_val.to_string(),
+        action_type: action_val.to_string(),
+        target: target_val.map(|s| s.to_string()),
+        details: details_val.map(|s| s.to_string()),
         created_at: Utc::now().naive_utc(),
     };
-    diesel::insert_into(audit_dsl::audit)
-        .values(&new_audit)
-        .execute(conn)?;
+    let _ = insert_audit(conn, &audit_entry)?;
     Ok(())
 }
 

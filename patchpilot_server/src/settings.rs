@@ -1,94 +1,107 @@
-// src/settings.rs
-use serde::{Serialize, Deserialize};
-use diesel::prelude::*;
-use diesel::SqliteConnection;
+// src/routes/settings.rs
+// src/routes/settings.rs
+use rocket::{
+    get, post, State, form::{Form, FromForm}, http::Status,
+};
+use rocket_dyn_templates::Template;
+use serde::Serialize;
+use crate::state::AppState;
+use crate::auth::AuthUser;
 use crate::db;
-use crate::schema::server_settings;
-use diesel::result::QueryResult;
+use crate::settings::ServerSettings;
 
-/// Struct for server settings exposed to app
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ServerSettings {
-    pub auto_approve_devices: bool,
-    pub auto_refresh_enabled: bool,
-    pub auto_refresh_seconds: i64,
-    pub default_action_ttl_seconds: i64,
-    pub action_polling_enabled: bool,
-    pub ping_target_ip: String,
-    // HTTPS / HTTP options
-    pub force_https: bool,
+#[derive(FromForm)]
+pub struct ServerSettingsForm {
+    pub auto_approve_devices: Option<bool>,
+    pub auto_refresh_enabled: Option<bool>,
+    pub auto_refresh_seconds: Option<i64>,
+    pub default_action_ttl_seconds: Option<i64>,
+    pub action_polling_enabled: Option<bool>,
+    pub ping_target_ip: Option<String>,
+    pub force_https: Option<bool>,
 }
 
-impl ServerSettings {
-    /// Load settings from DB, fallback to default
-    pub fn load(conn: &mut SqliteConnection) -> Self {
-        let s: db::ServerSettingsRow = db::load_settings(conn).unwrap_or_else(|_| db::ServerSettingsRow::default());
-        Self {
-            auto_approve_devices: s.auto_approve_devices,
-            auto_refresh_enabled: s.auto_refresh_enabled,
-            auto_refresh_seconds: s.auto_refresh_seconds,
-            default_action_ttl_seconds: s.default_action_ttl_seconds,
-            action_polling_enabled: s.action_polling_enabled,
-            ping_target_ip: s.ping_target_ip,
-            force_https: s.force_https,
-        }
-    }
-
-    /// Save settings to DB
-    pub fn save(&self, conn: &mut SqliteConnection) {
-        let s = db::ServerSettingsRow {
-            id: 1, // always use the single row ID
-            auto_approve_devices: self.auto_approve_devices,
-            auto_refresh_enabled: self.auto_refresh_enabled,
-            auto_refresh_seconds: self.auto_refresh_seconds,
-            default_action_ttl_seconds: self.default_action_ttl_seconds,
-            action_polling_enabled: self.action_polling_enabled,
-            ping_target_ip: self.ping_target_ip.clone(),
-            force_https: self.force_https,
-        };
-        let _ = db::save_settings(conn, &s);
-    }
-
-    /// Update auto-approve and persist
-    pub fn set_auto_approve(&mut self, conn: &mut SqliteConnection, value: bool) -> QueryResult<usize> {
-        self.auto_approve_devices = value;
-        diesel::update(server_settings::table)
-            .set(server_settings::auto_approve_devices.eq(value))
-            .execute(conn)
-    }
-
-    /// Update auto-refresh and persist
-    pub fn set_auto_refresh(&mut self, conn: &mut SqliteConnection, value: bool) -> QueryResult<usize> {
-        self.auto_refresh_enabled = value;
-        diesel::update(server_settings::table)
-            .set(server_settings::auto_refresh_enabled.eq(value))
-            .execute(conn)
-    }
-
-    /// Update auto-refresh interval and persist
-    pub fn set_auto_refresh_interval(&mut self, conn: &mut SqliteConnection, value: i64) -> QueryResult<usize> {
-        self.auto_refresh_seconds = value;
-        diesel::update(server_settings::table)
-            .set(server_settings::auto_refresh_seconds.eq(value))
-            .execute(conn)
-    }
-
-    /// HTTPS / HTTP getters
-    pub fn force_https(&self) -> bool {
-        self.force_https
-    }
+#[derive(Serialize)]
+struct SettingsContext {
+    settings: ServerSettings,
 }
 
-impl Default for ServerSettings {
-    fn default() -> Self {
-        Self {
-            auto_approve_devices: false,
-            auto_refresh_enabled: true,
-            auto_refresh_seconds: 30,
-            default_action_ttl_seconds: 3600,
-            action_polling_enabled: true,
-            ping_target_ip: "8.8.8.8".to_string(),
-            force_https: false,
+/// View settings page
+#[get("/settings")]
+pub async fn view_settings(
+    state: &State<AppState>,
+    _user: AuthUser,
+) -> Result<Template, Status> {
+    let pool = state.db_pool.clone();
+    let settings_model: ServerSettings = rocket::tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        // Use the app-level settings loader to convert DB row -> app struct
+        Ok(ServerSettings::load(&mut conn))
+    })
+    .await
+    .map_err(|_| Status::InternalServerError)? ?;
+    let context = SettingsContext { settings: settings_model };
+    Ok(Template::render("settings", &context))
+}
+
+/// Update settings
+#[post("/settings/update", data = "<form>")]
+pub async fn update_settings(
+    state: &State<AppState>,
+    form: Form<ServerSettingsForm>,
+    user: AuthUser,
+) -> Status {
+    let username = user.username.clone();
+    let form = form.into_inner();
+    let pool = state.db_pool.clone();
+    let shared_settings = state.settings.clone();
+
+    let result = rocket::tokio::task::spawn_blocking(move || -> Result<(), ()> {
+        let mut conn = pool.get().map_err(|_| ())?;
+        // Load into the app-level ServerSettings struct
+        let mut settings = ServerSettings::load(&mut conn);
+
+        // Use the ServerSettings methods which persist changes inside the DB row
+        if let Some(v) = form.auto_approve_devices {
+            let _ = settings.set_auto_approve(&mut conn, v).map_err(|_| ())?;
         }
+        if let Some(v) = form.auto_refresh_enabled {
+            let _ = settings.set_auto_refresh(&mut conn, v).map_err(|_| ())?;
+        }
+        if let Some(v) = form.auto_refresh_seconds {
+            let _ = settings.set_auto_refresh_interval(&mut conn, v).map_err(|_| ())?;
+        }
+        if let Some(v) = form.default_action_ttl_seconds {
+            settings.default_action_ttl_seconds = v;
+            // persist full row
+            settings.save(&mut conn);
+        }
+        if let Some(v) = form.action_polling_enabled {
+            settings.action_polling_enabled = v;
+            settings.save(&mut conn);
+        }
+        if let Some(v) = form.ping_target_ip {
+            settings.ping_target_ip = v;
+            settings.save(&mut conn);
+        }
+        if let Some(v) = form.force_https {
+            settings.force_https = v;
+            settings.save(&mut conn);
+        }
+
+        // Update in-memory shared settings if possible
+        if let Ok(mut guard) = shared_settings.write() {
+            *guard = settings.clone();
+        }
+
+        // Log audit using synchronous DB log helper
+        let _ = db::log_audit(&mut conn, &username, "update_settings", None, Some("Updated server settings"));
+        Ok(())
+    })
+    .await;
+
+    match result {
+        Ok(Ok(_)) => Status::Ok,
+        _ => Status::InternalServerError,
     }
 }
