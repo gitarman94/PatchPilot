@@ -6,8 +6,8 @@ use chrono::Utc;
 
 use crate::db::{DbPool, log_audit as db_log_audit};
 use crate::models::{HistoryLog, AuditLog};
-use crate::schema::history_log::dsl::{history_log, created_at as history_created_at};
-use crate::schema::audit::dsl::{audit, created_at as audit_created_at};
+use crate::schema::history_log::dsl::{history_log, timestamp as history_timestamp};
+use crate::schema::audit::dsl::{audit, timestamp as audit_timestamp};
 
 /// API: GET /api/history
 #[get("/api/history")]
@@ -17,7 +17,7 @@ pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, 
     let result: Vec<HistoryLog> = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         history_log
-            .order(history_created_at.desc())
+            .order(history_timestamp.desc())
             .load::<HistoryLog>(&mut conn)
             .map_err(|_| Status::InternalServerError)
     })
@@ -35,7 +35,7 @@ pub async fn api_audit(pool: &State<DbPool>) -> Result<Json<Vec<AuditLog>>, Stat
     let result: Vec<AuditLog> = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         audit
-            .order(audit_created_at.desc())
+            .order(audit_timestamp.desc())
             .limit(100)
             .load::<AuditLog>(&mut conn)
             .map_err(|_| Status::InternalServerError)

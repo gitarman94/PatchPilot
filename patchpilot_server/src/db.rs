@@ -4,7 +4,6 @@ use diesel::sqlite::SqliteConnection;
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use chrono::{Utc, NaiveDateTime};
 use std::env;
-
 use crate::models::{ServerSettings, HistoryLog, AuditLog};
 use crate::schema::{audit, server_settings, history_log, actions};
 
@@ -30,9 +29,7 @@ pub fn init_logger() {
 pub fn init_pool() -> DbPool {
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
-    Pool::builder()
-        .build(manager)
-        .expect("Failed to create DB pool")
+    Pool::builder().build(manager).expect("Failed to create DB pool")
 }
 
 /// Get a single connection from the pool
@@ -47,8 +44,9 @@ pub fn initialize() -> DbPool {
     init_pool()
 }
 
-//  SERVER SETTINGS
+// SERVER SETTINGS
 
+/// Struct representing a row in server_settings for updates
 #[derive(Queryable, Insertable, AsChangeset, Debug, Clone)]
 #[diesel(table_name = server_settings)]
 pub struct ServerSettingsRow {
@@ -85,9 +83,7 @@ pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsR
 /// Save server settings (insert or update)
 pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettingsRow) -> QueryResult<()> {
     use crate::schema::server_settings::dsl::*;
-
     let existing = server_settings.first::<ServerSettingsRow>(conn).optional()?;
-
     if let Some(row) = existing {
         diesel::update(server_settings.filter(id.eq(row.id)))
             .set(settings)
@@ -97,11 +93,11 @@ pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettingsRow) 
             .values(settings)
             .execute(conn)?;
     }
-
     Ok(())
 }
 
-//  HISTORY LOG
+// HISTORY LOG
+
 pub fn insert_history(conn: &mut SqliteConnection, entry: &HistoryLog) -> QueryResult<usize> {
     diesel::insert_into(history_log::table)
         .values(entry)
@@ -114,7 +110,8 @@ pub fn fetch_history(conn: &mut SqliteConnection) -> QueryResult<Vec<HistoryLog>
         .load(conn)
 }
 
-//  AUDIT LOG
+// AUDIT LOG
+
 #[derive(Insertable)]
 #[diesel(table_name = audit)]
 pub struct NewAudit<'a> {
@@ -125,7 +122,7 @@ pub struct NewAudit<'a> {
     pub created_at: NaiveDateTime,
 }
 
-pub fn insert_audit(conn: &mut SqliteConnection, entry: &NewAudit) -> QueryResult<usize> {
+pub fn insert_audit(conn: &mut SqliteConnection, entry: &AuditLog) -> QueryResult<usize> {
     diesel::insert_into(audit::table)
         .values(entry)
         .execute(conn)
@@ -152,14 +149,14 @@ pub fn log_audit(
         details: details_val,
         created_at: Utc::now().naive_utc(),
     };
-
     diesel::insert_into(audit::table)
         .values(&new_audit)
         .execute(conn)?;
     Ok(())
 }
 
-//  ACTION TTL
+// ACTION TTL
+
 pub fn update_action_ttl(
     conn: &mut SqliteConnection,
     action_id_val: i64,

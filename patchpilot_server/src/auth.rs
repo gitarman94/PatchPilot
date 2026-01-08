@@ -59,7 +59,6 @@ impl<'r> FromRequest<'r> for AuthUser {
             Some(c) => c,
             None => return Outcome::Failure(Status::Unauthorized),
         };
-
         let user_id: i32 = match cookie.value().parse() {
             Ok(v) => v,
             Err(_) => return Outcome::Failure(Status::Unauthorized),
@@ -82,7 +81,11 @@ impl<'r> FromRequest<'r> for AuthUser {
             .select((users::id, users::username, roles::name.nullable()))
             .first::<(i32, String, Option<String>)>(&mut conn)
         {
-            Ok((uid, uname, urole)) => Outcome::Success(AuthUser { id: uid, username: uname, role: urole.unwrap_or("User".into()) }),
+            Ok((uid, uname, urole)) => Outcome::Success(AuthUser {
+                id: uid,
+                username: uname,
+                role: urole.unwrap_or("User".into()),
+            }),
             Err(_) => Outcome::Failure(Status::Unauthorized),
         }
     }
@@ -115,7 +118,11 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
     cookie.set_same_site(SameSite::Lax);
     cookies.add_private(cookie);
 
-    let auth_user = AuthUser { id: row.0, username: row.1.clone(), role: row.3.unwrap_or("User".into()) };
+    let auth_user = AuthUser {
+        id: row.0,
+        username: row.1.clone(),
+        role: row.3.unwrap_or("User".into()),
+    };
     auth_user.audit(&mut conn, "login", None);
 
     Redirect::to("/dashboard")
@@ -135,7 +142,11 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
                 .select((users::username, roles::name.nullable()))
                 .first::<(String, Option<String>)>(&mut conn)
             {
-                let auth_user = AuthUser { id: uid, username: uname, role: urole.unwrap_or("User".into()) };
+                let auth_user = AuthUser {
+                    id: uid,
+                    username: uname,
+                    role: urole.unwrap_or("User".into()),
+                };
                 auth_user.audit(&mut conn, "logout", None);
             }
         }
@@ -155,7 +166,11 @@ pub fn login_page() -> RawHtml<String> {
 // Simple token validation
 pub async fn validate_token(token: &str) -> Result<AuthUser, ()> {
     if token == "testtoken" {
-        Ok(AuthUser { id: 1, username: "admin".into(), role: "Admin".into() })
+        Ok(AuthUser {
+            id: 1,
+            username: "admin".into(),
+            role: "Admin".into(),
+        })
     } else {
         Err(())
     }
