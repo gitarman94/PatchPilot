@@ -202,9 +202,11 @@ pub struct Group {
 #[diesel(table_name = server_settings)]
 pub struct ServerSettings {
     pub id: i32,
-    pub force_https: bool,
+    pub auto_approve_devices: bool,
+    pub auto_refresh_enabled: bool,
+    pub auto_refresh_seconds: i64,
     pub default_action_ttl_seconds: i64,
-    pub default_pending_ttl_seconds: i64,
-    pub enable_logging: bool,
-    pub default_role: String,
+    pub action_polling_enabled: bool,
+    pub ping_target_ip: String,
+    pub force_https: bool,
 }

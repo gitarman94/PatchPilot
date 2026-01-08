@@ -57,21 +57,22 @@ impl<'r> FromRequest<'r> for AuthUser {
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         let cookie = match request.cookies().get_private("user_id") {
             Some(c) => c,
-            None => return Outcome::Failure(Status::Unauthorized),
+            None => return Outcome::Failure((Status::Unauthorized, ())),
         };
+
         let user_id: i32 = match cookie.value().parse() {
             Ok(v) => v,
-            Err(_) => return Outcome::Failure(Status::Unauthorized),
+            Err(_) => return Outcome::Failure((Status::Unauthorized, ())),
         };
 
         let pool = match request.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Failure(Status::InternalServerError),
+            _ => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Failure(Status::InternalServerError),
+            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         match users::table
@@ -86,7 +87,7 @@ impl<'r> FromRequest<'r> for AuthUser {
                 username: uname,
                 role: urole.unwrap_or("User".into()),
             }),
-            Err(_) => Outcome::Failure(Status::Unauthorized),
+            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
         }
     }
 }
