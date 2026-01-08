@@ -1,12 +1,12 @@
+use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 use diesel::sqlite::SqliteConnection;
-use diesel::prelude::*;
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
-use std::env;
 use chrono::{Utc, NaiveDateTime};
+use std::env;
 
 use crate::models::{ServerSettings, HistoryLog, AuditLog};
-use crate::schema::{audit, server_settings, history_log};
+use crate::schema::{audit, server_settings, history_log, actions};
 
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
@@ -21,11 +21,7 @@ pub fn init_logger() {
     Logger::try_with_str("info")
         .unwrap()
         .log_to_file(FileSpec::default().directory("logs"))
-        .rotate(
-            Criterion::Age(Age::Day),
-            Naming::Numbers,
-            Cleanup::KeepLogFiles(7),
-        )
+        .rotate(Criterion::Age(Age::Day), Naming::Numbers, Cleanup::KeepLogFiles(7))
         .start()
         .unwrap();
 }
@@ -34,9 +30,7 @@ pub fn init_logger() {
 pub fn init_pool() -> DbPool {
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
-    Pool::builder()
-        .build(manager)
-        .expect("Failed to create DB pool")
+    Pool::builder().build(manager).expect("Failed to create DB pool")
 }
 
 /// Get a single connection from the pool
@@ -51,15 +45,26 @@ pub fn initialize() -> DbPool {
     init_pool()
 }
 
-// SERVER SETTINGS 
+//  SERVER SETTINGS
+
+/// Struct representing a row in server_settings for updates
+#[derive(Queryable, Insertable, AsChangeset, Debug, Clone)]
+#[diesel(table_name = server_settings)]
+pub struct ServerSettingsRow {
+    pub id: i32,
+    pub force_https: bool,
+    pub max_action_ttl: i64,
+    pub max_pending_age: i64,
+    pub enable_logging: bool,
+    pub default_role: String,
+}
 
 /// Load the server settings (or default if missing)
-pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettings> {
-    match server_settings::table.first::<ServerSettings>(conn) {
+pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsRow> {
+    match server_settings::table.first::<ServerSettingsRow>(conn) {
         Ok(s) => Ok(s),
         Err(diesel::result::Error::NotFound) => {
-            // Insert default settings if none exist
-            let default = ServerSettings {
+            let default = ServerSettingsRow {
                 id: 1,
                 force_https: true,
                 max_action_ttl: 3600,
@@ -77,49 +82,25 @@ pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettings>
 }
 
 /// Save server settings (insert or update)
-pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettings) -> Result<(), diesel::result::Error> {
+pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettingsRow) -> QueryResult<()> {
     use crate::schema::server_settings::dsl::*;
 
     let existing = server_settings.first::<ServerSettingsRow>(conn).optional()?;
 
     if let Some(row) = existing {
         diesel::update(server_settings.filter(id.eq(row.id)))
-            .set((
-                force_https.eq(settings.force_https),
-                max_action_ttl.eq(settings.max_action_ttl),
-                max_pending_age.eq(settings.max_pending_age),
-                enable_logging.eq(settings.enable_logging),
-                default_role.eq(&settings.default_role),
-            ))
+            .set(settings)
             .execute(conn)?;
     } else {
         diesel::insert_into(server_settings)
-            .values((
-                force_https.eq(settings.force_https),
-                max_action_ttl.eq(settings.max_action_ttl),
-                max_pending_age.eq(settings.max_pending_age),
-                enable_logging.eq(settings.enable_logging),
-                default_role.eq(&settings.default_role),
-            ))
+            .values(settings)
             .execute(conn)?;
     }
 
     Ok(())
 }
 
-/// Struct representing a row in server_settings
-#[derive(Queryable)]
-pub struct ServerSettingsRow {
-    pub id: i32,
-    pub force_https: bool,
-    pub max_action_ttl: i64,
-    pub max_pending_age: i64,
-    pub enable_logging: bool,
-    pub default_role: String,
-}
-
-// HISTORY LOG 
-
+//  HISTORY LOG
 pub fn insert_history(conn: &mut SqliteConnection, entry: &HistoryLog) -> QueryResult<usize> {
     diesel::insert_into(history_log::table)
         .values(entry)
@@ -132,8 +113,7 @@ pub fn fetch_history(conn: &mut SqliteConnection) -> QueryResult<Vec<HistoryLog>
         .load(conn)
 }
 
-// AUDIT LOG 
-
+//  AUDIT LOG
 #[derive(Insertable)]
 #[diesel(table_name = audit)]
 pub struct NewAudit<'a> {
@@ -163,7 +143,7 @@ pub fn log_audit(
     action_val: &str,
     target_val: Option<&str>,
     details_val: Option<&str>,
-) -> Result<(), diesel::result::Error> {
+) -> QueryResult<()> {
     let new_audit = NewAudit {
         actor: username_val,
         action_type: action_val,
@@ -175,25 +155,17 @@ pub fn log_audit(
     diesel::insert_into(audit::table)
         .values(&new_audit)
         .execute(conn)?;
-
     Ok(())
 }
 
-// ACTION TTL 
-
-use crate::schema::actions;
-
+//  ACTION TTL
 pub fn update_action_ttl(
     conn: &mut SqliteConnection,
     action_id_val: i64,
     new_ttl: i64,
-    settings: &ServerSettings,
+    settings: &ServerSettingsRow,
 ) -> QueryResult<usize> {
-    let ttl_to_set = if new_ttl > settings.max_action_ttl {
-        settings.max_action_ttl
-    } else {
-        new_ttl
-    };
+    let ttl_to_set = std::cmp::min(new_ttl, settings.max_action_ttl);
     diesel::update(actions::table.filter(actions::id.eq(action_id_val)))
         .set(actions::ttl.eq(ttl_to_set))
         .execute(conn)
