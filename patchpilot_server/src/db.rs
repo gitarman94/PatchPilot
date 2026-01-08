@@ -89,7 +89,7 @@ pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettingsRow) 
             .set(settings)
             .execute(conn)?;
     } else {
-        diesel::insert_into(server_settings)
+        diesel::insert_into(server_settings::table)
             .values(settings)
             .execute(conn)?;
     }

@@ -7,7 +7,6 @@ use rocket::{
 use rocket_dyn_templates::Template;
 use diesel::prelude::*;
 use serde::Serialize;
-use std::sync::Arc;
 
 use crate::state::AppState;
 use crate::auth::AuthUser;
@@ -18,7 +17,7 @@ use crate::models::ServerSettings as ModelServerSettings;
 #[derive(FromForm)]
 pub struct ServerSettingsForm {
     pub default_action_ttl_seconds: Option<i64>,
-    pub max_pending_actions_seconds: Option<i64>,
+    pub default_pending_ttl_seconds: Option<i64>,
     pub logging_enabled: Option<bool>,
     pub default_user_role: Option<String>,
 }
@@ -31,8 +30,8 @@ struct SettingsContext {
 /// Convert DB row to model
 fn row_to_model(row: &ServerSettingsRow) -> ModelServerSettings {
     ModelServerSettings {
-        default_action_ttl_seconds: row.max_action_ttl,
-        max_pending_actions_seconds: row.max_pending_age,
+        default_action_ttl_seconds: row.default_action_ttl_seconds,
+        default_pending_ttl_seconds: row.default_pending_ttl_seconds,
         logging_enabled: row.enable_logging,
         default_user_role: row.default_role.clone(),
     }
@@ -43,8 +42,8 @@ fn model_to_row(model: &ModelServerSettings) -> ServerSettingsRow {
     ServerSettingsRow {
         id: 1,
         force_https: true, // keep existing default
-        max_action_ttl: model.default_action_ttl_seconds,
-        max_pending_age: model.max_pending_actions_seconds,
+        default_action_ttl_seconds: model.default_action_ttl_seconds,
+        default_pending_ttl_seconds: model.default_pending_ttl_seconds,
         enable_logging: model.logging_enabled,
         default_role: model.default_user_role.clone(),
     }
@@ -99,10 +98,10 @@ pub async fn update_settings(
 
         // Apply updates
         if let Some(v) = form.default_action_ttl_seconds {
-            row.max_action_ttl = v;
+            row.default_action_ttl_seconds = v;
         }
-        if let Some(v) = form.max_pending_actions_seconds {
-            row.max_pending_age = v;
+        if let Some(v) = form.default_pending_ttl_seconds {
+            row.default_pending_ttl_seconds = v;
         }
         if let Some(v) = form.logging_enabled {
             row.enable_logging = v;
