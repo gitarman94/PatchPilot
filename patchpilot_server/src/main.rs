@@ -20,7 +20,6 @@ use rocket::fs::FileServer;
 use crate::db::{
     initialize,
     get_conn,
-    create_default_admin,
     load_settings,
     DbPool,
 };
@@ -36,14 +35,6 @@ fn rocket() -> _ {
     // Initialize DB + Logger
     let pool: DbPool = initialize();
 
-    {
-        let mut conn = get_conn(&pool);
-        if let Err(e) = create_default_admin(&mut conn) {
-            eprintln!("Failed to create default admin: {}", e);
-        }
-    }
-
-
     // Load Server Settings
     let settings = {
         let mut conn = get_conn(&pool);
@@ -51,7 +42,6 @@ fn rocket() -> _ {
             .expect("Failed to load server settings");
         Arc::new(RwLock::new(s))
     };
-
 
     // System + App State
     let system_state = SystemState::new(pool.clone());
@@ -74,11 +64,9 @@ fn rocket() -> _ {
         })),
     });
 
-
     // Background Tasks
     spawn_action_ttl_task(app_state.clone());
     spawn_pending_cleanup(app_state.clone());
-
 
     // Startup Audit Event
     {
@@ -91,7 +79,6 @@ fn rocket() -> _ {
         user.audit(&mut conn, "server_started", None);
     }
 
-
     // System Info Logging
     info!(
         "System memory: total {} MB, available {} MB",
@@ -101,15 +88,14 @@ fn rocket() -> _ {
 
     info!("PatchPilot server ready");
 
-
     // Rocket Build
     rocket::build()
         .manage(pool)
         .manage(app_state)
         .mount("/api", routes::api_routes())
         .mount("/auth", routes::auth_routes())
-        .mount("/users-groups", routes::users_groups::users_groups_routes())
-        .mount("/roles", routes::roles::roles_routes())
+        .mount("/users-groups", routes::users_groups::api_users_groups_routes())
+        .mount("/roles", routes::roles::api_roles_routes())
         .mount("/history", routes![routes::history::api_history])
         .mount("/audit", routes![routes::history::api_audit])
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
