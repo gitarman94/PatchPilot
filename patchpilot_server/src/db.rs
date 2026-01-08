@@ -2,7 +2,6 @@
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 use diesel::sqlite::SqliteConnection;
-use diesel::associations::HasTable;
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use chrono::{Utc, NaiveDateTime};
 use std::env;
@@ -59,8 +58,9 @@ pub struct ServerSettingsRow {
 
 /// Load server settings (returns a DB row struct). If not found, create a default row and return it.
 pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsRow> {
-    use crate::schema::server_settings::dsl::*;
-    match server_settings.first::<ServerSettingsRow>(conn) {
+    use crate::schema::server_settings::dsl as ss_dsl;
+
+    match ss_dsl::server_settings.first::<ServerSettingsRow>(conn) {
         Ok(s) => Ok(s),
         Err(diesel::result::Error::NotFound) => {
             let default = ServerSettingsRow {
@@ -73,7 +73,7 @@ pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsR
                 ping_target_ip: "8.8.8.8".to_string(),
                 force_https: false,
             };
-            diesel::insert_into(server_settings::table) // <- fixed
+            diesel::insert_into(ss_dsl::server_settings)
                 .values(&default)
                 .execute(conn)?;
             Ok(default)
@@ -84,8 +84,9 @@ pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsR
 
 /// Save server settings row (replace the single-row record)
 pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettingsRow) -> QueryResult<()> {
+    use crate::schema::server_settings::dsl as ss_dsl;
     // Use replace_into to overwrite the single row
-    diesel::replace_into(server_settings::table) // <- fixed
+    diesel::replace_into(ss_dsl::server_settings)
         .values(settings)
         .execute(conn)?;
     Ok(())
@@ -105,7 +106,8 @@ pub struct NewHistory<'a> {
 
 /// Insert a history entry (accepts a NewHistory or constructs from a HistoryLog)
 pub fn insert_history(conn: &mut SqliteConnection, entry: &NewHistory<'_>) -> QueryResult<usize> {
-    diesel::insert_into(history_log::table) // <- fixed
+    use crate::schema::history_log::dsl as hl_dsl;
+    diesel::insert_into(hl_dsl::history_log)
         .values(entry)
         .execute(conn)
 }
@@ -121,10 +123,22 @@ pub struct NewAudit<'a> {
     pub created_at: NaiveDateTime,
 }
 
-/// Insert an audit entry from an AuditLog struct (if caller already has one)
+/// Insert an audit entry from an AuditLog struct by converting into NewAudit
 pub fn insert_audit(conn: &mut SqliteConnection, entry: &AuditLog) -> QueryResult<usize> {
-    diesel::insert_into(audit::table) // <- fixed
-        .values(entry)
+    use crate::schema::audit::dsl as audit_dsl;
+
+    // Convert AuditLog (owned types) into NewAudit (borrowed references)
+    // This code assumes AuditLog fields are named: actor, action_type, target, details, created_at
+    let new = NewAudit {
+        actor: &entry.actor,
+        action_type: &entry.action_type,
+        target: entry.target.as_deref(),
+        details: entry.details.as_deref(),
+        created_at: entry.created_at,
+    };
+
+    diesel::insert_into(audit_dsl::audit)
+        .values(&new)
         .execute(conn)
 }
 
@@ -137,6 +151,8 @@ pub fn log_audit(
     target_val: Option<&str>,
     details_val: Option<&str>,
 ) -> QueryResult<()> {
+    use crate::schema::audit::dsl as audit_dsl;
+
     let new_audit = NewAudit {
         actor: username_val,
         action_type: action_val,
@@ -144,7 +160,7 @@ pub fn log_audit(
         details: details_val,
         created_at: Utc::now().naive_utc(),
     };
-    diesel::insert_into(audit::table) // <- fixed
+    diesel::insert_into(audit_dsl::audit)
         .values(&new_audit)
         .execute(conn)?;
     Ok(())
@@ -161,7 +177,7 @@ pub fn update_action_ttl(
     use crate::schema::actions::dsl as actions_dsl;
     let ttl_to_set = std::cmp::min(new_ttl_seconds, settings_row.default_action_ttl_seconds);
     let new_expiry = Utc::now().naive_utc() + chrono::Duration::seconds(ttl_to_set);
-    diesel::update(actions_dsl::actions.filter(actions_dsl::id.eq(action_id_val))) // <- fixed
+    diesel::update(actions_dsl::actions.filter(actions_dsl::id.eq(action_id_val)))
         .set(actions_dsl::expires_at.eq(new_expiry))
         .execute(conn)
 }

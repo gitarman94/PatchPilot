@@ -4,6 +4,7 @@ use rocket::http::{Cookie, CookieJar, SameSite, Status};
 use rocket::response::{Redirect, content::RawHtml};
 use rocket::request::{FromRequest, Request};
 use rocket::State;
+use rocket::outcome::Outcome;
 use diesel::prelude::*;
 use crate::db::DbPool;
 use crate::schema::{audit, users, roles, user_roles};
@@ -57,28 +58,28 @@ impl AuthUser {
 impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
-    async fn from_request(request: &'r Request<'_>) -> rocket::request::Outcome<Self, Self::Error> {
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         // Check cookie for user_id
         let cookie = match request.cookies().get_private("user_id") {
             Some(c) => c,
-            None => return rocket::request::Outcome::Failure((Status::Unauthorized, ())),
+            None => return Outcome::Failure((Status::Unauthorized, ())),
         };
 
         let user_id: i32 = match cookie.value().parse() {
             Ok(v) => v,
-            Err(_) => return rocket::request::Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => return Outcome::Failure((Status::Unauthorized, ())),
         };
 
         // Get DB pool from state
         let pool = match request.guard::<&State<DbPool>>().await {
             rocket::request::Outcome::Success(p) => p.inner().clone(),
-            _ => return rocket::request::Outcome::Failure((Status::InternalServerError, ())),
+            _ => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         // Get a connection
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return rocket::request::Outcome::Failure((Status::InternalServerError, ())),
+            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         // Query user & role
@@ -91,13 +92,13 @@ impl<'r> FromRequest<'r> for AuthUser {
         {
             Ok((uid, uname, urole)) => {
                 let role: String = urole.unwrap_or_else(|| "User".to_string());
-                rocket::request::Outcome::Success(AuthUser {
+                Outcome::Success(AuthUser {
                     id: uid,
                     username: uname,
                     role,
                 })
             }
-            Err(_) => rocket::request::Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
         }
     }
 }

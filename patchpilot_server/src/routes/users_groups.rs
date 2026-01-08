@@ -194,3 +194,14 @@ pub fn delete_user(
     let _ = db_log_audit(&mut conn, &user.username, "user.delete", Some(&username_val), None);
     Redirect::to("/users-groups")
 }
+
+// Helper used by main.rs to mount all API routes for the users-groups area
+pub fn api_users_groups_routes() -> Vec<rocket::Route> {
+    routes![
+        list_users_groups,
+        add_group,
+        add_user,
+        delete_group,
+        delete_user
+    ]
+}
