@@ -5,7 +5,7 @@ use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use chrono::{Utc, NaiveDateTime};
 use std::env;
 
-use crate::models::{ServerSettings, HistoryLog, AuditLog};
+use crate::models::{HistoryLog, AuditLog};
 use crate::schema::{audit, server_settings, history_log, actions};
 
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
@@ -45,8 +45,9 @@ pub fn initialize() -> DbPool {
     init_pool()
 }
 
+
 // SERVER SETTINGS
-#[derive(Queryable, Insertable, AsChangeset, Debug, Clone)]
+#[derive(Queryable, Insertable, AsChangeset, Debug, Clone, Default)]
 #[diesel(table_name = server_settings)]
 pub struct ServerSettingsRow {
     pub id: i32,
@@ -82,19 +83,13 @@ pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsR
 
 /// Save server settings (insert or update)
 pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettingsRow) -> QueryResult<()> {
-    use crate::schema::server_settings::dsl::*;
-    let existing = server_settings.first::<ServerSettingsRow>(conn).optional()?;
-    if let Some(row) = existing {
-        diesel::update(server_settings.filter(id.eq(row.id)))
-            .set(settings)
-            .execute(conn)?;
-    } else {
-        diesel::insert_into(server_settings::table)
-            .values(settings)
-            .execute(conn)?;
-    }
+    // `replace_into` automatically inserts or updates the row in SQLite
+    diesel::replace_into(server_settings::table)
+        .values(settings)
+        .execute(conn)?;
     Ok(())
 }
+
 
 // HISTORY LOG
 pub fn insert_history(conn: &mut SqliteConnection, entry: &HistoryLog) -> QueryResult<usize> {
@@ -108,6 +103,7 @@ pub fn fetch_history(conn: &mut SqliteConnection) -> QueryResult<Vec<HistoryLog>
         .order(history_log::created_at.desc())
         .load(conn)
 }
+
 
 // AUDIT LOG
 #[derive(Insertable)]
@@ -152,6 +148,7 @@ pub fn log_audit(
         .execute(conn)?;
     Ok(())
 }
+
 
 // ACTION TTL
 pub fn update_action_ttl(
