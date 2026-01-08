@@ -16,10 +16,10 @@ use crate::models::ServerSettings as ModelServerSettings;
 
 #[derive(FromForm)]
 pub struct ServerSettingsForm {
-    pub max_action_ttl: Option<i64>,
-    pub max_pending_age: Option<i64>,
-    pub enable_logging: Option<bool>,
-    pub default_role: Option<String>,
+    pub default_action_ttl_seconds: Option<i64>,
+    pub max_pending_actions_seconds: Option<i64>,
+    pub logging_enabled: Option<bool>,
+    pub default_user_role: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -33,7 +33,7 @@ pub async fn view_settings(
     state: &State<AppState>,
     _user: AuthUser,
 ) -> Result<Template, Status> {
-    let pool = state.system.pool.clone();
+    let pool = state.pool.clone();
 
     let settings: ModelServerSettings = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
@@ -59,7 +59,7 @@ pub async fn update_settings(
     let username = user.username.clone();
     let form = form.into_inner();
 
-    let pool = state.system.pool.clone();
+    let pool = state.pool.clone();
     let shared_settings = state.settings.clone();
 
     rocket::tokio::task::spawn_blocking(move || {
@@ -75,17 +75,17 @@ pub async fn update_settings(
         };
 
         // Apply updates
-        if let Some(v) = form.max_action_ttl {
-            settings.max_action_ttl = v;
+        if let Some(v) = form.default_action_ttl_seconds {
+            settings.default_action_ttl_seconds = v;
         }
-        if let Some(v) = form.max_pending_age {
-            settings.max_pending_age = v;
+        if let Some(v) = form.max_pending_actions_seconds {
+            settings.max_pending_actions_seconds = v;
         }
-        if let Some(v) = form.enable_logging {
-            settings.enable_logging = v;
+        if let Some(v) = form.logging_enabled {
+            settings.logging_enabled = v;
         }
-        if let Some(v) = form.default_role {
-            settings.default_role = v;
+        if let Some(v) = form.default_user_role {
+            settings.default_user_role = v;
         }
 
         // Persist to DB
@@ -99,13 +99,8 @@ pub async fn update_settings(
         }
 
         // Audit log
-        let _ = log_audit(
-            &mut conn,
-            &username,
-            "update_settings",
-            None,
-            Some("Updated server settings"),
-        );
+        use futures::executor::block_on;
+        let _ = block_on(log_audit(&pool, &username, "update_settings", None, Some("Updated server settings")));
     })
     .await
     .ok();

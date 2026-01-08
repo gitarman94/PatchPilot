@@ -11,6 +11,7 @@ use crate::db::DbPool;
 use crate::models::{Action, NewAction, NewActionTarget};
 use crate::schema::{actions, action_targets};
 use crate::routes::history::log_audit;
+use futures::executor::block_on; // for awaiting log_audit in sync tasks
 
 #[derive(FromForm)]
 pub struct SubmitActionForm {
@@ -64,13 +65,13 @@ pub async fn submit_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        log_audit(
-            &mut conn,
+        block_on(log_audit(
+            &pool, // pass &DbPool instead of &mut conn
             &user_name,
             "action.submit",
             Some(&action_id.to_string()),
             Some(&format!("Target device: {}", form.target_device_id)),
-        )
+        ))
         .map_err(|_| Status::InternalServerError)?;
 
         Ok(Status::Created)
@@ -95,7 +96,7 @@ pub async fn list_actions(
             .load::<Action>(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        log_audit(&mut conn, &user_name, "action.list", None, None).ok();
+        block_on(log_audit(&pool, &user_name, "action.list", None, None)).ok();
         Ok(Json(all_actions))
     })
     .await
@@ -121,13 +122,13 @@ pub async fn cancel_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        log_audit(
-            &mut conn,
+        block_on(log_audit(
+            &pool,
             &user_name,
             "action.cancel",
             Some(&action_id_param.to_string()),
             None,
-        )
+        ))
         .map_err(|_| Status::InternalServerError)?;
 
         Ok(Status::Ok)
@@ -209,7 +210,7 @@ pub async fn pending_cleanup(
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
 
-        log_audit(&mut conn, &user_name, "action.pending_cleanup", None, None).ok();
+        block_on(log_audit(&pool, &user_name, "action.pending_cleanup", None, None)).ok();
 
         Ok(Status::Ok)
     })

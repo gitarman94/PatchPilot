@@ -41,7 +41,7 @@ pub async fn get_device_details(
     let device_opt = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
         devices
-            .filter(id.eq(device_id_param)) // Use `id` instead of `device_id`
+            .filter(id.eq(device_id_param))
             .select(Device::as_select())
             .first::<Device>(&mut conn)
             .map_err(|_| Status::NotFound)
@@ -114,7 +114,7 @@ pub async fn register_or_update_device(
             .map_err(|_| Status::InternalServerError)?;
 
         let updated = NewDevice {
-            id: info.device_id, // matches DB `id`
+            device_id: info.device_id, // fixed field name
             device_name: info.system_info.os_name.clone(),
             hostname: info.system_info.os_name.clone(),
             os_name: info.system_info.os_name.clone(),
@@ -140,7 +140,7 @@ pub async fn register_or_update_device(
 
         diesel::insert_into(devices)
             .values(&updated)
-            .on_conflict(id)
+            .on_conflict(schema::devices::id) // fixed conflict target
             .do_update()
             .set(&updated)
             .execute(&mut conn)
