@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use crate::db::{DbPool, log_audit as db_log_audit};
 use crate::auth::{AuthUser, UserRole};
 use crate::schema::{users, groups, user_groups};
-use crate::models::{};
 
 #[derive(FromForm)]
 pub struct UserForm {
@@ -37,11 +36,11 @@ pub fn list_users_groups(
         Err(_) => return rocket_dyn_templates::Template::render("error", &()),
     };
 
-    let all_groups = groups::table()
+    let all_groups = groups::table
         .load::<(i32, String, Option<String>)>(&mut conn)
         .unwrap_or_default();
 
-    let joined = users::table()
+    let joined = users::table
         .inner_join(user_groups::table.on(users::id.eq(user_groups::user_id)))
         .select((user_groups::group_id, users::id, users::username))
         .load::<(i32, i32, String)>(&mut conn)
@@ -79,7 +78,7 @@ pub fn add_group(
     };
 
     let ff = form.into_inner();
-    let _ = diesel::insert_into(groups::table())
+    let _ = diesel::insert_into(groups::table)
         .values((groups::name.eq(&ff.name), groups::description.eq(&ff.description)))
         .execute(&mut conn);
 
@@ -113,25 +112,24 @@ pub fn add_user(
         users::password_hash.eq(hashed),
     );
 
-    let _ = diesel::insert_into(users::table())
+    let _ = diesel::insert_into(users::table)
         .values(&new_user)
         .execute(&mut conn);
 
-    let new_id: i32 = users::table()
+    let new_id: i32 = users::table
         .order(users::id.desc())
         .select(users::id)
         .first(&mut conn)
         .unwrap_or(-1);
 
     if let Some(gid) = form.group_id {
-        let _ = diesel::insert_into(user_groups::table())
+        let _ = diesel::insert_into(user_groups::table)
             .values((user_groups::user_id.eq(new_id), user_groups::group_id.eq(gid)))
             .execute(&mut conn);
     }
 
     let details = form.group_id.map(|gid| format!("assigned_group: {}", gid));
     let _ = db_log_audit(&mut conn, &user.username, "user.create", Some(&form.username), details.as_deref());
-
     Redirect::to("/users-groups")
 }
 
@@ -150,16 +148,16 @@ pub fn delete_group(
         Err(_) => return Redirect::to("/users-groups"),
     };
 
-    let group_name: String = groups::table()
+    let group_name: String = groups::table
         .filter(groups::id.eq(group_id_val))
         .select(groups::name)
         .first(&mut conn)
         .unwrap_or_else(|_| "unknown".into());
 
-    let _ = diesel::delete(user_groups::table().filter(user_groups::group_id.eq(group_id_val)))
+    let _ = diesel::delete(user_groups::table.filter(user_groups::group_id.eq(group_id_val)))
         .execute(&mut conn);
 
-    let _ = diesel::delete(groups::table().filter(groups::id.eq(group_id_val)))
+    let _ = diesel::delete(groups::table.filter(groups::id.eq(group_id_val)))
         .execute(&mut conn);
 
     let _ = db_log_audit(&mut conn, &user.username, "group.delete", Some(&group_name), None);
@@ -181,16 +179,16 @@ pub fn delete_user(
         Err(_) => return Redirect::to("/users-groups"),
     };
 
-    let username_val: String = users::table()
+    let username_val: String = users::table
         .filter(users::id.eq(user_id_val))
         .select(users::username)
         .first(&mut conn)
         .unwrap_or_else(|_| "unknown".into());
 
-    let _ = diesel::delete(user_groups::table().filter(user_groups::user_id.eq(user_id_val)))
+    let _ = diesel::delete(user_groups::table.filter(user_groups::user_id.eq(user_id_val)))
         .execute(&mut conn);
 
-    let _ = diesel::delete(users::table().filter(users::id.eq(user_id_val)))
+    let _ = diesel::delete(users::table.filter(users::id.eq(user_id_val)))
         .execute(&mut conn);
 
     let _ = db_log_audit(&mut conn, &user.username, "user.delete", Some(&username_val), None);

@@ -4,11 +4,9 @@ use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use sysinfo::System;
 
-use diesel::prelude::*;
-use diesel::result::QueryResult;
-
-use crate::models::ServerSettings;
+use crate::settings::ServerSettings;
 use crate::db::DbPool;
+use diesel::result::QueryResult;
 
 /// Tracks current system metrics
 #[derive(Clone)]
@@ -17,7 +15,7 @@ pub struct SystemState {
 }
 
 impl SystemState {
-    pub fn new(_pool: DbPool) -> Arc<Self> {
+    pub fn new(_pool: DbPool) -> Arc<SystemState> {
         let mut sys = System::new_all();
         sys.refresh_all();
         Arc::new(Self {
@@ -52,7 +50,7 @@ impl SystemState {
 pub struct AppState {
     pub system: Arc<SystemState>,
     pub pending_devices: Arc<RwLock<HashMap<String, Instant>>>,
-    pub settings: Arc<RwLock<ServerSettings>>,
+    pub settings: Arc<RwLock<ServerSettings>>, // runtime settings::ServerSettings
     pub db_pool: DbPool,
 
     /// Optional audit logger closure that returns a Diesel QueryResult<()>

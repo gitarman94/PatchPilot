@@ -1,8 +1,8 @@
+// src/settings.rs
 use serde::{Serialize, Deserialize};
 use diesel::prelude::*;
 use diesel::SqliteConnection;
 use crate::db;
-use crate::models::ServerSettings as ModelServerSettings;
 use crate::schema::server_settings;
 use diesel::result::QueryResult;
 
@@ -15,7 +15,6 @@ pub struct ServerSettings {
     pub default_action_ttl_seconds: i64,
     pub action_polling_enabled: bool,
     pub ping_target_ip: String,
-
     // HTTPS / HTTP options
     pub force_https: bool,
 }
@@ -24,7 +23,6 @@ impl ServerSettings {
     /// Load settings from DB, fallback to default
     pub fn load(conn: &mut SqliteConnection) -> Self {
         let s: db::ServerSettingsRow = db::load_settings(conn).unwrap_or_else(|_| db::ServerSettingsRow::default());
-
         Self {
             auto_approve_devices: s.auto_approve_devices,
             auto_refresh_enabled: s.auto_refresh_enabled,
@@ -38,7 +36,7 @@ impl ServerSettings {
 
     /// Save settings to DB
     pub fn save(&self, conn: &mut SqliteConnection) {
-        let s = db::ServerSettingsRow { 
+        let s = db::ServerSettingsRow {
             id: 1, // always use the single row ID
             auto_approve_devices: self.auto_approve_devices,
             auto_refresh_enabled: self.auto_refresh_enabled,

@@ -30,16 +30,16 @@ pub fn spawn_action_ttl_task(state: Arc<AppState>) {
                 let now = Utc::now().naive_utc();
 
                 // Select only action IDs that have expired and are not canceled
-                let expired_action_ids: Vec<i64> = actions::table()
+                let expired_action_ids: Vec<i64> = actions::table
                     .select(actions::id)
                     .filter(actions::expires_at.lt(now))
                     .filter(actions::canceled.eq(false))
-                    .load(&mut conn)
+                    .load::<i64>(&mut conn)
                     .unwrap_or_default();
 
                 for action_id in expired_action_ids {
                     // Mark action as canceled
-                    if let Err(e) = diesel::update(actions::table().filter(actions::id.eq(action_id)))
+                    if let Err(e) = diesel::update(actions::table.filter(actions::id.eq(action_id)))
                         .set(actions::canceled.eq(true))
                         .execute(&mut conn)
                     {
@@ -49,7 +49,7 @@ pub fn spawn_action_ttl_task(state: Arc<AppState>) {
 
                     // Mark pending targets as expired
                     if let Err(e) = diesel::update(
-                        action_targets::table()
+                        action_targets::table
                             .filter(action_targets::action_id.eq(action_id))
                             .filter(action_targets::status.eq("pending")),
                     )

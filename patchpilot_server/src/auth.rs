@@ -2,12 +2,12 @@
 use rocket::form::Form;
 use rocket::http::{Cookie, CookieJar, SameSite, Status};
 use rocket::response::{Redirect, content::RawHtml};
-use rocket::request::{FromRequest, Outcome, Request};
+use rocket::request::{FromRequest, Request};
 use rocket::State;
 use diesel::prelude::*;
 use crate::db::DbPool;
 use crate::schema::{audit, users, roles, user_roles};
-use bcrypt::{verify, hash};
+use bcrypt::verify;
 use chrono::Utc;
 use std::fs::read_to_string;
 
@@ -33,7 +33,7 @@ pub enum UserRole {
 impl AuthUser {
     /// Write a simple audit record using a provided SqliteConnection
     pub fn audit(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) -> QueryResult<()> {
-        let _ = diesel::insert_into(audit::table())
+        let _ = diesel::insert_into(audit::table)
             .values((
                 audit::actor.eq(&self.username),
                 audit::action_type.eq(action),
@@ -57,43 +57,47 @@ impl AuthUser {
 impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+    async fn from_request(request: &'r Request<'_>) -> rocket::request::Outcome<Self, Self::Error> {
         // Check cookie for user_id
         let cookie = match request.cookies().get_private("user_id") {
             Some(c) => c,
-            None => return Outcome::Failure((Status::Unauthorized, ())),
+            None => return rocket::request::Outcome::Failure((Status::Unauthorized, ())),
         };
 
         let user_id: i32 = match cookie.value().parse() {
             Ok(v) => v,
-            Err(_) => return Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => return rocket::request::Outcome::Failure((Status::Unauthorized, ())),
         };
 
         // Get DB pool from state
         let pool = match request.guard::<&State<DbPool>>().await {
-            Outcome::Success(p) => p.inner().clone(),
-            _ => return Outcome::Failure((Status::InternalServerError, ())),
+            rocket::request::Outcome::Success(p) => p.inner().clone(),
+            _ => return rocket::request::Outcome::Failure((Status::InternalServerError, ())),
         };
 
         // Get a connection
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
+            Err(_) => return rocket::request::Outcome::Failure((Status::InternalServerError, ())),
         };
 
         // Query user & role
-        match users::table()
+        match users::table
             .filter(users::id.eq(user_id))
-            .left_outer_join(user_roles::table().on(user_roles::user_id.eq(users::id)))
-            .left_outer_join(roles::table().on(roles::id.eq(user_roles::role_id)))
+            .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
+            .left_outer_join(roles::table.on(roles::id.eq(user_roles::role_id)))
             .select((users::id, users::username, roles::name.nullable()))
             .first::<(i32, String, Option<String>)>(&mut conn)
         {
             Ok((uid, uname, urole)) => {
-                let role = urole.unwrap_or_else(|| "User".to_string());
-                Outcome::Success(AuthUser { id: uid, username: uname, role })
+                let role: String = urole.unwrap_or_else(|| "User".to_string());
+                rocket::request::Outcome::Success(AuthUser {
+                    id: uid,
+                    username: uname,
+                    role,
+                })
             }
-            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => rocket::request::Outcome::Failure((Status::Unauthorized, ())),
         }
     }
 }
@@ -105,14 +109,15 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
         Err(_) => return Redirect::to("/login"),
     };
 
-    let row = match users::table()
+    let maybe_row = users::table
         .filter(users::username.eq(&form.username))
-        .left_outer_join(user_roles::table().on(user_roles::user_id.eq(users::id)))
-        .left_outer_join(roles::table().on(roles::id.eq(user_roles::role_id)))
+        .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
+        .left_outer_join(roles::table.on(roles::id.eq(user_roles::role_id)))
         .select((users::id, users::username, users::password_hash, roles::name.nullable()))
         .first::<(i32, String, String, Option<String>)>(&mut conn)
-        .optional()
-    {
+        .optional();
+
+    let row = match maybe_row {
         Ok(Some(r)) => r,
         _ => return Redirect::to("/login"),
     };
@@ -138,14 +143,15 @@ pub fn login(form: Form<LoginForm>, cookies: &CookieJar<'_>, pool: &State<DbPool
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
     let user_id = cookies.get_private("user_id").and_then(|c| c.value().parse::<i32>().ok());
-    cookies.remove_private(Cookie::build("user_id").finish());
+    // Use build() (not deprecated finish())
+    cookies.remove_private(Cookie::build("user_id").build());
 
     if let Some(uid) = user_id {
         if let Ok(mut conn) = pool.get() {
-            if let Ok((uname, urole)) = users::table()
+            if let Ok((uname, urole)) = users::table
                 .filter(users::id.eq(uid))
-                .left_outer_join(user_roles::table().on(user_roles::user_id.eq(users::id)))
-                .left_outer_join(roles::table().on(roles::id.eq(user_roles::role_id)))
+                .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
+                .left_outer_join(roles::table.on(roles::id.eq(user_roles::role_id)))
                 .select((users::username, roles::name.nullable()))
                 .first::<(String, Option<String>)>(&mut conn)
             {
@@ -173,11 +179,7 @@ pub fn login_page() -> RawHtml<String> {
 // Simple token validation helper (example)
 pub async fn validate_token(token: &str) -> Result<AuthUser, ()> {
     if token == "testtoken" {
-        Ok(AuthUser {
-            id: 1,
-            username: "admin".into(),
-            role: "Admin".into(),
-        })
+        Ok(AuthUser { id: 1, username: "admin".into(), role: "Admin".into() })
     } else {
         Err(())
     }
