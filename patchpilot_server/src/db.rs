@@ -4,6 +4,7 @@ use diesel::sqlite::SqliteConnection;
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use chrono::{Utc, NaiveDateTime};
 use std::env;
+
 use crate::models::{ServerSettings, HistoryLog, AuditLog};
 use crate::schema::{audit, server_settings, history_log, actions};
 
@@ -45,29 +46,28 @@ pub fn initialize() -> DbPool {
 }
 
 // SERVER SETTINGS
-
-/// Struct representing a row in server_settings for updates
 #[derive(Queryable, Insertable, AsChangeset, Debug, Clone)]
 #[diesel(table_name = server_settings)]
 pub struct ServerSettingsRow {
     pub id: i32,
     pub force_https: bool,
-    pub max_action_ttl: i64,
-    pub max_pending_age: i64,
+    pub default_action_ttl_seconds: i64,
+    pub default_pending_ttl_seconds: i64,
     pub enable_logging: bool,
     pub default_role: String,
 }
 
 /// Load the server settings (or default if missing)
 pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsRow> {
-    match server_settings::table.first::<ServerSettingsRow>(conn) {
+    use crate::schema::server_settings::dsl::*;
+    match server_settings.first::<ServerSettingsRow>(conn) {
         Ok(s) => Ok(s),
         Err(diesel::result::Error::NotFound) => {
             let default = ServerSettingsRow {
                 id: 1,
                 force_https: true,
-                max_action_ttl: 3600,
-                max_pending_age: 600,
+                default_action_ttl_seconds: 3600,
+                default_pending_ttl_seconds: 600,
                 enable_logging: true,
                 default_role: "user".to_string(),
             };
@@ -97,7 +97,6 @@ pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettingsRow) 
 }
 
 // HISTORY LOG
-
 pub fn insert_history(conn: &mut SqliteConnection, entry: &HistoryLog) -> QueryResult<usize> {
     diesel::insert_into(history_log::table)
         .values(entry)
@@ -106,12 +105,11 @@ pub fn insert_history(conn: &mut SqliteConnection, entry: &HistoryLog) -> QueryR
 
 pub fn fetch_history(conn: &mut SqliteConnection) -> QueryResult<Vec<HistoryLog>> {
     history_log::table
-        .order(history_log::timestamp.desc())
+        .order(history_log::created_at.desc())
         .load(conn)
 }
 
 // AUDIT LOG
-
 #[derive(Insertable)]
 #[diesel(table_name = audit)]
 pub struct NewAudit<'a> {
@@ -130,7 +128,7 @@ pub fn insert_audit(conn: &mut SqliteConnection, entry: &AuditLog) -> QueryResul
 
 pub fn fetch_audit(conn: &mut SqliteConnection) -> QueryResult<Vec<AuditLog>> {
     audit::table
-        .order(audit::timestamp.desc())
+        .order(audit::created_at.desc())
         .load(conn)
 }
 
@@ -156,22 +154,21 @@ pub fn log_audit(
 }
 
 // ACTION TTL
-
 pub fn update_action_ttl(
     conn: &mut SqliteConnection,
     action_id_val: i64,
     new_ttl: i64,
     settings: &ServerSettingsRow,
 ) -> QueryResult<usize> {
-    let ttl_to_set = std::cmp::min(new_ttl, settings.max_action_ttl);
+    let ttl_to_set = std::cmp::min(new_ttl, settings.default_action_ttl_seconds);
     diesel::update(actions::table.filter(actions::id.eq(action_id_val)))
-        .set(actions::ttl.eq(ttl_to_set))
+        .set(actions::default_action_ttl_seconds.eq(ttl_to_set))
         .execute(conn)
 }
 
 pub fn fetch_action_ttl(conn: &mut SqliteConnection, action_id_val: i64) -> QueryResult<i64> {
     actions::table
         .filter(actions::id.eq(action_id_val))
-        .select(actions::ttl)
+        .select(actions::default_action_ttl_seconds)
         .first(conn)
 }

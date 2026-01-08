@@ -2,16 +2,13 @@ use rocket::{get, post, delete, State};
 use rocket::serde::json::Json;
 use rocket::form::Form;
 use rocket::http::Status;
-
 use diesel::prelude::*;
 use chrono::{Utc, Duration};
 
 use crate::auth::AuthUser;
-use crate::db::DbPool;
+use crate::db::{DbPool, log_audit};
 use crate::models::{Action, NewAction, NewActionTarget};
 use crate::schema::{actions, action_targets};
-use crate::routes::history::log_audit;
-use futures::executor::block_on; // for awaiting log_audit in sync tasks
 
 #[derive(FromForm)]
 pub struct SubmitActionForm {
@@ -29,20 +26,19 @@ pub async fn submit_action(
 ) -> Result<Status, Status> {
     let pool = pool.inner().clone();
     let form = form.into_inner();
-    let user_name = user.username.clone();
+    let username = user.username.clone();
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-
         let ttl = form.ttl_seconds.unwrap_or(3600);
-        let expires_at = Utc::now().naive_utc() + Duration::seconds(ttl);
-        let created_at = Utc::now().naive_utc();
+        let now = Utc::now().naive_utc();
+        let expires_at = now + Duration::seconds(ttl);
 
         let new_action = NewAction {
             action_type: form.command,
             parameters: None,
-            author: Some(user_name.clone()),
-            created_at,
+            author: Some(username.clone()),
+            created_at: now,
             expires_at,
             canceled: false,
         };
@@ -52,7 +48,6 @@ pub async fn submit_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        // Retrieve the inserted action ID
         let action_id: i64 = actions::table
             .select(actions::id)
             .order(actions::id.desc())
@@ -65,13 +60,13 @@ pub async fn submit_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        block_on(log_audit(
-            &pool, // pass &DbPool instead of &mut conn
-            &user_name,
+        log_audit(
+            &pool,
+            &username,
             "action.submit",
             Some(&action_id.to_string()),
             Some(&format!("Target device: {}", form.target_device_id)),
-        ))
+        )
         .map_err(|_| Status::InternalServerError)?;
 
         Ok(Status::Created)
@@ -87,7 +82,7 @@ pub async fn list_actions(
     user: AuthUser,
 ) -> Result<Json<Vec<Action>>, Status> {
     let pool = pool.inner().clone();
-    let user_name = user.username.clone();
+    let username = user.username.clone();
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Json<Vec<Action>>, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
@@ -96,14 +91,14 @@ pub async fn list_actions(
             .load::<Action>(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        block_on(log_audit(&pool, &user_name, "action.list", None, None)).ok();
+        log_audit(&pool, &username, "action.list", None, None).ok();
         Ok(Json(all_actions))
     })
     .await
     .map_err(|_| Status::InternalServerError)?
 }
 
-/// Cancel an existing action
+/// Cancel an action
 #[post("/actions/cancel/<action_id_param>")]
 pub async fn cancel_action(
     pool: &State<DbPool>,
@@ -111,7 +106,7 @@ pub async fn cancel_action(
     user: AuthUser,
 ) -> Result<Status, Status> {
     let pool = pool.inner().clone();
-    let user_name = user.username.clone();
+    let username = user.username.clone();
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
@@ -122,14 +117,8 @@ pub async fn cancel_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        block_on(log_audit(
-            &pool,
-            &user_name,
-            "action.cancel",
-            Some(&action_id_param.to_string()),
-            None,
-        ))
-        .map_err(|_| Status::InternalServerError)?;
+        log_audit(&pool, &username, "action.cancel", Some(&action_id_param.to_string()), None)
+            .map_err(|_| Status::InternalServerError)?;
 
         Ok(Status::Ok)
     })
@@ -142,24 +131,20 @@ pub async fn cancel_action(
 pub async fn list_action_targets(
     pool: &State<DbPool>,
     action_id_param: i64,
-    _user: AuthUser,
 ) -> Result<Json<Vec<(i64, String, Option<String>)>>, Status> {
     let pool = pool.inner().clone();
 
-    let targets =
-        rocket::tokio::task::spawn_blocking(move || -> Result<Vec<(i64, String, Option<String>)>, Status> {
-            let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-
-            let results = action_targets::table
-                .filter(action_targets::action_id.eq(action_id_param))
-                .select((action_targets::device_id, action_targets::status, action_targets::response))
-                .load::<(i64, String, Option<String>)>(&mut conn)
-                .map_err(|_| Status::InternalServerError)?;
-
-            Ok(results)
-        })
-        .await
-        .map_err(|_| Status::InternalServerError)??;
+    let targets = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<(i64, String, Option<String>)>, Status> {
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        let results = action_targets::table
+            .filter(action_targets::action_id.eq(action_id_param))
+            .select((action_targets::device_id, action_targets::status, action_targets::response))
+            .load::<(i64, String, Option<String>)>(&mut conn)
+            .map_err(|_| Status::InternalServerError)?;
+        Ok(results)
+    })
+    .await
+    .map_err(|_| Status::InternalServerError)??;
 
     Ok(Json(targets))
 }
@@ -168,7 +153,6 @@ pub async fn list_action_targets(
 #[post("/actions/update_ttl/<action_id>/<ttl_seconds>")]
 pub async fn update_action_ttl(
     pool: &State<DbPool>,
-    _user: AuthUser,
     action_id: i64,
     ttl_seconds: i64,
 ) -> Result<Status, Status> {
@@ -189,14 +173,14 @@ pub async fn update_action_ttl(
     .map_err(|_| Status::InternalServerError)?
 }
 
-/// Cleanup completed action_targets older than now
+/// Cleanup completed action targets older than now
 #[delete("/actions/pending_cleanup")]
 pub async fn pending_cleanup(
     pool: &State<DbPool>,
     user: AuthUser,
 ) -> Result<Status, Status> {
     let pool = pool.inner().clone();
-    let user_name = user.username.clone();
+    let username = user.username.clone();
 
     rocket::tokio::task::spawn_blocking(move || -> Result<Status, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
@@ -210,8 +194,7 @@ pub async fn pending_cleanup(
         .execute(&mut conn)
         .map_err(|_| Status::InternalServerError)?;
 
-        block_on(log_audit(&pool, &user_name, "action.pending_cleanup", None, None)).ok();
-
+        log_audit(&pool, &username, "action.pending_cleanup", None, None).ok();
         Ok(Status::Ok)
     })
     .await
