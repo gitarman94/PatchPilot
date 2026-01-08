@@ -38,7 +38,7 @@ pub struct Device {
     pub ip_address: Option<String>,
 }
 
-#[derive(Debug, Insertable, AsChangeset)]
+#[derive(Debug, Insertable, AsChangeset, Serialize, Deserialize)]
 #[diesel(table_name = devices)]
 pub struct NewDevice {
     pub device_id: i64,
@@ -198,15 +198,13 @@ pub struct Group {
 
 
 // Server Settings
-#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize, Clone)]
+#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize, Clone, Default)]
 #[diesel(table_name = server_settings)]
 pub struct ServerSettings {
     pub id: i32,
-    pub auto_approve_devices: bool,
-    pub auto_refresh_enabled: bool,
-    pub auto_refresh_seconds: i64,
-    pub default_action_ttl_seconds: i64,
-    pub action_polling_enabled: bool,
-    pub ping_target_ip: String,
     pub force_https: bool,
+    pub default_action_ttl_seconds: i64,
+    pub default_pending_ttl_seconds: i64,
+    pub enable_logging: bool,
+    pub default_role: String,
 }
