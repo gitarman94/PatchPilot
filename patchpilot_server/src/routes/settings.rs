@@ -7,11 +7,12 @@ use rocket::{
 use rocket_dyn_templates::Template;
 use diesel::prelude::*;
 use serde::Serialize;
+use std::sync::Arc;
 
 use crate::state::AppState;
 use crate::auth::AuthUser;
 use crate::routes::history::log_audit;
-use crate::db;
+use crate::db::{self, ServerSettingsRow};
 use crate::models::ServerSettings as ModelServerSettings;
 
 #[derive(FromForm)]
@@ -27,6 +28,28 @@ struct SettingsContext {
     settings: ModelServerSettings,
 }
 
+/// Convert DB row to model
+fn row_to_model(row: &ServerSettingsRow) -> ModelServerSettings {
+    ModelServerSettings {
+        default_action_ttl_seconds: row.max_action_ttl,
+        max_pending_actions_seconds: row.max_pending_age,
+        logging_enabled: row.enable_logging,
+        default_user_role: row.default_role.clone(),
+    }
+}
+
+/// Convert model to DB row
+fn model_to_row(model: &ModelServerSettings) -> ServerSettingsRow {
+    ServerSettingsRow {
+        id: 1,
+        force_https: true, // keep existing default
+        max_action_ttl: model.default_action_ttl_seconds,
+        max_pending_age: model.max_pending_actions_seconds,
+        enable_logging: model.logging_enabled,
+        default_role: model.default_user_role.clone(),
+    }
+}
+
 /// VIEW SETTINGS PAGE
 #[get("/settings")]
 pub async fn view_settings(
@@ -35,15 +58,16 @@ pub async fn view_settings(
 ) -> Result<Template, Status> {
     let pool = state.pool.clone();
 
-    let settings: ModelServerSettings = rocket::tokio::task::spawn_blocking(move || {
+    let settings_model: ModelServerSettings = rocket::tokio::task::spawn_blocking(move || {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)
+        let row = db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
+        Ok(row_to_model(&row))
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
 
     let context = SettingsContext {
-        settings: settings.clone(),
+        settings: settings_model,
     };
 
     Ok(Template::render("settings", &context))
@@ -58,7 +82,6 @@ pub async fn update_settings(
 ) -> Status {
     let username = user.username.clone();
     let form = form.into_inner();
-
     let pool = state.pool.clone();
     let shared_settings = state.settings.clone();
 
@@ -69,38 +92,43 @@ pub async fn update_settings(
         };
 
         // Load existing settings
-        let mut settings = match db::load_settings(&mut conn) {
+        let mut row = match db::load_settings(&mut conn) {
             Ok(s) => s,
             Err(_) => return,
         };
 
         // Apply updates
         if let Some(v) = form.default_action_ttl_seconds {
-            settings.default_action_ttl_seconds = v;
+            row.max_action_ttl = v;
         }
         if let Some(v) = form.max_pending_actions_seconds {
-            settings.max_pending_actions_seconds = v;
+            row.max_pending_age = v;
         }
         if let Some(v) = form.logging_enabled {
-            settings.logging_enabled = v;
+            row.enable_logging = v;
         }
         if let Some(v) = form.default_user_role {
-            settings.default_user_role = v;
+            row.default_role = v;
         }
 
         // Persist to DB
-        if db::save_settings(&mut conn, &settings).is_err() {
+        if db::save_settings(&mut conn, &row).is_err() {
             return;
         }
 
         // Update in-memory shared settings
         if let Ok(mut guard) = shared_settings.write() {
-            *guard = settings.clone();
+            *guard = row_to_model(&row);
         }
 
         // Audit log
-        use futures::executor::block_on;
-        let _ = block_on(log_audit(&pool, &username, "update_settings", None, Some("Updated server settings")));
+        let _ = log_audit(
+            &mut conn,
+            &username,
+            "update_settings",
+            None,
+            Some("Updated server settings"),
+        );
     })
     .await
     .ok();

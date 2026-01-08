@@ -30,7 +30,9 @@ pub fn init_logger() {
 pub fn init_pool() -> DbPool {
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
-    Pool::builder().build(manager).expect("Failed to create DB pool")
+    Pool::builder()
+        .build(manager)
+        .expect("Failed to create DB pool")
 }
 
 /// Get a single connection from the pool
@@ -47,7 +49,6 @@ pub fn initialize() -> DbPool {
 
 //  SERVER SETTINGS
 
-/// Struct representing a row in server_settings for updates
 #[derive(Queryable, Insertable, AsChangeset, Debug, Clone)]
 #[diesel(table_name = server_settings)]
 pub struct ServerSettingsRow {
@@ -124,7 +125,7 @@ pub struct NewAudit<'a> {
     pub created_at: NaiveDateTime,
 }
 
-pub fn insert_audit(conn: &mut SqliteConnection, entry: &AuditLog) -> QueryResult<usize> {
+pub fn insert_audit(conn: &mut SqliteConnection, entry: &NewAudit) -> QueryResult<usize> {
     diesel::insert_into(audit::table)
         .values(entry)
         .execute(conn)
