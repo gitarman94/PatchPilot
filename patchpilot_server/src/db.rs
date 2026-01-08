@@ -53,9 +53,9 @@ pub fn initialize() -> DbPool {
 
 /// Create default admin user if DB is empty
 pub fn create_default_admin(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
-    use crate::schema::users::dsl::*;
-    use crate::schema::roles::dsl::*;
-    use crate::schema::user_roles::dsl::*;
+    use crate::schema::users::dsl::{users, username, password_hash, id as user_id};
+    use crate::schema::roles::dsl::{roles, name, id as role_id};
+    use crate::schema::user_roles::dsl::{user_roles, user_id as ur_user_id, role_id as ur_role_id};
 
     let count: i64 = users.count().get_result(conn)?;
     if count == 0 {
@@ -66,19 +66,19 @@ pub fn create_default_admin(conn: &mut SqliteConnection) -> Result<(), diesel::r
             .execute(conn)?;
 
         // Fetch IDs
-        let admin_id: i32 = users
+        let admin_id_val: i32 = users
             .filter(username.eq("admin"))
-            .select(id)
+            .select(user_id)
             .first(conn)?;
 
-        let admin_role_id: i32 = roles
+        let admin_role_id_val: i32 = roles
             .filter(name.eq("Admin"))
-            .select(id)
+            .select(role_id)
             .first(conn)?;
 
         // Assign Admin role
         diesel::insert_into(user_roles)
-            .values((user_id.eq(admin_id), role_id.eq(admin_role_id)))
+            .values((ur_user_id.eq(admin_id_val), ur_role_id.eq(admin_role_id_val)))
             .execute(conn)?;
 
         println!("✅ Default admin created (admin / pass1234)");

@@ -15,15 +15,12 @@ use std::sync::{Arc, RwLock};
 use log::info;
 use rocket::fs::FileServer;
 
-use crate::db::{initialize, get_conn, create_default_admin, DbPool};
+use crate::db::{initialize, get_conn, create_default_admin, DbPool, load_settings};
 use crate::action_ttl::spawn_action_ttl_task;
 use crate::pending_cleanup::spawn_pending_cleanup;
 use crate::state::{AppState, SystemState};
 use crate::models::{ServerSettings as ModelServerSettings};
 use crate::auth::AuthUser;
-
-type AuditClosure =
-    dyn Fn(&mut diesel::SqliteConnection, &str, &str, Option<&str>, Option<&str>) + Send + Sync;
 
 #[launch]
 fn rocket() -> _ {
@@ -41,7 +38,7 @@ fn rocket() -> _ {
     // 3. Load server settings
     let server_settings = {
         let mut conn = get_conn(&pool);
-        let s = settings::load_settings(&mut conn).unwrap_or_default();
+        let s = load_settings(&mut conn).unwrap_or_default(); // <- fixed
 
         Arc::new(RwLock::new(ModelServerSettings {
             id: s.id,
@@ -98,8 +95,8 @@ fn rocket() -> _ {
         .manage(app_state)
         .mount("/api", routes::api_routes())
         .mount("/auth", routes::auth_routes())
-        .mount("/users-groups", routes::users_groups::users_groups_routes())
-        .mount("/roles", routes::roles::roles_routes())
+        .mount("/users-groups", routes::users_groups::users_groups_routes()) // ensure function exists
+        .mount("/roles", routes::roles::roles_routes())                        // ensure function exists
         .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
         .mount("/", routes::page_routes())
         .mount("/history", routes![routes::history::api_history])

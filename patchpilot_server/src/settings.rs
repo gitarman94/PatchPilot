@@ -2,10 +2,11 @@ use serde::{Serialize, Deserialize};
 use diesel::prelude::*;
 use diesel::SqliteConnection;
 use crate::db;
+use crate::models::ServerSettings as ModelServerSettings;
 use crate::schema::server_settings;
 use diesel::result::QueryResult;
 
-/// Struct for server settings
+/// Struct for server settings exposed to app
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ServerSettings {
     pub auto_approve_devices: bool,
@@ -23,12 +24,35 @@ pub struct ServerSettings {
 impl ServerSettings {
     /// Load settings from DB, fallback to default
     pub fn load(conn: &mut SqliteConnection) -> Self {
-        db::load_settings(conn).unwrap_or_else(|_| Self::default())
+        let s: ModelServerSettings = db::load_settings(conn).unwrap_or_default();
+
+        Self {
+            auto_approve_devices: s.auto_approve_devices,
+            auto_refresh_enabled: s.auto_refresh_enabled,
+            auto_refresh_seconds: s.auto_refresh_seconds,
+            default_action_ttl_seconds: s.default_action_ttl_seconds,
+            action_polling_enabled: s.action_polling_enabled,
+            ping_target_ip: s.ping_target_ip,
+            force_https: s.force_https,
+            allow_http: s.allow_http,
+        }
     }
 
     /// Save settings to DB
     pub fn save(&self, conn: &mut SqliteConnection) {
-        let _ = db::save_settings(conn, self);
+        let s = ModelServerSettings {
+            id: 1, // always use the single row ID
+            auto_approve_devices: self.auto_approve_devices,
+            auto_refresh_enabled: self.auto_refresh_enabled,
+            auto_refresh_seconds: self.auto_refresh_seconds,
+            default_action_ttl_seconds: self.default_action_ttl_seconds,
+            action_polling_enabled: self.action_polling_enabled,
+            ping_target_ip: self.ping_target_ip.clone(),
+            force_https: self.force_https,
+            allow_http: self.allow_http,
+        };
+
+        let _ = db::save_settings(conn, &s);
     }
 
     /// Update auto-approve and persist
@@ -74,7 +98,6 @@ impl Default for ServerSettings {
             default_action_ttl_seconds: 3600,
             action_polling_enabled: true,
             ping_target_ip: "8.8.8.8".to_string(),
-
             force_https: false,
             allow_http: true,
         }
