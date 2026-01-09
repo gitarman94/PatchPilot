@@ -1,107 +1,63 @@
-// src/routes/settings.rs
-// src/routes/settings.rs
-use rocket::{
-    get, post, State, form::{Form, FromForm}, http::Status,
-};
-use rocket_dyn_templates::Template;
-use serde::Serialize;
-use crate::state::AppState;
-use crate::auth::AuthUser;
-use crate::db;
-use crate::settings::ServerSettings;
+// src/settings.rs
+//! Thin wrapper around the ServerSettings model + DB helpers.
+//! Exports `ServerSettings` publicly so other modules can `use crate::settings::ServerSettings`.
 
-#[derive(FromForm)]
-pub struct ServerSettingsForm {
-    pub auto_approve_devices: Option<bool>,
-    pub auto_refresh_enabled: Option<bool>,
-    pub auto_refresh_seconds: Option<i64>,
-    pub default_action_ttl_seconds: Option<i64>,
-    pub action_polling_enabled: Option<bool>,
-    pub ping_target_ip: Option<String>,
-    pub force_https: Option<bool>,
-}
+use diesel::sqlite::SqliteConnection;
+use diesel::result::QueryResult;
 
-#[derive(Serialize)]
-struct SettingsContext {
-    settings: ServerSettings,
-}
+pub use crate::models::ServerSettings;
+use crate::db::{load_settings, save_settings, ServerSettingsRow};
 
-/// View settings page
-#[get("/settings")]
-pub async fn view_settings(
-    state: &State<AppState>,
-    _user: AuthUser,
-) -> Result<Template, Status> {
-    let pool = state.db_pool.clone();
-    let settings_model: ServerSettings = rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        // Use the app-level settings loader to convert DB row -> app struct
-        Ok(ServerSettings::load(&mut conn))
-    })
-    .await
-    .map_err(|_| Status::InternalServerError)? ?;
-    let context = SettingsContext { settings: settings_model };
-    Ok(Template::render("settings", &context))
-}
+impl ServerSettings {
+    /// Load settings from DB and convert into the app-level ServerSettings struct.
+    /// Panics only if DB access itself fails (mirrors previous code behavior).
+    pub fn load(conn: &mut SqliteConnection) -> ServerSettings {
+        // load_settings returns a ServerSettingsRow (creates default if missing)
+        let row: ServerSettingsRow = load_settings(conn)
+            .expect("Failed to load server settings from DB");
 
-/// Update settings
-#[post("/settings/update", data = "<form>")]
-pub async fn update_settings(
-    state: &State<AppState>,
-    form: Form<ServerSettingsForm>,
-    user: AuthUser,
-) -> Status {
-    let username = user.username.clone();
-    let form = form.into_inner();
-    let pool = state.db_pool.clone();
-    let shared_settings = state.settings.clone();
-
-    let result = rocket::tokio::task::spawn_blocking(move || -> Result<(), ()> {
-        let mut conn = pool.get().map_err(|_| ())?;
-        // Load into the app-level ServerSettings struct
-        let mut settings = ServerSettings::load(&mut conn);
-
-        // Use the ServerSettings methods which persist changes inside the DB row
-        if let Some(v) = form.auto_approve_devices {
-            let _ = settings.set_auto_approve(&mut conn, v).map_err(|_| ())?;
+        ServerSettings {
+            id: row.id,
+            auto_approve_devices: row.auto_approve_devices,
+            auto_refresh_enabled: row.auto_refresh_enabled,
+            auto_refresh_seconds: row.auto_refresh_seconds,
+            default_action_ttl_seconds: row.default_action_ttl_seconds,
+            action_polling_enabled: row.action_polling_enabled,
+            ping_target_ip: row.ping_target_ip,
+            force_https: row.force_https,
         }
-        if let Some(v) = form.auto_refresh_enabled {
-            let _ = settings.set_auto_refresh(&mut conn, v).map_err(|_| ())?;
-        }
-        if let Some(v) = form.auto_refresh_seconds {
-            let _ = settings.set_auto_refresh_interval(&mut conn, v).map_err(|_| ())?;
-        }
-        if let Some(v) = form.default_action_ttl_seconds {
-            settings.default_action_ttl_seconds = v;
-            // persist full row
-            settings.save(&mut conn);
-        }
-        if let Some(v) = form.action_polling_enabled {
-            settings.action_polling_enabled = v;
-            settings.save(&mut conn);
-        }
-        if let Some(v) = form.ping_target_ip {
-            settings.ping_target_ip = v;
-            settings.save(&mut conn);
-        }
-        if let Some(v) = form.force_https {
-            settings.force_https = v;
-            settings.save(&mut conn);
-        }
+    }
 
-        // Update in-memory shared settings if possible
-        if let Ok(mut guard) = shared_settings.write() {
-            *guard = settings.clone();
-        }
+    /// Persist the current ServerSettings back into the DB (replaces the single-row).
+    pub fn save(&self, conn: &mut SqliteConnection) -> QueryResult<()> {
+        let row = ServerSettingsRow {
+            id: self.id,
+            auto_approve_devices: self.auto_approve_devices,
+            auto_refresh_enabled: self.auto_refresh_enabled,
+            auto_refresh_seconds: self.auto_refresh_seconds,
+            default_action_ttl_seconds: self.default_action_ttl_seconds,
+            action_polling_enabled: self.action_polling_enabled,
+            ping_target_ip: self.ping_target_ip.clone(),
+            force_https: self.force_https,
+        };
+        save_settings(conn, &row)
+    }
 
-        // Log audit using synchronous DB log helper
-        let _ = db::log_audit(&mut conn, &username, "update_settings", None, Some("Updated server settings"));
-        Ok(())
-    })
-    .await;
+    /// Convenience mutator that persists the `auto_approve_devices` flag.
+    pub fn set_auto_approve(&mut self, conn: &mut SqliteConnection, v: bool) -> QueryResult<()> {
+        self.auto_approve_devices = v;
+        self.save(conn)
+    }
 
-    match result {
-        Ok(Ok(_)) => Status::Ok,
-        _ => Status::InternalServerError,
+    /// Convenience mutator that persists the `auto_refresh_enabled` flag.
+    pub fn set_auto_refresh(&mut self, conn: &mut SqliteConnection, v: bool) -> QueryResult<()> {
+        self.auto_refresh_enabled = v;
+        self.save(conn)
+    }
+
+    /// Convenience mutator that persists the `auto_refresh_seconds` interval.
+    pub fn set_auto_refresh_interval(&mut self, conn: &mut SqliteConnection, v: i64) -> QueryResult<()> {
+        self.auto_refresh_seconds = v;
+        self.save(conn)
     }
 }

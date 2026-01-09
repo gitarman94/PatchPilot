@@ -5,6 +5,7 @@ use rocket::form::Form;
 use rocket::http::Status;
 use diesel::prelude::*;
 use chrono::{Utc, Duration};
+
 use crate::auth::AuthUser;
 use crate::db::{DbPool, update_action_ttl as db_update_action_ttl, fetch_action_ttl as db_fetch_action_ttl, insert_history as db_insert_history};
 use crate::models::{Action, NewAction, NewActionTarget};
@@ -28,6 +29,8 @@ pub async fn submit_action(
     let pool_inner = pool.inner().clone();
     let form = form.into_inner();
     let username = user.username.clone();
+    // create a clone specifically for the blocking insert so `username` remains usable later
+    let username_for_db = username.clone();
 
     // Spawn blocking to insert action + target + history
     let inserted_action_id: i64 = rocket::tokio::task::spawn_blocking(move || -> Result<i64, Status> {
@@ -39,7 +42,7 @@ pub async fn submit_action(
         let new_action = NewAction {
             action_type: form.command,
             parameters: None,
-            author: Some(username.clone()),
+            author: Some(username_for_db.clone()),
             created_at: now,
             expires_at,
             canceled: false,
@@ -66,27 +69,27 @@ pub async fn submit_action(
         let history = crate::db::NewHistory {
             action_id,
             device_name: None,
-            actor: Some(&username),
+            actor: Some(&username_for_db),
             action_type: "action.submit",
             details: Some(&format!("Target device: {}", form.target_device_id)),
             created_at: now,
         };
-        let _ = db_insert_history(&mut conn, &history).map_err(|_| Status::InternalServerError)?;
 
+        let _ = db_insert_history(&mut conn, &history).map_err(|_| Status::InternalServerError)?;
         Ok(action_id)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
 
-    // Log audit asynchronously via the routes/history::log_audit helper (keeps single async interface)
-    // This helper spawns a blocking task internally and returns a Result<(), Status>.
+    // Log audit asynchronously via the routes/history::log_audit helper.
     let _ = crate::routes::history::log_audit(
         &pool.inner(),
         &username,
         "action.submit",
         Some(&inserted_action_id.to_string()),
         Some(&format!("Target device: {}", form.target_device_id)),
-    ).await;
+    )
+    .await;
 
     Ok(Status::Created)
 }
@@ -108,6 +111,7 @@ pub async fn list_actions(
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Json(result))
 }
 
@@ -120,29 +124,42 @@ pub async fn cancel_action(
 ) -> Result<Status, Status> {
     let pool_inner = pool.inner().clone();
     let username = user.username.clone();
+    let username_for_db = username.clone();
 
     let res = rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
         let mut conn = pool_inner.get().map_err(|_| Status::InternalServerError)?;
         let now = Utc::now().naive_utc();
+
         diesel::update(actions::table.filter(actions::id.eq(action_id_param)))
             .set(actions::expires_at.eq(now))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
+
         // Insert history record
         let history = crate::db::NewHistory {
             action_id: action_id_param,
             device_name: None,
-            actor: Some(&username),
+            actor: Some(&username_for_db),
             action_type: "action.cancel",
             details: None,
             created_at: now,
         };
+
         let _ = db_insert_history(&mut conn, &history).map_err(|_| Status::InternalServerError)?;
         Ok(())
-    }).await.map_err(|_| Status::InternalServerError)??;
+    })
+    .await
+    .map_err(|_| Status::InternalServerError)??;
 
-    // Async audit log
-    let _ = crate::routes::history::log_audit(&pool.inner(), &username, "action.cancel", Some(&action_id_param.to_string()), None).await;
+    // Async audit log (uses original username variable which we kept)
+    let _ = crate::routes::history::log_audit(
+        &pool.inner(),
+        &username,
+        "action.cancel",
+        Some(&action_id_param.to_string()),
+        None,
+    )
+    .await;
 
     Ok(Status::Ok)
 }
@@ -165,6 +182,7 @@ pub async fn list_action_targets(
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Json(targets))
 }
 
@@ -186,6 +204,7 @@ pub async fn update_action_ttl(
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Status::Ok)
 }
 
@@ -202,6 +221,7 @@ pub async fn get_action_ttl(
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Json(remaining))
 }
 
@@ -213,8 +233,9 @@ pub async fn pending_cleanup(
 ) -> Result<Status, Status> {
     let pool_inner = pool.inner().clone();
     let username = user.username.clone();
+    let username_for_db = username.clone();
 
-    let res = rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
+    let _res = rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
         let mut conn = pool_inner.get().map_err(|_| Status::InternalServerError)?;
         let cutoff = Utc::now().naive_utc();
         diesel::delete(
@@ -230,7 +251,6 @@ pub async fn pending_cleanup(
     .map_err(|_| Status::InternalServerError)??;
 
     let _ = crate::routes::history::log_audit(&pool.inner(), &username, "action.pending_cleanup", None, None).await;
-
     Ok(Status::Ok)
 }
 
@@ -261,5 +281,6 @@ pub async fn report_action_result(
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Status::Ok)
 }
