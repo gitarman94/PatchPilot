@@ -4,7 +4,7 @@ use rocket::form::Form;
 use rocket::http::Status;
 
 use diesel::prelude::*;
-use chrono::Utc;
+use chrono::{Utc, Duration};
 
 use crate::auth::AuthUser;
 use crate::db::{
@@ -12,6 +12,7 @@ use crate::db::{
     fetch_action_ttl as db_fetch_action_ttl,
     update_action_ttl as db_update_action_ttl,
     insert_history as db_insert_history,
+    load_settings as db_load_settings,
 };
 use crate::models::{Action, NewAction, NewActionTarget};
 use crate::schema::{actions, action_targets};
@@ -30,21 +31,38 @@ pub async fn submit_action(
     form: Form<SubmitActionForm>,
     user: AuthUser,
 ) -> Result<Status, Status> {
+    // Separate clones: one for DB work, one to pass to audit logging after DB work completes.
     let pool_for_db = pool.inner().clone();
     let pool_for_audit = pool.inner().clone();
     let form = form.into_inner();
     let username = user.username.clone();
     let username_for_audit = username.clone();
 
+    // Insert action + target + history within a blocking task (synchronous DB access).
     let action_id = rocket::tokio::task::spawn_blocking(move || -> Result<i64, Status> {
         let mut conn = pool_for_db.get().map_err(|_| Status::InternalServerError)?;
         let now = Utc::now().naive_utc();
 
+        // Load server settings to determine default/cap TTL
+        let settings_row: ServerSettingsRow =
+            db_load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
+
+        // Determine TTL to use: if provided, cap it to server default; otherwise use default.
+        let ttl_seconds = match form.ttl_seconds {
+            Some(v) => std::cmp::min(v, settings_row.default_action_ttl_seconds),
+            None => settings_row.default_action_ttl_seconds,
+        };
+
+        let expires_at = now + Duration::seconds(ttl_seconds);
+
+        // NewAction uses the project's fields (action_type, parameters, author, created_at, expires_at, canceled)
         let new_action = NewAction {
-            command: &form.command,
+            action_type: form.command.clone(),
+            parameters: None,
+            author: Some(username.clone()),
             created_at: now,
-            expires_at: None,
-            created_by: Some(&username),
+            expires_at,
+            canceled: false,
         };
 
         diesel::insert_into(actions::table)
@@ -52,25 +70,22 @@ pub async fn submit_action(
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
+        // Retrieve last inserted action id (SQLite: query highest id)
         let action_id: i64 = actions::table
             .select(actions::id)
             .order(actions::id.desc())
             .first(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
-        let new_target = NewActionTarget {
-            action_id,
-            device_id: form.target_device_id,
-            status: "pending",
-            response: None,
-            last_update: now,
-        };
+        // Insert the single target for this action (use the NewActionTarget helper or construct directly)
+        let new_target = NewActionTarget::pending(action_id, form.target_device_id);
 
         diesel::insert_into(action_targets::table)
             .values(&new_target)
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
 
+        // Insert history entry (using DB helper that accepts NewHistory<'_>)
         let history = crate::db::NewHistory {
             action_id,
             device_name: None,
@@ -87,12 +102,13 @@ pub async fn submit_action(
     .await
     .map_err(|_| Status::InternalServerError)??;
 
+    // Audit log (best-effort, async)
     let _ = crate::routes::history::log_audit(
         &pool_for_audit,
         &username_for_audit,
         "action.submit",
         Some(&action_id.to_string()),
-        None,
+        Some(&format!("target_device_id={}", form.target_device_id)),
     )
     .await;
 
@@ -293,7 +309,7 @@ pub async fn report_action_result(
         )
         .set((
             action_targets::response.eq(Some(body)),
-            action_targets::status.eq("completed"),
+            action_targets::status.eq("Completed".to_string()),
             action_targets::last_update.eq(Utc::now().naive_utc()),
         ))
         .execute(&mut conn)
