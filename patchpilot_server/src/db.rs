@@ -179,7 +179,8 @@ pub fn update_action_ttl(
 /// Fetch remaining TTL (seconds) for a given action (returns remaining seconds as i64)
 pub fn fetch_action_ttl(conn: &mut SqliteConnection, action_id_val: i64) -> QueryResult<i64> {
     use crate::schema::actions::dsl as actions_dsl;
-    let expires_at: NaiveDateTime = actions_dsl::actions
+    // Read expires_at for the action
+    let expires_at: chrono::NaiveDateTime = actions_dsl::actions
         .filter(actions_dsl::id.eq(action_id_val))
         .select(actions_dsl::expires_at)
         .first(conn)?;

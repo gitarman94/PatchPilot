@@ -24,6 +24,7 @@ pub fn api_routes() -> Vec<Route> {
         actions::list_actions,
         actions::list_action_targets,
         actions::update_action_ttl,
+        actions::get_action_ttl,
         actions::pending_cleanup,
         actions::cancel_action,
 

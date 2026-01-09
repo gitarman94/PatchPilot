@@ -1,4 +1,3 @@
-// src/routes/settings.rs
 use rocket::{get, post, State, form::{Form, FromForm}, http::Status};
 use rocket_dyn_templates::Template;
 use serde::Serialize;
@@ -6,7 +5,7 @@ use serde::Serialize;
 use crate::state::AppState;
 use crate::auth::AuthUser;
 use crate::db;
-use crate::settings::ServerSettings; // now re-exported publicly by src/settings.rs
+use crate::settings::ServerSettings;
 
 #[derive(FromForm)]
 pub struct ServerSettingsForm {
@@ -24,7 +23,6 @@ struct SettingsContext {
     settings: ServerSettings,
 }
 
-/// View settings page
 #[get("/settings")]
 pub async fn view_settings(
     state: &State<AppState>,
@@ -34,8 +32,20 @@ pub async fn view_settings(
 
     let settings_model: ServerSettings = rocket::tokio::task::spawn_blocking(move || -> Result<ServerSettings, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        // Use the app-level settings loader to convert DB row -> app struct
-        Ok(ServerSettings::load(&mut conn))
+        let row = db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
+
+        let settings = ServerSettings {
+            id: row.id,
+            auto_approve_devices: row.auto_approve_devices,
+            auto_refresh_enabled: row.auto_refresh_enabled,
+            auto_refresh_seconds: row.auto_refresh_seconds,
+            default_action_ttl_seconds: row.default_action_ttl_seconds,
+            action_polling_enabled: row.action_polling_enabled,
+            ping_target_ip: row.ping_target_ip.clone(),
+            force_https: row.force_https,
+        };
+
+        Ok(settings)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
@@ -47,7 +57,6 @@ pub async fn view_settings(
     Ok(Template::render("settings", &context))
 }
 
-/// Update settings
 #[post("/settings/update", data = "<form>")]
 pub async fn update_settings(
     state: &State<AppState>,
@@ -59,12 +68,10 @@ pub async fn update_settings(
     let pool = state.db_pool.clone();
     let shared_settings = state.settings.clone();
 
-    let result = rocket::tokio::task::spawn_blocking(move || -> Result<(), ()> {
-        let mut conn = pool.get().map_err(|_| ())?;
-        // Load DB row
-        let mut row = db::load_settings(&mut conn).map_err(|_| ())?;
+    let result = rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        let mut row = db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
 
-        // Update fields from form where provided
         if let Some(v) = form.auto_approve_devices {
             row.auto_approve_devices = v;
         }
@@ -87,10 +94,8 @@ pub async fn update_settings(
             row.force_https = v;
         }
 
-        // Persist row
-        db::save_settings(&mut conn, &row).map_err(|_| ())?;
+        db::save_settings(&mut conn, &row).map_err(|_| Status::InternalServerError)?;
 
-        // Mirror into shared in-memory ServerSettings (AppState.settings)
         let settings_struct = ServerSettings {
             id: row.id,
             auto_approve_devices: row.auto_approve_devices,
@@ -102,12 +107,17 @@ pub async fn update_settings(
             force_https: row.force_https,
         };
 
-        if let Ok(mut guard) = shared_settings.write() {
-            *guard = settings_struct.clone();
+        // Update the in-memory shared settings; treat a poisoned lock as an internal error.
+        match shared_settings.write() {
+            Ok(mut guard) => {
+                *guard = settings_struct.clone();
+            }
+            Err(_) => return Err(Status::InternalServerError),
         }
 
-        // Log audit using synchronous DB helper
+        // Best-effort audit log; don't fail the update if audit logging fails, but surface failure elsewhere.
         let _ = db::log_audit(&mut conn, &username, "update_settings", None, Some("Updated server settings"));
+
         Ok(())
     })
     .await;
@@ -116,8 +126,4 @@ pub async fn update_settings(
         Ok(Ok(_)) => Status::Ok,
         _ => Status::InternalServerError,
     }
-}
-
-pub fn configure_routes(rocket: rocket::Rocket<rocket::Build>) -> rocket::Rocket<rocket::Build> {
-    rocket.mount("/", routes![view_settings, update_settings])
 }
