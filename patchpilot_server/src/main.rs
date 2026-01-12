@@ -1,3 +1,4 @@
+// src/main.rs
 #[macro_use]
 extern crate rocket;
 
@@ -37,6 +38,7 @@ fn rocket() -> _ {
 
     // System + App State
     let system_state = SystemState::new(pool.clone());
+
     let app_state = Arc::new(AppState {
         db_pool: pool.clone(),
         system: system_state.clone(),
@@ -61,26 +63,31 @@ fn rocket() -> _ {
                 // Use server setting to choose max age; ensure a sensible minimum
                 let max_age = {
                     let s = app_state_clone.settings.read().unwrap();
-                    // Use default_action_ttl_seconds as a reasonable cap for stale device expiry
+                    // Use auto_refresh_seconds as a reasonable cap for stale device expiry
                     let secs = s.auto_refresh_seconds.max(30);
                     secs as u64
                 };
+
                 app_state_clone.cleanup_stale_devices(max_age);
+
                 rocket::tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             }
         });
     }
 
-    // Startup Audit Event (use the UserRole enum explicitly)
+    // Startup Audit Event (use an AuthUser record for the DB audit)
     {
         let mut conn = get_conn(&pool);
         let user = AuthUser {
             id: 1,
             username: "admin".to_string(),
-            role: UserRole::Admin,
+            role: UserRole::Admin.as_str().to_string(),
         };
         let _ = user.audit(&mut conn, "server_started", None);
     }
+
+    // Ensure the SystemState is refreshed before reading metrics (removes unused warning)
+    app_state.system.refresh();
 
     // System Info Logging
     info!(

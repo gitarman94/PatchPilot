@@ -1,12 +1,11 @@
+// src/auth.rs
 use rocket::form::Form;
 use rocket::http::{Cookie, CookieJar, SameSite, Status};
 use rocket::request::{FromRequest, Outcome, Request};
 use rocket::response::{Redirect, content::RawHtml};
 use rocket::State;
-
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-
 use bcrypt::verify;
 use std::fs::read_to_string;
 
@@ -19,23 +18,21 @@ pub struct LoginForm {
     pub password: String,
 }
 
-/// Role enum used throughout the codebase
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
+pub struct AuthUser {
+    pub id: i32,
+    pub username: String,
+    pub role: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum UserRole {
     Admin,
     User,
 }
 
 impl UserRole {
-    /// Parse role name exactly as stored in DB
-    pub fn from_name(name: &str) -> Self {
-        match name {
-            "Admin" => UserRole::Admin,
-            _ => UserRole::User,
-        }
-    }
-
-    /// Canonical string form (used where DB or logging needs it)
+    /// String representation for storage/comparison.
     pub fn as_str(&self) -> &'static str {
         match self {
             UserRole::Admin => "Admin",
@@ -44,31 +41,21 @@ impl UserRole {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct AuthUser {
-    pub id: i32,
-    pub username: String,
-    pub role: UserRole,
-}
-
 impl AuthUser {
-    /// Role check: User is lowest privilege and always matches
     pub fn has_role(&self, role: UserRole) -> bool {
         match role {
-            UserRole::Admin => self.role == UserRole::Admin,
+            UserRole::Admin => self.role == UserRole::Admin.as_str(),
             UserRole::User => true,
         }
     }
 
-    /// Centralized audit helper
     pub fn audit(
         &self,
         conn: &mut SqliteConnection,
         action: &str,
         target: Option<&str>,
     ) {
-        let details = format!("user_id={}", self.id);
-        let _ = log_audit(conn, &self.username, action, target, Some(&details));
+        let _ = log_audit(conn, &self.username, action, target, None);
     }
 }
 
@@ -77,25 +64,28 @@ impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        // Get user_id from private cookie
         let user_id: i32 = match req
             .cookies()
             .get_private("user_id")
             .and_then(|c| c.value().parse().ok())
         {
             Some(id) => id,
-            None => return Outcome::Error((Status::Unauthorized, ())),
+            None => return Outcome::Failure((Status::Unauthorized, ())),
         };
 
+        // Acquire DB pool from Rocket state
         let pool = match req.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Error((Status::InternalServerError, ())),
+            _ => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Error((Status::InternalServerError, ())),
+            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
+        // Query user with optional role
         let result = users::table
             .filter(users::id.eq(user_id))
             .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
@@ -105,14 +95,13 @@ impl<'r> FromRequest<'r> for AuthUser {
 
         match result {
             Ok((id, username, role_opt)) => {
-                let role = role_opt
-                    .as_deref()
-                    .map(UserRole::from_name)
-                    .unwrap_or(UserRole::User);
-
-                Outcome::Success(AuthUser { id, username, role })
+                Outcome::Success(AuthUser {
+                    id,
+                    username,
+                    role: role_opt.unwrap_or_else(|| UserRole::User.as_str().to_string()),
+                })
             }
-            Err(_) => Outcome::Error((Status::Unauthorized, ())),
+            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
         }
     }
 }
@@ -144,6 +133,7 @@ pub fn login(
         return Redirect::to("/login");
     }
 
+    // Set private cookie (use CookieBuilder::build() instead of deprecated finish())
     let mut cookie = Cookie::new("user_id", id.to_string());
     cookie.set_same_site(SameSite::Lax);
     cookies.add_private(cookie);
@@ -151,10 +141,7 @@ pub fn login(
     let user = AuthUser {
         id,
         username,
-        role: role_opt
-            .as_deref()
-            .map(UserRole::from_name)
-            .unwrap_or(UserRole::User),
+        role: role_opt.unwrap_or_else(|| UserRole::User.as_str().to_string()),
     };
 
     user.audit(&mut conn, "login", None);
@@ -164,13 +151,14 @@ pub fn login(
 
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
-    let user_id_opt = cookies
+    let user_id = cookies
         .get_private("user_id")
         .and_then(|c| c.value().parse::<i32>().ok());
 
+    // Use Cookie::build(...).build() (finish was deprecated)
     cookies.remove_private(Cookie::build("user_id").build());
 
-    if let Some(uid) = user_id_opt {
+    if let Some(uid) = user_id {
         if let Ok(mut conn) = pool.get() {
             if let Ok((username, role_opt)) = users::table
                 .filter(users::id.eq(uid))
@@ -182,10 +170,7 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
                 let user = AuthUser {
                     id: uid,
                     username,
-                    role: role_opt
-                        .as_deref()
-                        .map(UserRole::from_name)
-                        .unwrap_or(UserRole::User),
+                    role: role_opt.unwrap_or_else(|| UserRole::User.as_str().to_string()),
                 };
                 user.audit(&mut conn, "logout", None);
             }
