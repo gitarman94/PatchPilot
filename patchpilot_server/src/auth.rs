@@ -32,11 +32,18 @@ pub enum UserRole {
 }
 
 impl UserRole {
-    /// String representation for storage/comparison.
     pub fn as_str(&self) -> &'static str {
         match self {
             UserRole::Admin => "Admin",
             UserRole::User => "User",
+        }
+    }
+
+    pub fn from_name(name: &str) -> UserRole {
+        match name.to_ascii_lowercase().as_str() {
+            "admin" => UserRole::Admin,
+            "user" => UserRole::User,
+            _ => UserRole::User,
         }
     }
 }
@@ -64,7 +71,6 @@ impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        // Extract user_id cookie
         let user_id: i32 = match req
             .cookies()
             .get_private("user_id")
@@ -74,19 +80,16 @@ impl<'r> FromRequest<'r> for AuthUser {
             None => return Outcome::Error((Status::Unauthorized, ())),
         };
 
-        // Get DB pool state
         let pool = match req.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
             _ => return Outcome::Error((Status::InternalServerError, ())),
         };
 
-        // Acquire connection
         let mut conn = match pool.get() {
             Ok(c) => c,
             Err(_) => return Outcome::Error((Status::InternalServerError, ())),
         };
 
-        // Query user and role
         let result = users::table
             .filter(users::id.eq(user_id))
             .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
@@ -98,8 +101,8 @@ impl<'r> FromRequest<'r> for AuthUser {
             Ok((id, username, role_opt)) => {
                 let role = role_opt
                     .as_deref()
-                    .map(UserRole::from_name)
-                    .unwrap_or(UserRole::User);
+                    .map(|r| UserRole::from_name(r).as_str().to_string())
+                    .unwrap_or_else(|| UserRole::User.as_str().to_string());
 
                 Outcome::Success(AuthUser { id, username, role })
             }
@@ -135,15 +138,19 @@ pub fn login(
         return Redirect::to("/login");
     }
 
-    // Set private cookie (use CookieBuilder::build() instead of deprecated finish())
     let mut cookie = Cookie::new("user_id", id.to_string());
     cookie.set_same_site(SameSite::Lax);
     cookies.add_private(cookie);
 
+    let role = role_opt
+        .as_deref()
+        .map(|r| UserRole::from_name(r).as_str().to_string())
+        .unwrap_or_else(|| UserRole::User.as_str().to_string());
+
     let user = AuthUser {
         id,
         username,
-        role: role_opt.unwrap_or_else(|| UserRole::User.as_str().to_string()),
+        role,
     };
 
     user.audit(&mut conn, "login", None);
@@ -157,7 +164,6 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
         .get_private("user_id")
         .and_then(|c| c.value().parse::<i32>().ok());
 
-    // Use Cookie::build(...).build() (finish was deprecated)
     cookies.remove_private(Cookie::build("user_id").build());
 
     if let Some(uid) = user_id {
@@ -169,10 +175,15 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
                 .select((users::username, roles::name.nullable()))
                 .first::<(String, Option<String>)>(&mut conn)
             {
+                let role = role_opt
+                    .as_deref()
+                    .map(|r| UserRole::from_name(r).as_str().to_string())
+                    .unwrap_or_else(|| UserRole::User.as_str().to_string());
+
                 let user = AuthUser {
                     id: uid,
                     username,
-                    role: role_opt.unwrap_or_else(|| UserRole::User.as_str().to_string()),
+                    role,
                 };
                 user.audit(&mut conn, "logout", None);
             }
