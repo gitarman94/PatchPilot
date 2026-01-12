@@ -1,9 +1,8 @@
-// src/state.rs
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
-use sysinfo::System;
 
+use sysinfo::System;
 use crate::settings::ServerSettings;
 use crate::db::DbPool;
 use diesel::result::QueryResult;
@@ -23,6 +22,7 @@ impl SystemState {
         })
     }
 
+    /// Refresh in-memory system metrics
     pub fn refresh(&self) {
         if let Ok(mut sys) = self.system.write() {
             sys.refresh_all();
@@ -49,8 +49,10 @@ impl SystemState {
 /// Holds server-wide state
 pub struct AppState {
     pub system: Arc<SystemState>,
+    /// pending device heartbeats: device_id -> last-seen instant
     pub pending_devices: Arc<RwLock<HashMap<String, Instant>>>,
-    pub settings: Arc<RwLock<ServerSettings>>, // runtime settings::ServerSettings
+    /// runtime settings (wrapping the DB-loaded settings struct)
+    pub settings: Arc<RwLock<ServerSettings>>,
     pub db_pool: DbPool,
 
     /// Optional audit logger closure that returns a Diesel QueryResult<()>
@@ -70,8 +72,8 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Logs an audit event if closure is attached
-    /// returns Ok(()) if logged (or if no closure attached)
+    /// Logs an audit event if closure is attached.
+    /// returns Ok(()) if logged (or if no closure attached).
     pub fn log_audit(
         &self,
         conn: &mut diesel::SqliteConnection,
@@ -87,14 +89,14 @@ impl AppState {
         }
     }
 
-    /// Registers or updates a pending device heartbeat
+    /// Registers or updates a pending device heartbeat.
     pub fn update_pending_device(&self, device_id: &str) {
         if let Ok(mut pending) = self.pending_devices.write() {
             pending.insert(device_id.to_string(), Instant::now());
         }
     }
 
-    /// Removes stale pending devices
+    /// Removes stale pending devices older than `max_age_secs`.
     pub fn cleanup_stale_devices(&self, max_age_secs: u64) {
         if let Ok(mut pending) = self.pending_devices.write() {
             let now = Instant::now();

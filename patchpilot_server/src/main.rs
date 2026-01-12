@@ -1,4 +1,3 @@
-// src/main.rs
 #[macro_use]
 extern crate rocket;
 
@@ -22,7 +21,7 @@ use crate::action_ttl::spawn_action_ttl_task;
 use crate::pending_cleanup::spawn_pending_cleanup;
 use crate::state::{AppState, SystemState};
 use crate::settings::ServerSettings;
-use crate::auth::AuthUser;
+use crate::auth::{AuthUser, UserRole};
 
 #[launch]
 fn rocket() -> _ {
@@ -53,13 +52,32 @@ fn rocket() -> _ {
     spawn_action_ttl_task(app_state.clone());
     spawn_pending_cleanup(app_state.clone());
 
-    // Startup Audit Event
+    // Spawn a small periodic task to cleanup stale pending devices so
+    // AppState.pending_devices and cleanup_stale_devices are actually used.
+    {
+        let app_state_clone = app_state.clone();
+        rocket::tokio::spawn(async move {
+            loop {
+                // Use server setting to choose max age; ensure a sensible minimum
+                let max_age = {
+                    let s = app_state_clone.settings.read().unwrap();
+                    // Use default_action_ttl_seconds as a reasonable cap for stale device expiry
+                    let secs = s.auto_refresh_seconds.max(30);
+                    secs as u64
+                };
+                app_state_clone.cleanup_stale_devices(max_age);
+                rocket::tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        });
+    }
+
+    // Startup Audit Event (use the UserRole enum explicitly)
     {
         let mut conn = get_conn(&pool);
         let user = AuthUser {
             id: 1,
             username: "admin".to_string(),
-            role: "Admin".to_string(),
+            role: UserRole::Admin,
         };
         let _ = user.audit(&mut conn, "server_started", None);
     }
