@@ -62,7 +62,8 @@ impl AuthUser {
         action: &str,
         target: Option<&str>,
     ) {
-        let _ = log_audit(conn, &self.username, action, target, None);
+        let actor = format!("{}:{}", self.id, self.username);
+        let _ = log_audit(conn, &actor, action, target, None);
     }
 }
 
