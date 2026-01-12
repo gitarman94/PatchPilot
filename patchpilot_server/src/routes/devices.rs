@@ -1,4 +1,5 @@
 // src/routes/devices.rs
+use std::sync::Arc;
 use rocket::{get, post, State, http::Status};
 use rocket::serde::json::Json;
 use diesel::prelude::*;
@@ -92,7 +93,7 @@ pub async fn approve_device(
 #[post("/register_or_update", data = "<info>")]
 pub async fn register_or_update_device(
     pool: &State<DbPool>,
-    app_state: &State<AppState>,
+    app_state: &State<Arc<AppState>>,
     info: Json<NewDevice>,
     user: AuthUser,
 ) -> Result<Json<serde_json::Value>, Status> {
