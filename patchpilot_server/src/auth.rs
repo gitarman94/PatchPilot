@@ -64,28 +64,29 @@ impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        // Get user_id from private cookie
+        // Extract user_id cookie
         let user_id: i32 = match req
             .cookies()
             .get_private("user_id")
             .and_then(|c| c.value().parse().ok())
         {
             Some(id) => id,
-            None => return Outcome::Failure((Status::Unauthorized, ())),
+            None => return Outcome::Error((Status::Unauthorized, ())),
         };
 
-        // Acquire DB pool from Rocket state
+        // Get DB pool state
         let pool = match req.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Failure((Status::InternalServerError, ())),
+            _ => return Outcome::Error((Status::InternalServerError, ())),
         };
 
+        // Acquire connection
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
+            Err(_) => return Outcome::Error((Status::InternalServerError, ())),
         };
 
-        // Query user with optional role
+        // Query user and role
         let result = users::table
             .filter(users::id.eq(user_id))
             .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
@@ -95,13 +96,14 @@ impl<'r> FromRequest<'r> for AuthUser {
 
         match result {
             Ok((id, username, role_opt)) => {
-                Outcome::Success(AuthUser {
-                    id,
-                    username,
-                    role: role_opt.unwrap_or_else(|| UserRole::User.as_str().to_string()),
-                })
+                let role = role_opt
+                    .as_deref()
+                    .map(UserRole::from_name)
+                    .unwrap_or(UserRole::User);
+
+                Outcome::Success(AuthUser { id, username, role })
             }
-            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => Outcome::Error((Status::Unauthorized, ())),
         }
     }
 }
