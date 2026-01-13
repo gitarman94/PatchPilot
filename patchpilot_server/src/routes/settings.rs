@@ -4,8 +4,7 @@ use serde::Serialize;
 
 use crate::state::AppState;
 use crate::auth::AuthUser;
-use crate::db;
-use crate::settings::ServerSettings;
+use crate::db::{self, ServerSettingsRow}; // import ServerSettingsRow from db
 
 #[derive(FromForm)]
 pub struct ServerSettingsForm {
@@ -20,7 +19,7 @@ pub struct ServerSettingsForm {
 
 #[derive(Serialize)]
 struct SettingsContext {
-    settings: ServerSettings,
+    settings: crate::settings::ServerSettings, // still use your in-memory ServerSettings
 }
 
 #[get("/settings")]
@@ -30,23 +29,25 @@ pub async fn view_settings(
 ) -> Result<Template, Status> {
     let pool = state.db_pool.clone();
 
-    let settings_model: ServerSettings = rocket::tokio::task::spawn_blocking(move || -> Result<ServerSettings, Status> {
-        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let row = db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
+    let settings_model: crate::settings::ServerSettings =
+        rocket::tokio::task::spawn_blocking(move || -> Result<_, Status> {
+            let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+            let row: ServerSettingsRow = db::load_settings(&mut conn)
+                .map_err(|_| Status::InternalServerError)?;
 
-        Ok(ServerSettings {
-            id: row.id,
-            auto_approve_devices: row.auto_approve_devices,
-            auto_refresh_enabled: row.auto_refresh_enabled,
-            auto_refresh_seconds: row.auto_refresh_seconds,
-            default_action_ttl_seconds: row.default_action_ttl_seconds,
-            action_polling_enabled: row.action_polling_enabled,
-            ping_target_ip: row.ping_target_ip.clone(),
-            force_https: row.force_https,
+            Ok(crate::settings::ServerSettings {
+                id: row.id,
+                auto_approve_devices: row.auto_approve_devices,
+                auto_refresh_enabled: row.auto_refresh_enabled,
+                auto_refresh_seconds: row.auto_refresh_seconds,
+                default_action_ttl_seconds: row.default_action_ttl_seconds,
+                action_polling_enabled: row.action_polling_enabled,
+                ping_target_ip: row.ping_target_ip,
+                force_https: row.force_https,
+            })
         })
-    })
-    .await
-    .map_err(|_| Status::InternalServerError)??;
+        .await
+        .map_err(|_| Status::InternalServerError)??;
 
     let context = SettingsContext {
         settings: settings_model,
@@ -68,33 +69,21 @@ pub async fn update_settings(
 
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let mut row = db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
+        let mut row: ServerSettingsRow = db::load_settings(&mut conn)
+            .map_err(|_| Status::InternalServerError)?;
 
-        if let Some(v) = form.auto_approve_devices {
-            row.auto_approve_devices = v;
-        }
-        if let Some(v) = form.auto_refresh_enabled {
-            row.auto_refresh_enabled = v;
-        }
-        if let Some(v) = form.auto_refresh_seconds {
-            row.auto_refresh_seconds = v;
-        }
-        if let Some(v) = form.default_action_ttl_seconds {
-            row.default_action_ttl_seconds = v;
-        }
-        if let Some(v) = form.action_polling_enabled {
-            row.action_polling_enabled = v;
-        }
-        if let Some(v) = form.ping_target_ip {
-            row.ping_target_ip = v;
-        }
-        if let Some(v) = form.force_https {
-            row.force_https = v;
-        }
+        if let Some(v) = form.auto_approve_devices { row.auto_approve_devices = v; }
+        if let Some(v) = form.auto_refresh_enabled { row.auto_refresh_enabled = v; }
+        if let Some(v) = form.auto_refresh_seconds { row.auto_refresh_seconds = v; }
+        if let Some(v) = form.default_action_ttl_seconds { row.default_action_ttl_seconds = v; }
+        if let Some(v) = form.action_polling_enabled { row.action_polling_enabled = v; }
+        if let Some(v) = form.ping_target_ip { row.ping_target_ip = v; }
+        if let Some(v) = form.force_https { row.force_https = v; }
 
-        db::save_settings(&mut conn, &row).map_err(|_| Status::InternalServerError)?;
+        db::save_settings(&mut conn, &row)
+            .map_err(|_| Status::InternalServerError)?;
 
-        let settings_struct = ServerSettings {
+        let settings_struct = crate::settings::ServerSettings {
             id: row.id,
             auto_approve_devices: row.auto_approve_devices,
             auto_refresh_enabled: row.auto_refresh_enabled,
@@ -105,15 +94,18 @@ pub async fn update_settings(
             force_https: row.force_https,
         };
 
-        // Update the in-memory shared settings
         match shared_settings.write() {
-            Ok(mut guard) => {
-                *guard = settings_struct;
-            }
+            Ok(mut guard) => *guard = settings_struct,
             Err(_) => return Err(Status::InternalServerError),
         }
 
-        let _ = db::log_audit(&mut conn, &username, "update_settings", None, Some("Updated server settings"));
+        let _ = db::log_audit(
+            &mut conn,
+            &username,
+            "update_settings",
+            None,
+            Some("Updated server settings"),
+        );
 
         Ok(())
     })
