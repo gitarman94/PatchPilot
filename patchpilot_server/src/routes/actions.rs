@@ -31,18 +31,18 @@ pub async fn submit_action(
     let pool_for_db = pool.inner().clone();
     let username = user.username.clone();
     let form = form.into_inner();
+
     let action_id_res = rocket::tokio::task::spawn_blocking(move || -> Result<i64, Status> {
         let mut conn = pool_for_db.get().map_err(|_| Status::InternalServerError)?;
         let now = Utc::now().naive_utc();
-        // Load server settings for TTL default/cap
+
         let settings_row = load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
-        // Determine TTL
         let ttl_to_use = form
             .ttl_seconds
             .map(|t| if t < settings_row.default_action_ttl_seconds { t } else { settings_row.default_action_ttl_seconds })
             .unwrap_or(settings_row.default_action_ttl_seconds);
         let expiry_time = now + Duration::seconds(ttl_to_use);
-        // Insert action
+
         let new_action = NewAction {
             action_type: form.command.clone(),
             parameters: None,
@@ -51,40 +51,32 @@ pub async fn submit_action(
             expires_at: expiry_time,
             canceled: false,
         };
+
         diesel::insert_into(actions_dsl::actions)
             .values(&new_action)
             .execute(&mut conn)
-            .map_err(|e| {
-                log::error!("Failed to insert action: {:?}", e);
-                Status::InternalServerError
-            })?;
-        // Retrieve action id
+            .map_err(|e| { log::error!("Failed to insert action: {:?}", e); Status::InternalServerError })?;
+
         let last_id: i64 = actions_dsl::actions
             .select(actions_dsl::id)
             .order(actions_dsl::id.desc())
             .first::<i64>(&mut conn)
-            .map_err(|e| {
-                log::error!("Failed to obtain action id: {:?}", e);
-                Status::InternalServerError
-            })?;
-        // Insert action target
+            .map_err(|e| { log::error!("Failed to obtain action id: {:?}", e); Status::InternalServerError })?;
+
         let new_target = NewActionTarget::pending(last_id, form.target_device_id);
         diesel::insert_into(action_targets::action_targets)
             .values(&new_target)
             .execute(&mut conn)
-            .map_err(|e| {
-                log::error!("Failed to insert action target: {:?}", e);
-                Status::InternalServerError
-            })?;
-        // Audit the action submission
-        let _ = db_log_audit(
+            .map_err(|e| { log::error!("Failed to insert action target: {:?}", e); Status::InternalServerError })?;
+
+        db_log_audit(
             &mut conn,
             &username,
             &format!("action_submitted:{}", last_id),
             Some(&form.target_device_id.to_string()),
             Some("action submitted"),
-        );
-        // Insert a history row for this action (use db::insert_history)
+        )?;
+
         let history_record = NewHistory {
             action_id: last_id,
             device_name: None,
@@ -93,28 +85,32 @@ pub async fn submit_action(
             details: Some(&form.command),
             created_at: now,
         };
-        let _ = insert_history(&mut conn, &history_record).map_err(|e| {
+        insert_history(&mut conn, &history_record).map_err(|e| {
             log::warn!("Failed to insert history row for action {}: {:?}", last_id, e);
             Status::InternalServerError
         })?;
+
         Ok(last_id)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Json(serde_json::json!({ "action_id": action_id_res, "status": "queued" })))
 }
 
 #[get("/api/actions")]
 pub async fn list_actions(pool: &State<DbPool>) -> Result<Json<Vec<Action>>, Status> {
     let pool = pool.inner().clone();
-    let res = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<Action>, Status> {
+    let actions = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<Action>, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let rows = actions_dsl::actions.load::<Action>(&mut conn).map_err(|_| Status::InternalServerError)?;
+        let rows = actions_dsl::actions.load::<Action>(&mut conn)
+            .map_err(|_| Status::InternalServerError)?;
         Ok(rows)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
-    Ok(Json(res))
+
+    Ok(Json(actions))
 }
 
 /// POST /api/actions/<action_id>/ttl -> extend/update TTL for an action (admin only)
@@ -128,19 +124,22 @@ pub async fn extend_action_ttl(
     if !user.has_role(crate::auth::RoleName::Admin) {
         return Err(Status::Unauthorized);
     }
+
     let pool = pool.inner().clone();
     let ttl_val = payload.ttl_seconds;
     let username = user.username.clone();
-    let res = rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
+
+    rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        // Load settings to cap TTL
         let settings_row = load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
-        update_action_ttl(&mut conn, action_id, ttl_val, &settings_row).map_err(|_| Status::InternalServerError)?;
-        let _ = db_log_audit(&mut conn, &username, "extend_action_ttl", Some(&action_id.to_string()), Some(&format!("new_ttl={}", ttl_val)));
+        update_action_ttl(&mut conn, action_id, ttl_val, &settings_row)
+            .map_err(|_| Status::InternalServerError)?;
+        db_log_audit(&mut conn, &username, "extend_action_ttl", Some(&action_id.to_string()), Some(&format!("new_ttl={}", ttl_val)))?;
         Ok(())
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Json(serde_json::json!({ "status": "ok", "action_id": action_id })))
 }
 
@@ -155,6 +154,7 @@ pub async fn get_action_ttl(pool: &State<DbPool>, action_id: i64) -> Result<Json
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Json(serde_json::json!({ "action_id": action_id, "ttl_seconds_remaining": remaining })))
 }
 
@@ -164,4 +164,3 @@ pub fn routes() -> Vec<Route> {
         .into_iter()
         .collect()
 }
- 
