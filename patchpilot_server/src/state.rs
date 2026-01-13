@@ -3,9 +3,11 @@ use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 use sysinfo::System;
+use diesel::result::QueryResult;
+use diesel::sqlite::SqliteConnection;
+
 use crate::settings::ServerSettings;
 use crate::db::DbPool;
-use diesel::result::QueryResult;
 
 /// Tracks current system metrics
 #[derive(Clone)]
@@ -22,7 +24,6 @@ impl SystemState {
         })
     }
 
-    /// Refresh in-memory system metrics
     pub fn refresh(&self) {
         if let Ok(mut sys) = self.system.write() {
             sys.refresh_all();
@@ -49,17 +50,14 @@ impl SystemState {
 /// Holds server-wide state
 pub struct AppState {
     pub system: Arc<SystemState>,
-    /// pending device heartbeats: device_id -> last-seen instant
     pub pending_devices: Arc<RwLock<HashMap<String, Instant>>>,
-    /// runtime settings (wrapping the DB-loaded settings struct)
     pub settings: Arc<RwLock<ServerSettings>>,
     pub db_pool: DbPool,
 
-    /// Optional audit logger closure that returns a Diesel QueryResult<()>
     pub log_audit: Option<
         Arc<
             dyn Fn(
-                    &mut diesel::SqliteConnection,
+                    &mut SqliteConnection,
                     &str,
                     &str,
                     Option<&str>,
@@ -72,11 +70,9 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Logs an audit event if closure is attached.
-    /// returns Ok(()) if logged (or if no closure attached).
     pub fn log_audit(
         &self,
-        conn: &mut diesel::SqliteConnection,
+        conn: &mut SqliteConnection,
         actor: &str,
         action_type: &str,
         target: Option<&str>,
@@ -89,14 +85,12 @@ impl AppState {
         }
     }
 
-    /// Registers or updates a pending device heartbeat.
     pub fn update_pending_device(&self, device_id: &str) {
         if let Ok(mut pending) = self.pending_devices.write() {
             pending.insert(device_id.to_string(), Instant::now());
         }
     }
 
-    /// Removes stale pending devices older than `max_age_secs`.
     pub fn cleanup_stale_devices(&self, max_age_secs: u64) {
         if let Ok(mut pending) = self.pending_devices.write() {
             let now = Instant::now();

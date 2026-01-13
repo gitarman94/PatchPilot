@@ -125,8 +125,8 @@ diesel::table! {
     }
 }
 
-diesel::joinable!(user_roles -> roles (role_id));
 diesel::joinable!(user_roles -> users (user_id));
+diesel::joinable!(user_roles -> roles (role_id));
 diesel::joinable!(user_groups -> users (user_id));
 diesel::joinable!(user_groups -> groups (group_id));
 

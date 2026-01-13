@@ -1,9 +1,9 @@
-// src/auth.rs
 use rocket::form::Form;
 use rocket::http::{Cookie, CookieJar, SameSite, Status};
 use rocket::request::{FromRequest, Outcome, Request};
 use rocket::response::{Redirect, content::RawHtml};
 use rocket::State;
+
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use bcrypt::verify;
@@ -42,7 +42,6 @@ impl UserRole {
     pub fn from_name(name: &str) -> UserRole {
         match name.to_ascii_lowercase().as_str() {
             "admin" => UserRole::Admin,
-            "user" => UserRole::User,
             _ => UserRole::User,
         }
     }
@@ -78,17 +77,17 @@ impl<'r> FromRequest<'r> for AuthUser {
             .and_then(|c| c.value().parse().ok())
         {
             Some(id) => id,
-            None => return Outcome::Error((Status::Unauthorized, ())),
+            None => return Outcome::Failure((Status::Unauthorized, ())),
         };
 
         let pool = match req.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Error((Status::InternalServerError, ())),
+            _ => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Error((Status::InternalServerError, ())),
+            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         let result = users::table
@@ -104,10 +103,9 @@ impl<'r> FromRequest<'r> for AuthUser {
                     .as_deref()
                     .map(|r| UserRole::from_name(r).as_str().to_string())
                     .unwrap_or_else(|| UserRole::User.as_str().to_string());
-
                 Outcome::Success(AuthUser { id, username, role })
             }
-            Err(_) => Outcome::Error((Status::Unauthorized, ())),
+            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
         }
     }
 }
@@ -139,21 +137,18 @@ pub fn login(
         return Redirect::to("/login");
     }
 
-    let mut cookie = Cookie::new("user_id", id.to_string());
-    cookie.set_same_site(SameSite::Lax);
-    cookies.add_private(cookie);
+    cookies.add_private(
+        Cookie::build("user_id", id.to_string())
+            .same_site(SameSite::Lax)
+            .finish(),
+    );
 
     let role = role_opt
         .as_deref()
         .map(|r| UserRole::from_name(r).as_str().to_string())
         .unwrap_or_else(|| UserRole::User.as_str().to_string());
 
-    let user = AuthUser {
-        id,
-        username,
-        role,
-    };
-
+    let user = AuthUser { id, username, role };
     user.audit(&mut conn, "login", None);
 
     Redirect::to("/dashboard")
@@ -165,7 +160,7 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
         .get_private("user_id")
         .and_then(|c| c.value().parse::<i32>().ok());
 
-    cookies.remove_private(Cookie::build("user_id").build());
+    cookies.remove_private(Cookie::build("user_id").finish());
 
     if let Some(uid) = user_id {
         if let Ok(mut conn) = pool.get() {
@@ -181,11 +176,7 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
                     .map(|r| UserRole::from_name(r).as_str().to_string())
                     .unwrap_or_else(|| UserRole::User.as_str().to_string());
 
-                let user = AuthUser {
-                    id: uid,
-                    username,
-                    role,
-                };
+                let user = AuthUser { id: uid, username, role };
                 user.audit(&mut conn, "logout", None);
             }
         }

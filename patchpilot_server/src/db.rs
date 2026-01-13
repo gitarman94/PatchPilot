@@ -21,7 +21,11 @@ fn init_logger() {
     Logger::try_with_str("info")
         .unwrap()
         .log_to_file(FileSpec::default().directory("logs"))
-        .rotate(Criterion::Age(Age::Day), Naming::Numbers, Cleanup::KeepLogFiles(7))
+        .rotate(
+            Criterion::Age(Age::Day),
+            Naming::Numbers,
+            Cleanup::KeepLogFiles(7),
+        )
         .start()
         .unwrap();
 }
@@ -29,8 +33,8 @@ fn init_logger() {
 fn init_pool() -> DbPool {
     let database_url =
         env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
-    let manager = ConnectionManager::<SqliteConnection>::new(database_url);
 
+    let manager = ConnectionManager::<SqliteConnection>::new(database_url);
     let pool = Pool::builder()
         .build(manager)
         .expect("Failed to create DB pool");
@@ -56,7 +60,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             os_name TEXT NOT NULL,
             architecture TEXT NOT NULL,
             last_checkin DATETIME NOT NULL,
-            approved INTEGER NOT NULL DEFAULT 0,
+            approved BOOLEAN NOT NULL DEFAULT 0,
             cpu_usage REAL NOT NULL DEFAULT 0.0,
             cpu_count INTEGER NOT NULL DEFAULT 1,
             cpu_brand TEXT NOT NULL DEFAULT '',
@@ -68,13 +72,14 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             network_throughput BIGINT NOT NULL DEFAULT 0,
             device_type TEXT NOT NULL DEFAULT '',
             device_model TEXT NOT NULL DEFAULT '',
-            uptime TEXT,
-            updates_available INTEGER NOT NULL DEFAULT 0,
+            uptime BIGINT,
+            updates_available BOOLEAN NOT NULL DEFAULT 0,
             network_interfaces TEXT,
             ip_address TEXT
         );
         "#
-    ).execute(conn)?;
+    )
+    .execute(conn)?;
 
     sql_query(
         r#"
@@ -85,29 +90,31 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             author TEXT,
             created_at DATETIME NOT NULL,
             expires_at DATETIME NOT NULL,
-            canceled INTEGER NOT NULL DEFAULT 0
+            canceled BOOLEAN NOT NULL DEFAULT 0
         );
         "#
-    ).execute(conn)?;
+    )
+    .execute(conn)?;
 
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS action_targets (
             id INTEGER PRIMARY KEY,
-            action_id INTEGER NOT NULL,
-            device_id INTEGER NOT NULL,
+            action_id BIGINT NOT NULL,
+            device_id BIGINT NOT NULL,
             status TEXT NOT NULL,
             last_update DATETIME NOT NULL,
             response TEXT
         );
         "#
-    ).execute(conn)?;
+    )
+    .execute(conn)?;
 
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS history_log (
             id INTEGER PRIMARY KEY,
-            action_id INTEGER NOT NULL,
+            action_id BIGINT NOT NULL,
             device_name TEXT,
             actor TEXT,
             action_type TEXT NOT NULL,
@@ -115,7 +122,8 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             created_at DATETIME NOT NULL
         );
         "#
-    ).execute(conn)?;
+    )
+    .execute(conn)?;
 
     sql_query(
         r#"
@@ -128,7 +136,8 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             created_at DATETIME NOT NULL
         );
         "#
-    ).execute(conn)?;
+    )
+    .execute(conn)?;
 
     sql_query(
         r#"
@@ -139,7 +148,8 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             created_at DATETIME NOT NULL
         );
         "#
-    ).execute(conn)?;
+    )
+    .execute(conn)?;
 
     sql_query(
         r#"
@@ -148,7 +158,8 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             name TEXT NOT NULL UNIQUE
         );
         "#
-    ).execute(conn)?;
+    )
+    .execute(conn)?;
 
     sql_query(
         r#"
@@ -158,7 +169,8 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             role_id INTEGER NOT NULL
         );
         "#
-    ).execute(conn)?;
+    )
+    .execute(conn)?;
 
     sql_query(
         r#"
@@ -168,7 +180,8 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             description TEXT
         );
         "#
-    ).execute(conn)?;
+    )
+    .execute(conn)?;
 
     sql_query(
         r#"
@@ -178,22 +191,24 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             group_id INTEGER NOT NULL
         );
         "#
-    ).execute(conn)?;
+    )
+    .execute(conn)?;
 
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS server_settings (
             id INTEGER PRIMARY KEY,
-            auto_approve_devices INTEGER NOT NULL DEFAULT 0,
-            auto_refresh_enabled INTEGER NOT NULL DEFAULT 1,
+            auto_approve_devices BOOLEAN NOT NULL DEFAULT 0,
+            auto_refresh_enabled BOOLEAN NOT NULL DEFAULT 1,
             auto_refresh_seconds BIGINT NOT NULL DEFAULT 30,
             default_action_ttl_seconds BIGINT NOT NULL DEFAULT 3600,
-            action_polling_enabled INTEGER NOT NULL DEFAULT 1,
+            action_polling_enabled BOOLEAN NOT NULL DEFAULT 1,
             ping_target_ip TEXT NOT NULL DEFAULT '8.8.8.8',
-            force_https INTEGER NOT NULL DEFAULT 0
+            force_https BOOLEAN NOT NULL DEFAULT 0
         );
         "#
-    ).execute(conn)?;
+    )
+    .execute(conn)?;
 
     sql_query(
         r#"
@@ -202,7 +217,8 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
          default_action_ttl_seconds, action_polling_enabled, ping_target_ip, force_https)
         VALUES (1, 0, 1, 30, 3600, 1, '8.8.8.8', 0);
         "#
-    ).execute(conn)?;
+    )
+    .execute(conn)?;
 
     Ok(())
 }
@@ -221,16 +237,14 @@ pub struct ServerSettingsRow {
 }
 
 pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsRow> {
-    use crate::schema::server_settings::dsl::*;
-    server_settings.first(conn)
+    server_settings::table.first(conn)
 }
 
 pub fn save_settings(
     conn: &mut SqliteConnection,
     settings: &ServerSettingsRow,
 ) -> QueryResult<()> {
-    use crate::schema::server_settings::dsl::*;
-    diesel::replace_into(server_settings)
+    diesel::replace_into(server_settings::table)
         .values(settings)
         .execute(conn)?;
     Ok(())
@@ -251,8 +265,7 @@ pub fn insert_history(
     conn: &mut SqliteConnection,
     entry: &NewHistory<'_>,
 ) -> QueryResult<usize> {
-    use crate::schema::history_log::dsl::*;
-    diesel::insert_into(history_log)
+    diesel::insert_into(history_log::table)
         .values(entry)
         .execute(conn)
 }
@@ -271,7 +284,6 @@ pub fn insert_audit(
     conn: &mut SqliteConnection,
     entry: &AuditLog,
 ) -> QueryResult<usize> {
-    use crate::schema::audit::dsl::*;
     let record = NewAudit {
         actor: &entry.actor,
         action_type: &entry.action_type,
@@ -279,7 +291,10 @@ pub fn insert_audit(
         details: entry.details.as_deref(),
         created_at: entry.created_at,
     };
-    diesel::insert_into(audit).values(&record).execute(conn)
+
+    diesel::insert_into(audit::table)
+        .values(&record)
+        .execute(conn)
 }
 
 pub fn log_audit(
@@ -297,6 +312,7 @@ pub fn log_audit(
         details: details.map(str::to_string),
         created_at: Utc::now().naive_utc(),
     };
+
     insert_audit(conn, &entry)?;
     Ok(())
 }
@@ -307,11 +323,11 @@ pub fn update_action_ttl(
     new_ttl_seconds: i64,
     settings: &ServerSettingsRow,
 ) -> QueryResult<usize> {
-    use crate::schema::actions::dsl::*;
     let ttl = std::cmp::min(new_ttl_seconds, settings.default_action_ttl_seconds);
     let expires = Utc::now().naive_utc() + chrono::Duration::seconds(ttl);
-    diesel::update(actions.filter(id.eq(action_id_val)))
-        .set(expires_at.eq(expires))
+
+    diesel::update(actions::table.filter(actions::id.eq(action_id_val)))
+        .set(actions::expires_at.eq(expires))
         .execute(conn)
 }
 
@@ -319,11 +335,11 @@ pub fn fetch_action_ttl(
     conn: &mut SqliteConnection,
     action_id_val: i64,
 ) -> QueryResult<i64> {
-    use crate::schema::actions::dsl::*;
-    let expiry: NaiveDateTime = actions
-        .filter(id.eq(action_id_val))
-        .select(expires_at)
+    let expiry: NaiveDateTime = actions::table
+        .filter(actions::id.eq(action_id_val))
+        .select(actions::expires_at)
         .first(conn)?;
+
     let now = Utc::now().naive_utc();
     Ok(std::cmp::max(0, (expiry - now).num_seconds()))
 }
