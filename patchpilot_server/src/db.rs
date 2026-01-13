@@ -12,6 +12,7 @@ use crate::models::AuditLog;
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
 
+/// Initialize logger and DB pool
 pub fn initialize() -> DbPool {
     init_logger();
     init_pool()
@@ -48,6 +49,7 @@ pub fn get_conn(pool: &DbPool) -> DbConn {
     pool.get().expect("Failed to get DB connection")
 }
 
+/// Initialize database tables
 fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     // devices table
     sql_query(
@@ -234,6 +236,23 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     Ok(())
 }
 
+
+// DATABASE STRUCTS
+// SERVER SETTINGS STRUCT
+#[derive(Queryable, Insertable, AsChangeset, Debug, Clone)]
+#[diesel(table_name = server_settings)]
+pub struct ServerSettingsRow { // <-- made public
+    pub id: i32,
+    pub auto_approve_devices: bool,
+    pub auto_refresh_enabled: bool,
+    pub auto_refresh_seconds: i64,
+    pub default_action_ttl_seconds: i64,
+    pub action_polling_enabled: bool,
+    pub ping_target_ip: String,
+    pub force_https: bool,
+}
+
+
 // LOAD / SAVE SETTINGS
 pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsRow> {
     server_settings::table.first(conn)
@@ -248,6 +267,7 @@ pub fn save_settings(
         .execute(conn)?;
     Ok(())
 }
+
 
 // HISTORY LOG
 #[derive(Insertable)]
@@ -269,6 +289,7 @@ pub fn insert_history(
         .values(entry)
         .execute(conn)
 }
+
 
 // AUDIT LOG
 #[derive(Insertable)]
@@ -319,8 +340,8 @@ pub fn log_audit(
     Ok(())
 }
 
-/// Alias to fix `db_log_audit` imports
 pub use log_audit as db_log_audit;
+
 
 // ACTION TTL HELPERS
 pub fn update_action_ttl(
