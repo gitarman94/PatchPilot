@@ -69,13 +69,14 @@ pub async fn submit_action(
             .execute(&mut conn)
             .map_err(|e| { log::error!("Failed to insert action target: {:?}", e); Status::InternalServerError })?;
 
-        db_log_audit(
+        let _ = db_log_audit(
             &mut conn,
             &username,
             &format!("action_submitted:{}", last_id),
             Some(&form.target_device_id.to_string()),
             Some("action submitted"),
-        )?;
+        )
+        .map_err(|e| { log::warn!("Failed to log audit for action {}: {:?}", last_id, e); Status::InternalServerError })?;
 
         let history_record = NewHistory {
             action_id: last_id,
@@ -134,7 +135,16 @@ pub async fn extend_action_ttl(
         let settings_row = load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
         update_action_ttl(&mut conn, action_id, ttl_val, &settings_row)
             .map_err(|_| Status::InternalServerError)?;
-        db_log_audit(&mut conn, &username, "extend_action_ttl", Some(&action_id.to_string()), Some(&format!("new_ttl={}", ttl_val)))?;
+
+        let _ = db_log_audit(
+            &mut conn,
+            &username,
+            "extend_action_ttl",
+            Some(&action_id.to_string()),
+            Some(&format!("new_ttl={}", ttl_val)),
+        )
+        .map_err(|e| { log::warn!("Failed to log audit for TTL update {}: {:?}", action_id, e); Status::InternalServerError })?;
+
         Ok(())
     })
     .await
@@ -160,7 +170,5 @@ pub async fn get_action_ttl(pool: &State<DbPool>, action_id: i64) -> Result<Json
 
 use rocket::Route;
 pub fn routes() -> Vec<Route> {
-    routes![submit_action, list_actions, extend_action_ttl, get_action_ttl]
-        .into_iter()
-        .collect()
+    routes![submit_action, list_actions, extend_action_ttl, get_action_ttl].into_iter().collect()
 }

@@ -10,8 +10,8 @@ use crate::db::{self, ServerSettingsRow}; // import ServerSettingsRow from db
 pub struct ServerSettingsForm {
     pub auto_approve_devices: Option<bool>,
     pub auto_refresh_enabled: Option<bool>,
-    pub auto_refresh_seconds: Option<u32>,
-    pub default_action_ttl_seconds: Option<u32>,
+    pub auto_refresh_seconds: Option<i64>,       // fixed type
+    pub default_action_ttl_seconds: Option<i64>, // fixed type
     pub action_polling_enabled: Option<bool>,
     pub ping_target_ip: Option<String>,
     pub force_https: Option<bool>,
@@ -108,4 +108,9 @@ pub async fn update_settings(
         Ok(Ok(_)) => Status::Ok,
         _ => Status::InternalServerError,
     }
+}
+
+use rocket::Route;
+pub fn routes() -> Vec<Route> {
+    routes![view_settings, update_settings].into_iter().collect()
 }
