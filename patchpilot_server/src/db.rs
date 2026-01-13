@@ -1,3 +1,4 @@
+// src/db.rs
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 use diesel::sqlite::SqliteConnection;
@@ -21,7 +22,7 @@ pub fn init_logger() {
         .unwrap();
 }
 
-/// Create DB connection pool
+/// Create DB connection pool and ensure DB is initialized
 pub fn init_pool() -> DbPool {
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
@@ -47,37 +48,73 @@ pub fn get_conn(pool: &DbPool) -> DbConn {
 }
 
 /// Initialize database tables and default rows if missing
+/// This creates every table declared in src/schema.rs so first-run will not panic.
 fn initialize_database(conn: &SqliteConnection) -> QueryResult<()> {
-    // Create server_settings table
+    // devices
     sql_query(
         r#"
-        CREATE TABLE IF NOT EXISTS server_settings (
+        CREATE TABLE IF NOT EXISTS devices (
             id INTEGER PRIMARY KEY,
-            auto_approve_devices INTEGER NOT NULL DEFAULT 0,
-            auto_refresh_enabled INTEGER NOT NULL DEFAULT 1,
-            auto_refresh_seconds INTEGER NOT NULL DEFAULT 30,
-            default_action_ttl_seconds INTEGER NOT NULL DEFAULT 3600,
-            action_polling_enabled INTEGER NOT NULL DEFAULT 1,
-            ping_target_ip TEXT NOT NULL DEFAULT '8.8.8.8',
-            force_https INTEGER NOT NULL DEFAULT 0
+            device_id BIGINT NOT NULL,
+            device_name TEXT NOT NULL,
+            hostname TEXT NOT NULL,
+            os_name TEXT NOT NULL,
+            architecture TEXT NOT NULL,
+            last_checkin DATETIME NOT NULL,
+            approved INTEGER NOT NULL DEFAULT 0,
+            cpu_usage REAL NOT NULL DEFAULT 0.0,
+            cpu_count INTEGER NOT NULL DEFAULT 1,
+            cpu_brand TEXT NOT NULL DEFAULT '',
+            ram_total BIGINT NOT NULL DEFAULT 0,
+            ram_used BIGINT NOT NULL DEFAULT 0,
+            disk_total BIGINT NOT NULL DEFAULT 0,
+            disk_free BIGINT NOT NULL DEFAULT 0,
+            disk_health TEXT NOT NULL DEFAULT '',
+            network_throughput BIGINT NOT NULL DEFAULT 0,
+            device_type TEXT NOT NULL DEFAULT '',
+            device_model TEXT NOT NULL DEFAULT '',
+            uptime TEXT,
+            updates_available INTEGER NOT NULL DEFAULT 0,
+            network_interfaces TEXT,
+            ip_address TEXT
         );
         "#
     ).execute(conn)?;
 
-    // Insert default server_settings row if missing
+    // actions
     sql_query(
         r#"
-        INSERT OR IGNORE INTO server_settings
-        (id, auto_approve_devices, auto_refresh_enabled, auto_refresh_seconds, default_action_ttl_seconds, action_polling_enabled, ping_target_ip, force_https)
-        VALUES (1, 0, 1, 30, 3600, 1, '8.8.8.8', 0);
+        CREATE TABLE IF NOT EXISTS actions (
+            id INTEGER PRIMARY KEY,
+            action_type TEXT NOT NULL,
+            parameters TEXT,
+            author TEXT,
+            created_at DATETIME NOT NULL,
+            expires_at DATETIME NOT NULL,
+            canceled INTEGER NOT NULL DEFAULT 0
+        );
         "#
     ).execute(conn)?;
 
-    // Create history_log table if missing
+    // action_targets
+    sql_query(
+        r#"
+        CREATE TABLE IF NOT EXISTS action_targets (
+            id INTEGER PRIMARY KEY,
+            action_id INTEGER NOT NULL,
+            device_id INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            last_update DATETIME NOT NULL,
+            response TEXT
+        );
+        "#
+    ).execute(conn)?;
+
+    // history_log
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS history_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY,
             action_id INTEGER NOT NULL,
             device_name TEXT,
             actor TEXT,
@@ -88,11 +125,11 @@ fn initialize_database(conn: &SqliteConnection) -> QueryResult<()> {
         "#
     ).execute(conn)?;
 
-    // Create audit table if missing
+    // audit
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS audit (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY,
             actor TEXT NOT NULL,
             action_type TEXT NOT NULL,
             target TEXT,
@@ -102,16 +139,96 @@ fn initialize_database(conn: &SqliteConnection) -> QueryResult<()> {
         "#
     ).execute(conn)?;
 
+    // users
+    sql_query(
+        r#"
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at DATETIME NOT NULL
+        );
+        "#
+    ).execute(conn)?;
+
+    // roles
+    sql_query(
+        r#"
+        CREATE TABLE IF NOT EXISTS roles (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE
+        );
+        "#
+    ).execute(conn)?;
+
+    // user_roles
+    sql_query(
+        r#"
+        CREATE TABLE IF NOT EXISTS user_roles (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            role_id INTEGER NOT NULL
+        );
+        "#
+    ).execute(conn)?;
+
+    // groups
+    sql_query(
+        r#"
+        CREATE TABLE IF NOT EXISTS groups (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT
+        );
+        "#
+    ).execute(conn)?;
+
+    // user_groups
+    sql_query(
+        r#"
+        CREATE TABLE IF NOT EXISTS user_groups (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            group_id INTEGER NOT NULL
+        );
+        "#
+    ).execute(conn)?;
+
+    // server_settings
+    sql_query(
+        r#"
+        CREATE TABLE IF NOT EXISTS server_settings (
+            id INTEGER PRIMARY KEY,
+            auto_approve_devices INTEGER NOT NULL DEFAULT 0,
+            auto_refresh_enabled INTEGER NOT NULL DEFAULT 1,
+            auto_refresh_seconds BIGINT NOT NULL DEFAULT 30,
+            default_action_ttl_seconds BIGINT NOT NULL DEFAULT 3600,
+            action_polling_enabled INTEGER NOT NULL DEFAULT 1,
+            ping_target_ip TEXT NOT NULL DEFAULT '8.8.8.8',
+            force_https INTEGER NOT NULL DEFAULT 0
+        );
+        "#
+    ).execute(conn)?;
+
+    // Ensure there is exactly one settings row (id = 1)
+    sql_query(
+        r#"
+        INSERT OR IGNORE INTO server_settings
+        (id, auto_approve_devices, auto_refresh_enabled, auto_refresh_seconds, default_action_ttl_seconds, action_polling_enabled, ping_target_ip, force_https)
+        VALUES (1, 0, 1, 30, 3600, 1, '8.8.8.8', 0);
+        "#
+    ).execute(conn)?;
+
     Ok(())
 }
 
-/// Initialize DB (logging + tables + pool)
+/// Initialize DB (logging + pool + tables)
 pub fn initialize() -> DbPool {
     init_logger();
     init_pool()
 }
 
-/// ServerSettings row representation
+/// ServerSettings row representation (keep as in your code)
 #[derive(Queryable, Insertable, AsChangeset, Debug, Clone, Default)]
 #[diesel(table_name = server_settings)]
 pub struct ServerSettingsRow {
