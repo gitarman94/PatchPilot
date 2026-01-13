@@ -7,7 +7,11 @@ use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use chrono::{Utc, NaiveDateTime};
 use std::env;
 use crate::models::AuditLog;
-use crate::schema::{audit, server_settings, history_log};
+
+#[macro_use]
+extern crate diesel;
+
+use crate::schema::*;
 
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
@@ -244,7 +248,7 @@ pub struct ServerSettingsRow {
 
 /// Load server settings (create default if missing)
 pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsRow> {
-    use crate::schema::server_settings::dsl as ss_dsl;
+    use crate::schema::server_settings::dsl::*;
     match ss_dsl::server_settings.first::<ServerSettingsRow>(conn) {
         Ok(s) => Ok(s),
         Err(diesel::result::Error::NotFound) => {
@@ -269,7 +273,7 @@ pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsR
 
 /// Save server settings row (replace single-row record)
 pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettingsRow) -> QueryResult<()> {
-    use crate::schema::server_settings::dsl as ss_dsl;
+    use crate::schema::server_settings::dsl::*;
     diesel::replace_into(ss_dsl::server_settings)
         .values(settings)
         .execute(conn)?;

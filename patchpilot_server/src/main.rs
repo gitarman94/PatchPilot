@@ -6,16 +6,22 @@ mod auth;
 mod state;
 mod settings;
 mod routes;
+mod action_ttl;
+mod pending_cleanup;
 
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 
-use rocket::fs::FileServer;
+use rocket::fs::{FileServer, relative};
 use rocket_dyn_templates::Template;
 use db::{DbPool, initialize, get_conn};
-use models::{AuthUser, UserRole, ServerSettings};
+use auth::AuthUser;
+use models::{UserRole, ServerSettings};
 use state::{SystemState, AppState};
-use routes::{spawn_action_ttl_task, spawn_pending_cleanup};
+use action_ttl::spawn_action_ttl_task;
+use pending_cleanup::spawn_pending_cleanup;
+
+
 
 #[launch]
 fn rocket() -> _ {
@@ -72,7 +78,7 @@ fn rocket() -> _ {
         let user = AuthUser {
             id: 1,
             username: "admin".to_string(),
-            role: UserRole::Admin.as_str().to_string(),
+            role: UserRole::ADMIN.to_string(),
         };
         if let Err(e) = user.audit(&mut conn, "server_started", None) {
             log::error!("Failed to log server start audit: {:?}", e);

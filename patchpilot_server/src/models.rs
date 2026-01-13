@@ -1,13 +1,11 @@
-// src/models.rs
 use diesel::prelude::*;
+use diesel::sqlite::SqliteConnection;
 use chrono::{NaiveDateTime, Utc};
 use serde::{Serialize, Deserialize};
-
 use crate::schema::{
     devices, actions, action_targets, history_log, audit, users, roles, user_roles, server_settings,
     user_groups, groups,
 };
-
 
 // Device models
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
@@ -65,6 +63,17 @@ pub struct NewDevice {
     pub ip_address: Option<String>,
 }
 
+impl Device {
+    pub fn all(conn: &mut SqliteConnection) -> QueryResult<Vec<Device>> {
+        use crate::schema::devices::dsl::*;
+        devices.load::<Device>(conn)
+    }
+
+    pub fn find_by_id(conn: &mut SqliteConnection, device_id_param: i64) -> QueryResult<Device> {
+        use crate::schema::devices::dsl::*;
+        devices.filter(id.eq(device_id_param)).first(conn)
+    }
+}
 
 // Action models
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
@@ -88,6 +97,13 @@ pub struct NewAction {
     pub created_at: NaiveDateTime,
     pub expires_at: NaiveDateTime,
     pub canceled: bool,
+}
+
+impl Action {
+    pub fn all(conn: &mut SqliteConnection) -> QueryResult<Vec<Action>> {
+        use crate::schema::actions::dsl::*;
+        actions.load::<Action>(conn)
+    }
 }
 
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
@@ -123,11 +139,10 @@ impl NewActionTarget {
     }
 }
 
-
 // History log model
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = history_log)]
-pub struct HistoryLog {
+pub struct HistoryEntry {
     pub id: i64,
     pub action_id: i64,
     pub device_name: Option<String>,
@@ -137,6 +152,12 @@ pub struct HistoryLog {
     pub created_at: NaiveDateTime,
 }
 
+impl HistoryEntry {
+    pub fn all(conn: &mut SqliteConnection) -> QueryResult<Vec<HistoryEntry>> {
+        use crate::schema::history_log::dsl::*;
+        history_log.load::<HistoryEntry>(conn)
+    }
+}
 
 // Audit log model
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
@@ -150,7 +171,6 @@ pub struct AuditLog {
     pub created_at: NaiveDateTime,
 }
 
-
 // User / Roles models
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = users)]
@@ -159,6 +179,13 @@ pub struct User {
     pub username: String,
     pub password_hash: String,
     pub created_at: NaiveDateTime,
+}
+
+impl User {
+    pub fn all(conn: &mut SqliteConnection) -> QueryResult<Vec<User>> {
+        use crate::schema::users::dsl::*;
+        users.load::<User>(conn)
+    }
 }
 
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
@@ -176,6 +203,14 @@ pub struct UserRole {
     pub id: i32,
     pub user_id: i32,
     pub role_id: i32,
+}
+
+impl UserRole {
+    pub const ADMIN: &'static str = "Admin";
+
+    pub fn as_str(&self) -> &'static str {
+        Self::ADMIN
+    }
 }
 
 #[derive(Debug, Queryable, Identifiable, Associations, Serialize, Deserialize)]
@@ -196,7 +231,6 @@ pub struct Group {
     pub description: Option<String>,
 }
 
-
 // Server Settings
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize, Clone, Default)]
 #[diesel(table_name = server_settings)]
@@ -209,4 +243,11 @@ pub struct ServerSettings {
     pub action_polling_enabled: bool,
     pub ping_target_ip: String,
     pub force_https: bool,
+}
+
+impl ServerSettings {
+    pub fn load(conn: &mut SqliteConnection) -> QueryResult<ServerSettings> {
+        use crate::schema::server_settings::dsl::*;
+        server_settings.first(conn)
+    }
 }
