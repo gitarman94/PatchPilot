@@ -119,3 +119,7 @@ use rocket::Route;
 pub fn routes() -> Vec<Route> {
     routes![submit_action, list_actions]
 }
+
+pub fn api_routes() -> Vec<rocket::Route> {
+    routes![submit_action, list_actions]
+}

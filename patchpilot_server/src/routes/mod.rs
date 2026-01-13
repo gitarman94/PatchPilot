@@ -8,23 +8,26 @@ pub mod pages;
 pub mod users_groups;
 pub mod roles;
 
+/// API routes (JSON API)
 pub fn api_routes() -> Vec<Route> {
     let mut routes = Vec::new();
-    routes.extend(devices::routes());
-    routes.extend(actions::routes());
-    routes.extend(settings::routes());
-    routes.extend(history::routes());
+    routes.extend(devices::api_routes());
+    routes.extend(actions::api_routes());
+    routes.extend(settings::api_routes());
+    routes.extend(history::api_routes());
     routes.extend(users_groups::api_users_groups_routes());
     routes.extend(roles::api_roles_routes());
     routes
 }
 
+/// Page routes (HTML pages)
 pub fn page_routes() -> Vec<Route> {
     let mut routes = Vec::new();
     routes.extend(pages::page_routes());
     routes
 }
 
+/// Authentication routes (login/logout)
 pub fn auth_routes() -> Vec<Route> {
     routes![
         crate::auth::login_page,

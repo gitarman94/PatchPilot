@@ -249,3 +249,14 @@ pub struct ServerSettings {
     pub ping_target_ip: String,
     pub force_https: bool,
 }
+
+impl UserRole {
+    /// Checks if this UserRole has an admin role
+    pub fn is_admin(&self, conn: &mut SqliteConnection) -> bool {
+        use crate::schema::roles::dsl::*;
+        if let Ok(role) = roles.filter(id.eq(self.role_id)).first::<Role>(conn) {
+            return role.name.to_lowercase() == "admin";
+        }
+        false
+    }
+}
