@@ -5,9 +5,7 @@ use rocket::response::Redirect;
 use rocket_dyn_templates::Template;
 use diesel::prelude::*;
 
-
-use crate::db::{DbPool, log_audit, insert_history, insert_audit};
-
+use crate::db::{DbPool, log_audit};
 use crate::auth::{AuthUser, RoleName};
 use crate::models::{Role as RoleModel};
 use crate::schema::{roles, user_roles};
@@ -22,7 +20,7 @@ pub fn list_roles(user: AuthUser, pool: &State<DbPool>) -> Template {
     if !user.has_role(RoleName::Admin) {
         return Template::render("unauthorized", &());
     }
-    let mut conn = match pool.get() {
+    let mut conn = match pool.inner().get() {
         Ok(c) => c,
         Err(_) => return Template::render("error", &()),
     };
@@ -35,7 +33,7 @@ pub fn add_role(user: AuthUser, pool: &State<DbPool>, form: Form<RoleForm>) -> R
     if !user.has_role(RoleName::Admin) {
         return Redirect::to("/unauthorized");
     }
-    let mut conn = match pool.get() {
+    let mut conn = match pool.inner().get() {
         Ok(c) => c,
         Err(_) => return Redirect::to("/roles"),
     };
@@ -50,14 +48,14 @@ pub fn delete_role(user: AuthUser, pool: &State<DbPool>, role_id: i32) -> Redire
     if !user.has_role(RoleName::Admin) {
         return Redirect::to("/unauthorized");
     }
-    let mut conn = match pool.get() {
+    let mut conn = match pool.inner().get() {
         Ok(c) => c,
         Err(_) => return Redirect::to("/roles"),
     };
     let role_name: String = roles::table
         .filter(roles::id.eq(role_id))
         .select(roles::name)
-        .first(&mut conn)
+        .first::<String>(&mut conn)
         .unwrap_or_else(|_| "".into());
     let _ = diesel::delete(user_roles::table.filter(user_roles::role_id.eq(role_id))).execute(&mut conn);
     let _ = diesel::delete(roles::table.filter(roles::id.eq(role_id))).execute(&mut conn);

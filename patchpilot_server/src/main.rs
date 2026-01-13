@@ -17,10 +17,9 @@ mod pending_cleanup;
 
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
-
 use db::{DbPool, initialize, get_conn};
 use auth::AuthUser;
-use models::ServerSettings;
+// removed unused import: models::ServerSettings;
 use state::{SystemState, AppState};
 
 #[launch]
@@ -76,11 +75,7 @@ fn rocket() -> _ {
     // Log server start audit (best-effort)
     {
         let mut conn = get_conn(&pool);
-        let user = AuthUser {
-            id: 1,
-            username: "admin".to_string(),
-            role: "Admin".to_string(),
-        };
+        let user = AuthUser { id: 1, username: "admin".to_string(), role: "Admin".to_string() };
         if let Err(e) = user.audit(&mut conn, "server_started", None) {
             log::error!("Failed to log server start audit: {:?}", e);
         }
@@ -88,7 +83,6 @@ fn rocket() -> _ {
 
     // Refresh system metrics
     app_state.system.refresh();
-
     log::info!(
         "System memory: total {} MB, available {} MB",
         app_state.system.total_memory() / 1024 / 1024,
@@ -107,6 +101,7 @@ fn rocket() -> _ {
         .mount("/roles", routes::roles::api_roles_routes())
         .mount("/history", rocket::routes![routes::history::api_history])
         .mount("/audit", rocket::routes![routes::history::api_audit])
+        .mount("/settings", routes::settings::routes())
         .mount("/static", FileServer::from(relative!("static")))
         .mount("/", routes::page_routes())
 }
