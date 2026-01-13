@@ -10,7 +10,8 @@ use diesel::sqlite::SqliteConnection;
 use bcrypt::verify;
 use std::fs::read_to_string;
 
-use crate::db::{DbPool, log_audit};
+use crate::db::{DbPool, log_audit, insert_history, insert_audit};
+
 use crate::schema::{users, roles, user_roles};
 use diesel::result::QueryResult;
 

@@ -7,7 +7,8 @@ use chrono::{Utc, NaiveDateTime};
 use std::env;
 
 use crate::schema::*;
-use crate::models::{AuditLog, ServerSettingsRow};
+use crate::models::AuditLog;
+use crate::db::ServerSettingsRow;
 
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;

@@ -9,8 +9,10 @@ use diesel::prelude::*;
 use chrono::{Utc, NaiveDateTime};
 use std::sync::Arc;
 
-use crate::db::{DbPool, db_log_audit};
-use crate::models::{Device, NewDevice, AppState};
+use crate::db::{DbPool, db_log_audit, insert_history, insert_audit};
+
+use crate::models::{Device, NewDevice};
+use crate::AppState;
 use crate::schema::devices::dsl::*;
 use crate::auth::{AuthUser, RoleName};
 

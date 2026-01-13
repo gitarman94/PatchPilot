@@ -6,7 +6,8 @@ use rocket_dyn_templates::Template;
 use diesel::prelude::*;
 
 
-use crate::db::{DbPool, log_audit};
+use crate::db::{DbPool, log_audit, insert_history, insert_audit};
+
 use crate::auth::{AuthUser, RoleName};
 use crate::models::{Role as RoleModel};
 use crate::schema::{roles, user_roles};
