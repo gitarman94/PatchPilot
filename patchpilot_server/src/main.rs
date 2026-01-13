@@ -1,5 +1,13 @@
-#[macro_use] extern crate rocket;
+// Import Diesel macros at crate root
+#[macro_use]
+extern crate diesel;
 
+// Import Rocket macros
+#[macro_use]
+extern crate rocket;
+
+// Declare all modules at crate root
+mod schema; // <-- Make schema visible to crate
 mod db;
 mod models;
 mod auth;
@@ -20,8 +28,6 @@ use models::{UserRole, ServerSettings};
 use state::{SystemState, AppState};
 use action_ttl::spawn_action_ttl_task;
 use pending_cleanup::spawn_pending_cleanup;
-
-
 
 #[launch]
 fn rocket() -> _ {
