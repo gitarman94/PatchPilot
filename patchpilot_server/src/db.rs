@@ -12,7 +12,6 @@ pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
 
 pub fn initialize_database() {
-    // Keep schema symbol referenced so diesel codegen isn't optimized away
     let _ = server_settings::table;
 }
 
