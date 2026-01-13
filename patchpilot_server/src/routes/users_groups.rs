@@ -1,12 +1,13 @@
-// src/routes/users_groups.rs
 use rocket::{get, post, delete, State};
 use rocket::form::Form;
 use rocket::response::Redirect;
+use rocket_dyn_templates::Template;
 use diesel::prelude::*;
 use std::collections::HashMap;
 
 use crate::db::{DbPool, log_audit as db_log_audit};
-use crate::auth::{AuthUser, UserRole};
+use crate::auth::AuthUser;
+use crate::models::UserRole;
 use crate::schema::{users, groups, user_groups};
 
 #[derive(FromForm)]
@@ -23,17 +24,14 @@ pub struct GroupForm {
 }
 
 #[get("/users-groups")]
-pub fn list_users_groups(
-    user: AuthUser,
-    pool: &State<DbPool>,
-) -> rocket_dyn_templates::Template {
+pub fn list_users_groups(user: AuthUser, pool: &State<DbPool>) -> Template {
     if !user.has_role(UserRole::Admin) {
-        return rocket_dyn_templates::Template::render("unauthorized", &());
+        return Template::render("unauthorized", &());
     }
 
     let mut conn = match pool.get() {
         Ok(c) => c,
-        Err(_) => return rocket_dyn_templates::Template::render("error", &()),
+        Err(_) => return Template::render("error", &()),
     };
 
     let all_groups = groups::table
@@ -56,18 +54,13 @@ pub fn list_users_groups(
         "group_users": group_users,
     });
 
-    // Audit log: viewing users/groups page
     let _ = db_log_audit(&mut conn, &user.username, "users_groups.view", None, None);
 
-    rocket_dyn_templates::Template::render("users_groups", &context)
+    Template::render("users_groups", &context)
 }
 
 #[post("/groups/add", data = "<form>")]
-pub fn add_group(
-    user: AuthUser,
-    pool: &State<DbPool>,
-    form: Form<GroupForm>,
-) -> Redirect {
+pub fn add_group(user: AuthUser, pool: &State<DbPool>, form: Form<GroupForm>) -> Redirect {
     if !user.has_role(UserRole::Admin) {
         return Redirect::to("/unauthorized");
     }
@@ -87,11 +80,7 @@ pub fn add_group(
 }
 
 #[post("/users/add", data = "<form>")]
-pub fn add_user(
-    user: AuthUser,
-    pool: &State<DbPool>,
-    form: Form<UserForm>,
-) -> Redirect {
+pub fn add_user(user: AuthUser, pool: &State<DbPool>, form: Form<UserForm>) -> Redirect {
     if !user.has_role(UserRole::Admin) {
         return Redirect::to("/unauthorized");
     }
@@ -112,9 +101,7 @@ pub fn add_user(
         users::password_hash.eq(hashed),
     );
 
-    let _ = diesel::insert_into(users::table)
-        .values(&new_user)
-        .execute(&mut conn);
+    let _ = diesel::insert_into(users::table).values(&new_user).execute(&mut conn);
 
     let new_id: i32 = users::table
         .order(users::id.desc())
@@ -130,15 +117,12 @@ pub fn add_user(
 
     let details = form.group_id.map(|gid| format!("assigned_group: {}", gid));
     let _ = db_log_audit(&mut conn, &user.username, "user.create", Some(&form.username), details.as_deref());
+
     Redirect::to("/users-groups")
 }
 
 #[delete("/groups/<group_id_val>")]
-pub fn delete_group(
-    user: AuthUser,
-    pool: &State<DbPool>,
-    group_id_val: i32,
-) -> Redirect {
+pub fn delete_group(user: AuthUser, pool: &State<DbPool>, group_id_val: i32) -> Redirect {
     if !user.has_role(UserRole::Admin) {
         return Redirect::to("/unauthorized");
     }
@@ -165,11 +149,7 @@ pub fn delete_group(
 }
 
 #[delete("/users/<user_id_val>")]
-pub fn delete_user(
-    user: AuthUser,
-    pool: &State<DbPool>,
-    user_id_val: i32,
-) -> Redirect {
+pub fn delete_user(user: AuthUser, pool: &State<DbPool>, user_id_val: i32) -> Redirect {
     if !user.has_role(UserRole::Admin) {
         return Redirect::to("/unauthorized");
     }
@@ -195,13 +175,6 @@ pub fn delete_user(
     Redirect::to("/users-groups")
 }
 
-// Helper used by main.rs to mount all API routes for the users-groups area
 pub fn api_users_groups_routes() -> Vec<rocket::Route> {
-    routes![
-        list_users_groups,
-        add_group,
-        add_user,
-        delete_group,
-        delete_user
-    ]
+    routes![list_users_groups, add_group, add_user, delete_group, delete_user]
 }

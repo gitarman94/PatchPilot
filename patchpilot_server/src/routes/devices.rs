@@ -1,4 +1,3 @@
-// src/routes/devices.rs
 use std::sync::Arc;
 use rocket::{get, post, State, http::Status};
 use rocket::serde::json::Json;
@@ -6,8 +5,8 @@ use diesel::prelude::*;
 use chrono::Utc;
 
 use crate::db::{DbPool, log_audit};
-use crate::auth::{AuthUser, RoleName};
-use crate::models::{Device, NewDevice};
+use crate::auth::AuthUser;
+use crate::models::{Device, NewDevice, UserRole};
 use crate::schema::devices::dsl::*;
 use crate::state::AppState;
 
@@ -55,7 +54,7 @@ pub async fn get_device_details(pool: &State<DbPool>, device_id_param: i64) -> R
 /// POST /api/approve/<device_id> - approve a device (admin only)
 #[post("/api/approve/<device_id_param>")]
 pub async fn approve_device(pool: &State<DbPool>, device_id_param: i64, user: AuthUser) -> Result<Status, Status> {
-    if !user.has_role(RoleName::Admin) {
+    if !user.has_role(UserRole::Admin) {
         return Err(Status::Unauthorized);
     }
     let username = user.username.clone();
@@ -116,7 +115,7 @@ pub async fn register_or_update_device(
     user: AuthUser,
 ) -> Result<Json<serde_json::Value>, Status> {
     // require admin
-    if !user.has_role(RoleName::Admin) {
+    if !user.has_role(UserRole::Admin) {
         return Err(Status::Unauthorized);
     }
 
@@ -160,7 +159,7 @@ pub async fn register_or_update_device(
             ip_address: info.ip_address,
         };
 
-        // Upsert by device_id (assumes device_id has a uniqueness constraint)
+        // Upsert by device_id (ensure device_id is unique in DB)
         diesel::insert_into(devices)
             .values(&updated)
             .on_conflict(device_id)

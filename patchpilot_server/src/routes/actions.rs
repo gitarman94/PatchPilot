@@ -1,4 +1,4 @@
-use rocket::{get, post, delete, State};
+use rocket::{get, post, State};
 use rocket::serde::json::Json;
 use rocket::form::Form;
 use rocket::http::Status;
@@ -6,17 +6,9 @@ use diesel::prelude::*;
 use chrono::{Utc, Duration};
 
 use crate::auth::AuthUser;
-use crate::db::{
-    DbPool,
-    fetch_action_ttl as db_fetch_action_ttl,
-    update_action_ttl as db_update_action_ttl,
-    insert_history as db_insert_history,
-    load_settings as db_load_settings,
-};
+use crate::db::{DbPool, log_audit as db_log_audit, load_settings as db_load_settings};
 use crate::models::{Action, NewAction, NewActionTarget};
 use crate::schema::{actions, action_targets};
-
-use crate::db::ServerSettingsRow;
 
 #[derive(FromForm)]
 pub struct SubmitActionForm {
@@ -31,25 +23,22 @@ pub async fn submit_action(
     form: Form<SubmitActionForm>,
     user: AuthUser,
 ) -> Result<Json<serde_json::Value>, Status> {
-    // Separate clones for DB and audit
     let pool_for_db = pool.inner().clone();
     let username = user.username.clone();
     let form = form.into_inner();
 
-    // Insert action + target + history in a blocking task
     let action_id_res = rocket::tokio::task::spawn_blocking(move || -> Result<i64, Status> {
         let mut conn = pool_for_db.get().map_err(|_| Status::InternalServerError)?;
 
         let now = Utc::now().naive_utc();
 
         // Load server settings for TTL default/cap
-        let settings_row: ServerSettingsRow =
-            db_load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
+        let settings_row = db_load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
 
         // Determine TTL
         let ttl_to_use = form
             .ttl_seconds
-            .map(|t| t.min(settings_row.default_action_ttl_seconds))
+            .map(|t| if t < settings_row.default_action_ttl_seconds { t } else { settings_row.default_action_ttl_seconds })
             .unwrap_or(settings_row.default_action_ttl_seconds);
 
         let expires_at = now + Duration::seconds(ttl_to_use);
@@ -72,7 +61,7 @@ pub async fn submit_action(
                 Status::InternalServerError
             })?;
 
-        // Get action id (last_insert_rowid via SQLite) — use `.order(id.desc()).select(id).first(...)`
+        // Retrieve action id
         let last_id: i64 = actions::table
             .select(actions::id)
             .order(actions::id.desc())
@@ -92,12 +81,13 @@ pub async fn submit_action(
                 Status::InternalServerError
             })?;
 
-        // Optionally insert a history entry
-        let _ = db_insert_history(
+        // Audit the action submission
+        let _ = db_log_audit(
             &mut conn,
+            &username,
             &format!("action_submitted:{}", last_id),
             Some(&form.target_device_id.to_string()),
-            Some(&username),
+            Some("action submitted"),
         );
 
         Ok(last_id)

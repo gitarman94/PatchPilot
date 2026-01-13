@@ -34,7 +34,7 @@ pub async fn view_settings(
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         let row = db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
 
-        let settings = ServerSettings {
+        Ok(ServerSettings {
             id: row.id,
             auto_approve_devices: row.auto_approve_devices,
             auto_refresh_enabled: row.auto_refresh_enabled,
@@ -43,9 +43,7 @@ pub async fn view_settings(
             action_polling_enabled: row.action_polling_enabled,
             ping_target_ip: row.ping_target_ip.clone(),
             force_https: row.force_https,
-        };
-
-        Ok(settings)
+        })
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
@@ -107,15 +105,14 @@ pub async fn update_settings(
             force_https: row.force_https,
         };
 
-        // Update the in-memory shared settings; treat a poisoned lock as an internal error.
+        // Update the in-memory shared settings
         match shared_settings.write() {
             Ok(mut guard) => {
-                *guard = settings_struct.clone();
+                *guard = settings_struct;
             }
             Err(_) => return Err(Status::InternalServerError),
         }
 
-        // Best-effort audit log; don't fail the update if audit logging fails, but surface failure elsewhere.
         let _ = db::log_audit(&mut conn, &username, "update_settings", None, Some("Updated server settings"));
 
         Ok(())

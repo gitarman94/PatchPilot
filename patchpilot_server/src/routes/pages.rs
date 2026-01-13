@@ -3,7 +3,6 @@ use rocket_dyn_templates::{Template, context};
 use crate::db::DbPool;
 use crate::models::{Device, Action, HistoryEntry, User};
 
-/// Dashboard page: get a pooled connection from State<DbPool>, call synchronous model helpers.
 #[get("/dashboard")]
 pub async fn dashboard(pool: &State<DbPool>) -> Template {
     let mut conn = match pool.get() {
@@ -14,10 +13,11 @@ pub async fn dashboard(pool: &State<DbPool>) -> Template {
     };
 
     let devices = Device::all(&mut conn).unwrap_or_default();
+    let total_devices = devices.len();
 
     Template::render("dashboard", context! {
         devices: devices,
-        total_devices: devices.len(),
+        total_devices: total_devices,
     })
 }
 

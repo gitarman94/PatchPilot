@@ -8,19 +8,18 @@ use crate::schema::{
     groups, server_settings,
 };
 
-/// Device table row
 #[derive(Debug, Queryable, Identifiable, Serialize, Deserialize)]
 #[diesel(table_name = devices)]
 pub struct Device {
-    pub id: i64,                  // schema: BigInt
-    pub device_id: i64,           // schema: BigInt (your unique 12-digit ID)
+    pub id: i64,
+    pub device_id: i64,
     pub device_name: String,
     pub hostname: String,
     pub os_name: String,
     pub architecture: String,
     pub last_checkin: NaiveDateTime,
     pub approved: bool,
-    pub cpu_usage: f32,           // schema: Float -> f32
+    pub cpu_usage: f32,
     pub cpu_count: i32,
     pub cpu_brand: String,
     pub ram_total: i64,
@@ -31,13 +30,12 @@ pub struct Device {
     pub network_throughput: i64,
     pub device_type: String,
     pub device_model: String,
-    pub uptime: Option<i64>,      // Nullable<BigInt>
+    pub uptime: Option<i64>,
     pub updates_available: bool,
     pub network_interfaces: Option<String>,
     pub ip_address: Option<String>,
 }
 
-/// New device for insert / update
 #[derive(Debug, Insertable, AsChangeset, Serialize, Deserialize)]
 #[diesel(table_name = devices)]
 pub struct NewDevice {
@@ -70,14 +68,12 @@ impl Device {
         devices::table.load::<Device>(conn)
     }
 
-    /// Find a device by its unique device_id (not the DB primary key `id`)
     pub fn find_by_device_id(conn: &mut SqliteConnection, device_id_param: i64) -> QueryResult<Device> {
         devices::table
             .filter(devices::device_id.eq(device_id_param))
             .first::<Device>(conn)
     }
 
-    /// Find by internal DB id (if ever needed)
     pub fn find_by_id(conn: &mut SqliteConnection, id_param: i64) -> QueryResult<Device> {
         devices::table
             .filter(devices::id.eq(id_param))
@@ -85,7 +81,6 @@ impl Device {
     }
 }
 
-/// Action table row
 #[derive(Debug, Queryable, Identifiable, Serialize, Deserialize)]
 #[diesel(table_name = actions)]
 pub struct Action {
@@ -115,7 +110,6 @@ impl Action {
     }
 }
 
-/// Action targets (per-device)
 #[derive(Debug, Queryable, Identifiable, Serialize, Deserialize)]
 #[diesel(table_name = action_targets)]
 pub struct ActionTarget {
@@ -239,10 +233,4 @@ pub struct ServerSettings {
     pub action_polling_enabled: bool,
     pub ping_target_ip: String,
     pub force_https: bool,
-}
-
-impl ServerSettings {
-    pub fn load(conn: &mut SqliteConnection) -> QueryResult<ServerSettings> {
-        server_settings::table.first::<ServerSettings>(conn)
-    }
 }

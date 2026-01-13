@@ -1,7 +1,8 @@
 use rocket::form::Form;
-use rocket::http::{Cookie, CookieJar, SameSite, Status};
-use rocket::request::{FromRequest, Outcome, Request};
-use rocket::response::{Redirect, content::RawHtml};
+use rocket::http::{Cookie, CookieJar, Status};
+use rocket::outcome::Outcome;
+use rocket::request::{FromRequest, Request};
+use rocket::response::Redirect;
 use rocket::State;
 
 use diesel::prelude::*;
@@ -57,7 +58,6 @@ impl AuthUser {
         }
     }
 
-    /// Audit and return the DB result (so callers can decide how to handle errors).
     pub fn audit(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) -> QueryResult<()> {
         let actor = format!("{}:{}", self.id, self.username);
         log_audit(conn, &actor, action, target, None)
@@ -141,8 +141,7 @@ pub fn login(
         return Redirect::to("/login");
     }
 
-    // add cookie (private). Use Cookie::new; we won't set SameSite here to avoid builder API inconsistencies.
-    cookies.add_private(Cookie::new("user_id", id.to_string()));
+    cookies.add_private(Cookie::build("user_id", id.to_string()).finish());
 
     let role = role_opt
         .as_deref()
@@ -151,7 +150,7 @@ pub fn login(
 
     let user = AuthUser { id, username, role };
 
-    // audit but ignore failures for login (do not abort login on audit failure)
+    // audit but ignore failures
     let _ = user.audit(&mut conn, "login", None);
 
     Redirect::to("/dashboard")
@@ -164,24 +163,19 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
         .and_then(|c| c.value().parse::<i32>().ok());
 
     // remove cookie
-    cookies.remove_private(Cookie::named("user_id"));
+    cookies.remove_private(Cookie::build("user_id").finish());
 
     if let Some(uid) = user_id {
         if let Ok(mut conn) = pool.get() {
-            if let Ok((username, role_opt)) = users::table
+            if let Ok((username, _role_opt)) = users::table
                 .filter(users::id.eq(uid))
                 .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
                 .left_outer_join(roles::table.on(roles::id.eq(user_roles::role_id)))
                 .select((users::username, roles::name.nullable()))
                 .first::<(String, Option<String>)>(&mut conn)
             {
-                let role = role_opt
-                    .as_deref()
-                    .map(|r| RoleName::from_name(r).as_str().to_string())
-                    .unwrap_or_else(|| RoleName::User.as_str().to_string());
-
-                let user = AuthUser { id: uid, username, role };
-                let _ = user.audit(&mut conn, "logout", None);
+                let actor = format!("{}:{}", uid, username);
+                let _ = log_audit(&mut conn, &actor, "logout", None, None);
             }
         }
     }
@@ -190,9 +184,6 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
 }
 
 #[get("/login")]
-pub fn login_page() -> RawHtml<String> {
-    RawHtml(
-        read_to_string("templates/login.html")
-            .unwrap_or_else(|_| "<h1>Login page missing</h1>".to_string()),
-    )
+pub fn login_page() -> String {
+    read_to_string("templates/login.html").unwrap_or_else(|_| "<h1>Login page missing</h1>".to_string())
 }
