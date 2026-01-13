@@ -1,16 +1,18 @@
-use rocket::{get, post};
 use rocket::form::Form;
-use rocket::response::Redirect;
 use rocket::http::{Cookie, CookieJar, Status};
-use rocket::request::{FromRequest, Request};
-use rocket::outcome::Outcome;
+use rocket::request::{FromRequest, Request, Outcome as RequestOutcome};
+use rocket::response::Redirect;
+use rocket::State;
 use rocket::FromForm;
 
 use diesel::prelude::*;
+use diesel::sqlite::SqliteConnection;
 use bcrypt::verify;
+use std::fs::read_to_string;
 
 use crate::db::{DbPool, log_audit};
 use crate::schema::{users, roles, user_roles};
+use diesel::result::QueryResult;
 
 /// Form for login
 #[derive(FromForm)]
@@ -60,7 +62,7 @@ impl AuthUser {
 
     pub fn audit(
         &self,
-        conn: &mut diesel::SqliteConnection,
+        conn: &mut SqliteConnection,
         action: &str,
         target: Option<&str>,
     ) -> QueryResult<()> {
@@ -73,8 +75,7 @@ impl AuthUser {
 impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
-    // Use the rocket::outcome::Outcome return type (no lifetime params)
-    async fn from_request(req: &'r Request<'_>) -> Outcome<AuthUser, ()> {
+    async fn from_request(req: &'r Request<'_>) -> RequestOutcome<AuthUser, ()> {
         // read user_id cookie (private/encrypted)
         let user_id = match req
             .cookies()
@@ -82,20 +83,19 @@ impl<'r> FromRequest<'r> for AuthUser {
             .and_then(|c| c.value().parse::<i32>().ok())
         {
             Some(id) => id,
-            None => return Outcome::Failure((Status::Unauthorized, ())),
+            None => return RequestOutcome::Error((Status::Unauthorized, ())),
         };
 
         // get the DB pool from state
-        let pool_state = req.guard::<&rocket::State<DbPool>>().await;
-        let pool = match pool_state {
-            Outcome::Success(p) => p,
-            _ => return Outcome::Failure((Status::InternalServerError, ())),
+        let pool = match req.guard::<&State<DbPool>>().await {
+            RequestOutcome::Success(p) => p,
+            _ => return RequestOutcome::Error((Status::InternalServerError, ())),
         };
 
         // get a pooled connection
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
+            Err(_) => return RequestOutcome::Error((Status::InternalServerError, ())),
         };
 
         // query user + optional role
@@ -113,9 +113,9 @@ impl<'r> FromRequest<'r> for AuthUser {
                     .map(|r| RoleName::from_name(r).as_str().to_string())
                     .unwrap_or_else(|| RoleName::User.as_str().to_string());
 
-                Outcome::Success(AuthUser { id, username, role })
+                RequestOutcome::Success(AuthUser { id, username, role })
             }
-            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => RequestOutcome::Error((Status::Unauthorized, ())),
         }
     }
 }
@@ -124,12 +124,12 @@ impl<'r> FromRequest<'r> for AuthUser {
 pub fn login(
     form: Form<LoginForm>,
     cookies: &CookieJar<'_>,
-    pool: &rocket::State<DbPool>,
-) -> rocket::response::Redirect {
+    pool: &State<DbPool>,
+) -> Redirect {
     // obtain a connection from the pool
     let mut conn = match pool.get() {
         Ok(c) => c,
-        Err(_) => return rocket::response::Redirect::to("/login"),
+        Err(_) => return Redirect::to("/login"),
     };
 
     // fetch user + password hash + optional role
@@ -147,11 +147,11 @@ pub fn login(
 
     let (id, username, hash, role_opt) = match result {
         Ok(r) => r,
-        Err(_) => return rocket::response::Redirect::to("/login"),
+        Err(_) => return Redirect::to("/login"),
     };
 
     if !verify(&form.password, &hash).unwrap_or(false) {
-        return rocket::response::Redirect::to("/login");
+        return Redirect::to("/login");
     }
 
     // set private cookie
@@ -167,11 +167,11 @@ pub fn login(
     // audit but ignore failures
     let _ = user.audit(&mut conn, "login", None);
 
-    rocket::response::Redirect::to("/dashboard")
+    Redirect::to("/dashboard")
 }
 
 #[get("/logout")]
-pub fn logout(cookies: &CookieJar<'_>, pool: &rocket::State<DbPool>) -> rocket::response::Redirect {
+pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
     // try to read current cookie
     let user_id_opt = cookies
         .get_private("user_id")
@@ -195,7 +195,7 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &rocket::State<DbPool>) -> rocket::
         }
     }
 
-    rocket::response::Redirect::to("/login")
+    Redirect::to("/login")
 }
 
 #[get("/login")]

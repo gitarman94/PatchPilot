@@ -23,7 +23,6 @@ use auth::AuthUser;
 use models::ServerSettings;
 use state::{SystemState, AppState};
 
-
 #[launch]
 fn rocket() -> _ {
     // Initialize DB + Logger
