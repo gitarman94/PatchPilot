@@ -7,7 +7,6 @@ use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use bcrypt::verify;
 use std::fs::read_to_string;
-
 use crate::db::{DbPool, log_audit};
 use crate::schema::{users, roles, user_roles};
 use diesel::result::QueryResult;
@@ -58,7 +57,12 @@ impl AuthUser {
         }
     }
 
-    pub fn audit(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) -> QueryResult<()> {
+    pub fn audit(
+        &self,
+        conn: &mut SqliteConnection,
+        action: &str,
+        target: Option<&str>,
+    ) -> QueryResult<()> {
         let actor = format!("{}:{}", self.id, self.username);
         log_audit(conn, &actor, action, target, None)
     }
@@ -68,7 +72,7 @@ impl AuthUser {
 impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
-    async fn from_request(req: &'r Request<'_>) -> RequestOutcome<Self, Self::Error> {
+    async fn from_request(req: &'r Request<'_>) -> RequestOutcome<'r, AuthUser, ()> {
         // read user_id cookie (private/encrypted)
         let user_id = match req
             .cookies()
@@ -105,6 +109,7 @@ impl<'r> FromRequest<'r> for AuthUser {
                     .as_deref()
                     .map(|r| RoleName::from_name(r).as_str().to_string())
                     .unwrap_or_else(|| RoleName::User.as_str().to_string());
+
                 RequestOutcome::Success(AuthUser { id, username, role })
             }
             Err(_) => RequestOutcome::Failure((Status::Unauthorized, ())),
@@ -129,7 +134,12 @@ pub fn login(
         .filter(users::username.eq(&form.username))
         .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
         .left_outer_join(roles::table.on(roles::id.eq(user_roles::role_id)))
-        .select((users::id, users::username, users::password_hash, roles::name.nullable()))
+        .select((
+            users::id,
+            users::username,
+            users::password_hash,
+            roles::name.nullable(),
+        ))
         .first::<(i32, String, String, Option<String>)>(&mut conn);
 
     let (id, username, hash, role_opt) = match result {
@@ -187,5 +197,11 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
 
 #[get("/login")]
 pub fn login_page() -> String {
-    read_to_string("templates/login.html").unwrap_or_else(|_| "<h1>Login page missing</h1>".to_string())
+    read_to_string("templates/login.html").unwrap_or_else(|_| {
+        "
+# Login page missing
+
+"
+        .to_string()
+    })
 }

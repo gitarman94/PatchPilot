@@ -1,10 +1,3 @@
-#[macro_use]
-extern crate diesel;
-
-// Import Rocket macros
-#[macro_use]
-extern crate rocket;
-
 mod schema;
 mod db;
 mod models;
@@ -17,10 +10,8 @@ mod pending_cleanup;
 
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
-
 use rocket::fs::{FileServer, relative};
 use rocket_dyn_templates::Template;
-
 use db::{DbPool, initialize, get_conn};
 use auth::AuthUser;
 use models::ServerSettings;
@@ -67,7 +58,9 @@ fn rocket() -> _ {
         let app_state_clone = app_state.clone();
         rocket::tokio::spawn(async move {
             loop {
-                let max_age = app_state_clone.settings.read()
+                let max_age = app_state_clone
+                    .settings
+                    .read()
                     .map(|s| s.auto_refresh_seconds)
                     .unwrap_or(30)
                     .max(30) as u64;
@@ -83,7 +76,7 @@ fn rocket() -> _ {
         let user = AuthUser {
             id: 1,
             username: "admin".to_string(),
-            role: "Admin".to_string(), // use literal role string
+            role: "Admin".to_string(),
         };
         if let Err(e) = user.audit(&mut conn, "server_started", None) {
             log::error!("Failed to log server start audit: {:?}", e);
@@ -110,8 +103,8 @@ fn rocket() -> _ {
         .mount("/auth", routes::auth_routes())
         .mount("/users-groups", routes::users_groups::api_users_groups_routes())
         .mount("/roles", routes::roles::api_roles_routes())
-        .mount("/history", routes![routes::history::api_history])
-        .mount("/audit", routes![routes::history::api_audit])
+        .mount("/history", rocket::routes![routes::history::api_history])
+        .mount("/audit", rocket::routes![routes::history::api_audit])
         .mount("/static", FileServer::from(relative!("static")))
         .mount("/", routes::page_routes())
 }
