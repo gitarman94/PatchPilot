@@ -1,7 +1,9 @@
-use rocket::{get, post};
-use rocket::FromForm;
-use rocket::response::Redirect;
+use rocket::{get, State};
 use rocket_dyn_templates::Template;
+
+use crate::db::DbPool;
+use crate::models::{Device, Action, HistoryEntry, User};
+
 
 #[get("/dashboard")]
 pub async fn dashboard(pool: &State<DbPool>) -> Template {

@@ -1,12 +1,12 @@
-use rocket::{get, post, routes, State};
-use rocket::FromForm;
-use rocket::response::Redirect;
+use rocket::{get, routes, State};
+use rocket::http::Status;
+use rocket::serde::json::Json;
+
 use diesel::prelude::*;
 
-use crate::db::{DbPool, log_audit as db_log_audit};
+use crate::db::DbPool;
 use crate::models::{HistoryEntry, AuditLog};
-use crate::schema::history_log::dsl::{history_log, created_at as history_created_at};
-use crate::schema::audit::dsl::{audit, created_at as audit_created_at};
+use crate::schema::{history_log::dsl::*, audit::dsl::*};
 
 /// API: GET /api/history
 #[get("/")]

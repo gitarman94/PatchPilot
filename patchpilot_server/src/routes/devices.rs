@@ -1,15 +1,17 @@
-use rocket::{get, post, routes, State};
+use rocket::{get, post, delete, routes, State};
 use rocket::form::Form;
-use rocket::FromForm;
+use rocket::http::Status;
 use rocket::response::Redirect;
-use diesel::prelude::*;
+use rocket::serde::json::Json;
 use rocket_dyn_templates::Template;
 
-use crate::db::{DbPool, log_audit};
-use crate::auth::{AuthUser, RoleName};
-use crate::models::{Device, NewDevice};
+use diesel::prelude::*;
+use serde_json::json;
+
+use crate::db::DbPool;
+use crate::models::Device;
 use crate::schema::devices::dsl::*;
-use crate::state::AppState;
+use crate::auth::AuthUser;
 
 /// GET /api/devices - return all devices
 #[get("/devices")]

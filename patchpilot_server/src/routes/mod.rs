@@ -1,14 +1,12 @@
 use rocket::Route;
-use rocket::{get, post, routes};
-use rocket::FromForm;
 
 pub mod devices;
 pub mod actions;
-pub mod settings;
 pub mod history;
 pub mod pages;
 pub mod users_groups;
 pub mod roles;
+pub mod settings;
 
 /// Return API routes mounted under /api
 pub fn api_routes() -> Vec<Route> {

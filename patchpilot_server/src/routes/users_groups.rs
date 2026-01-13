@@ -1,12 +1,14 @@
-use rocket::{get, post, routes, State};
+use rocket::{get, post, delete, routes, State};
 use rocket::form::Form;
-use rocket::FromForm;
 use rocket::response::Redirect;
+use rocket_dyn_templates::Template;
+
 use diesel::prelude::*;
 
-use crate::db::{DbPool, log_audit as db_log_audit};
-use crate::auth::{AuthUser, RoleName};
-use crate::schema::{users, groups, user_groups};
+use crate::db::DbPool;
+use crate::models::Role;
+use crate::schema::roles::dsl::*;
+use crate::auth::AuthUser;
 
 #[derive(FromForm)]
 pub struct UserForm {
