@@ -11,7 +11,7 @@ use crate::schema::{audit, server_settings, history_log};
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
 
-pub fn ensure_server_settings_imported() {
+pub fn initialize_database() {
     // Keep schema symbol referenced so diesel codegen isn't optimized away
     let _ = server_settings::table;
 }
@@ -37,7 +37,7 @@ pub fn get_conn(pool: &DbPool) -> DbConn {
 
 pub fn initialize() -> DbPool {
     init_logger();
-    ensure_server_settings_imported();
+    initialize_database();
     init_pool()
 }
 
