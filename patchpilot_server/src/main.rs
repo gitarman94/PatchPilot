@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate rocket;
+
 mod schema;
 mod db;
 mod models;
@@ -16,8 +19,6 @@ use db::{DbPool, initialize, get_conn};
 use auth::AuthUser;
 use models::ServerSettings;
 use state::{SystemState, AppState};
-use action_ttl::spawn_action_ttl_task;
-use pending_cleanup::spawn_pending_cleanup;
 
 #[launch]
 fn rocket() -> _ {
@@ -27,8 +28,7 @@ fn rocket() -> _ {
     // Load server settings
     let settings = {
         let mut conn = get_conn(&pool);
-        // settings::ServerSettings::load returns ServerSettings (panics on DB failure)
-        let s = ServerSettings::load(&mut conn);
+        let s = settings::ServerSettings::load(&mut conn);
         Arc::new(RwLock::new(s))
     };
 
@@ -50,8 +50,8 @@ fn rocket() -> _ {
     });
 
     // Spawn background tasks
-    spawn_action_ttl_task(app_state.clone());
-    spawn_pending_cleanup(app_state.clone());
+    action_ttl::spawn_action_ttl_task(app_state.clone());
+    pending_cleanup::spawn_pending_cleanup(app_state.clone());
 
     // Periodic cleanup of stale devices
     {
@@ -70,7 +70,7 @@ fn rocket() -> _ {
         });
     }
 
-    // Log server start audit
+    // Log server start audit (best-effort)
     {
         let mut conn = get_conn(&pool);
         let user = AuthUser {
@@ -86,7 +86,6 @@ fn rocket() -> _ {
     // Refresh system metrics
     app_state.system.refresh();
 
-    // Log system info
     log::info!(
         "System memory: total {} MB, available {} MB",
         app_state.system.total_memory() / 1024 / 1024,
