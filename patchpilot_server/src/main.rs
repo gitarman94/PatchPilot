@@ -1,38 +1,13 @@
-// src/main.rs
-#[macro_use]
-extern crate rocket;
-
-mod db;
-mod routes;
-mod models;
-mod schema;
-mod settings;
-mod auth;
-mod state;
-mod action_ttl;
-mod pending_cleanup;
-
-use std::sync::{Arc, RwLock};
-use std::collections::HashMap;
-use log::info;
-use rocket::fs::FileServer;
-
-use crate::db::{initialize, get_conn, DbPool};
-use crate::action_ttl::spawn_action_ttl_task;
-use crate::pending_cleanup::spawn_pending_cleanup;
-use crate::state::{AppState, SystemState};
-use crate::settings::ServerSettings;
-use crate::auth::{AuthUser, UserRole};
-
 #[launch]
 fn rocket() -> _ {
-    // Initialize DB + Logger
+    // Initialize DB + Logger (creates tables + default settings row)
     let pool: DbPool = initialize();
 
-    // Load Server Settings (app-level struct)
+    // Load server settings (ensure DB tables exist first)
     let settings = {
         let mut conn = get_conn(&pool);
-        let s = ServerSettings::load(&mut conn);
+        let s = ServerSettings::load(&mut conn)
+            .expect("Failed to load server settings from DB");
         Arc::new(RwLock::new(s))
     };
 
@@ -44,9 +19,10 @@ fn rocket() -> _ {
         system: system_state.clone(),
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
         settings: settings.clone(),
-        // real audit logger wired to DB; closure returns Diesel QueryResult<()>
         log_audit: Some(Arc::new(move |conn, actor, action, target, details| {
-            crate::db::log_audit(conn, actor, action, target, details)
+            if let Err(e) = crate::db::log_audit(conn, actor, action, target, details) {
+                log::error!("Audit logging failed: {:?}", e);
+            }
         })),
     });
 
@@ -54,28 +30,24 @@ fn rocket() -> _ {
     spawn_action_ttl_task(app_state.clone());
     spawn_pending_cleanup(app_state.clone());
 
-    // Spawn a small periodic task to cleanup stale pending devices so
-    // AppState.pending_devices and cleanup_stale_devices are actually used.
+    // Cleanup stale pending devices periodically
     {
         let app_state_clone = app_state.clone();
         rocket::tokio::spawn(async move {
             loop {
-                // Use server setting to choose max age; ensure a sensible minimum
                 let max_age = {
-                    let s = app_state_clone.settings.read().unwrap();
-                    // Use auto_refresh_seconds as a reasonable cap for stale device expiry
-                    let secs = s.auto_refresh_seconds.max(30);
-                    secs as u64
+                    let secs = app_state_clone.settings.read()
+                        .map(|s| s.auto_refresh_seconds)
+                        .unwrap_or(30);
+                    secs.max(30) as u64
                 };
-
                 app_state_clone.cleanup_stale_devices(max_age);
-
                 rocket::tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             }
         });
     }
 
-    // Startup Audit Event (use an AuthUser record for the DB audit)
+    // Startup Audit Event
     {
         let mut conn = get_conn(&pool);
         let user = AuthUser {
@@ -83,10 +55,12 @@ fn rocket() -> _ {
             username: "admin".to_string(),
             role: UserRole::Admin.as_str().to_string(),
         };
-        let _ = user.audit(&mut conn, "server_started", None);
+        if let Err(e) = user.audit(&mut conn, "server_started", None) {
+            log::error!("Failed to log server start audit: {:?}", e);
+        }
     }
 
-    // Ensure the SystemState is refreshed before reading metrics (removes unused warning)
+    // Refresh system state
     app_state.system.refresh();
 
     // System Info Logging

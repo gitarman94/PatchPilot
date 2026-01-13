@@ -2,58 +2,46 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>history History</title>
-  <link rel="stylesheet" href="/static/bootstrap.min.css">
-  <link rel="stylesheet" href="/static/navbar.css">
-  <script src="/static/bootstrap.bundle.min.js"></script>
-  <style>
-    body { padding-left: 250px; }
-    table { width: 100%; }
-    th, td { padding: 0.5rem; text-align: left; }
-  </style>
+  <title>History — PatchPilot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <!-- Sidebar -->
-  {{ include "navbar.html" }}
-
-  <main class="p-3">
+  <div id="navbar-container"></div>
+  <div class="container">
     <h2>History</h2>
-    <table class="table table-striped" id="historyTable">
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Action</th>
-          <th>Device</th>
-          <th>Actor</th>
-          <th>Details</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </main>
-
+    <div class="table-responsive">
+      <table id="historyTable" class="table table-hover">
+        <thead>
+          <tr>
+            <th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+  <div id="alerts"></div>
+  <script src="/static/app.js"></script>
   <script>
-    async function loadhistory() {
-      const resp = await fetch('/api/history');
-      const data = await resp.json();
-      const tbody = document.querySelector('#historyTable tbody');
-      tbody.innerHTML = '';
-
-      data.history.forEach(record => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td>${new Date(record.created_at).toLocaleString()}</td>
-          <td>${record.action_type}</td>
-          <td>${record.device_name || ''}</td>
-          <td>${record.actor || ''}</td>
-          <td>${record.details || ''}</td>
-        `;
-        tbody.appendChild(row);
-      });
+    document.getElementById('navbar-container').innerHTML = `<object type="text/html" data="/navbar.html"></object>`;
+    async function loadHistory() {
+      try {
+        const h = await fetchJSON('/api/history');
+        const tbody = document.querySelector('#historyTable tbody');
+        tbody.innerHTML = '';
+        h.forEach(row=>{
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${new Date(row.created_at).toLocaleString()}</td>
+                          <td>${row.actor}</td>
+                          <td>${row.action_type}</td>
+                          <td>${row.target||'—'}</td>
+                          <td>${row.details||'—'}</td>`;
+          tbody.appendChild(tr);
+        });
+      } catch(e) { showAlert('Failed to load history','danger'); console.error(e);}
     }
-
-    loadhistory();
-    setInterval(loadhistory, 10000); // refresh every 10s
+    loadHistory();
   </script>
 </body>
 </html>

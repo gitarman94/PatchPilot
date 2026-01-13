@@ -1,103 +1,47 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Audit Log - PatchPilot</title>
-    <link rel="stylesheet" href="/static/styles.css">
-    <style>
-        th { cursor: pointer; }
-        th:hover { text-decoration: underline; }
-    </style>
+  <meta charset="UTF-8">
+  <title>Audit — PatchPilot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    {% include "navbar.html" %}
-
-    <div class="container">
-        <h1>Audit Log</h1>
-        <p>View administrative actions performed on the server.</p>
-
-        <div class="filter-section">
-            <label for="filter-actor">Filter by Actor:</label>
-            <input type="text" id="filter-actor" placeholder="Username">
-            <button onclick="applyFilter()">Filter</button>
-            <button onclick="resetFilter()">Reset</button>
-        </div>
-
-        <table class="table">
-            <thead>
-                <tr>
-                    <th onclick="sortTable(0)">ID</th>
-                    <th onclick="sortTable(1)">Actor</th>
-                    <th onclick="sortTable(2)">Action Type</th>
-                    <th onclick="sortTable(3)">Target</th>
-                    <th onclick="sortTable(4)">Details</th>
-                    <th onclick="sortTable(5)">Timestamp</th>
-                </tr>
-            </thead>
-            <tbody id="audit-table-body">
-                <!-- Rows populated via JS -->
-            </tbody>
-        </table>
+  <div id="navbar-container"></div>
+  <div class="container">
+    <h2>Audit</h2>
+    <div class="table-responsive">
+      <table id="auditTable" class="table table-hover">
+        <thead>
+          <tr>
+            <th>Time</th><th>User</th><th>Action</th><th>Target</th><th>Details</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </div>
-
-    <script>
-        let auditData = [];
-        let currentSort = { index: 5, asc: false };
-
-        async function fetchAudit() {
-            try {
-                const response = await fetch('/api/audit');
-                if (!response.ok) throw new Error('Failed to fetch audit log');
-                auditData = await response.json();
-                renderTable(auditData);
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        function renderTable(data) {
-            const tbody = document.getElementById('audit-table-body');
-            tbody.innerHTML = '';
-            data.forEach(entry => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>${entry.id}</td>
-                    <td>${entry.actor || ''}</td>
-                    <td>${entry.action_type}</td>
-                    <td>${entry.target || ''}</td>
-                    <td>${entry.details || ''}</td>
-                    <td>${new Date(entry.created_at).toLocaleString()}</td>
-                `;
-                tbody.appendChild(row);
-            });
-        }
-
-        function sortTable(colIndex) {
-            const asc = currentSort.index === colIndex ? !currentSort.asc : true;
-            currentSort = { index: colIndex, asc };
-            auditData.sort((a, b) => {
-                const valA = Object.values(a)[colIndex] || '';
-                const valB = Object.values(b)[colIndex] || '';
-                if (typeof valA === 'string' && typeof valB === 'string') {
-                    return asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
-                }
-                return asc ? valA - valB : valB - valA;
-            });
-            renderTable(auditData);
-        }
-
-        function applyFilter() {
-            const actor = document.getElementById('filter-actor').value.toLowerCase();
-            const filtered = auditData.filter(row => row.actor && row.actor.toLowerCase().includes(actor));
-            renderTable(filtered);
-        }
-
-        function resetFilter() {
-            document.getElementById('filter-actor').value = '';
-            renderTable(auditData);
-        }
-
-        window.addEventListener('DOMContentLoaded', fetchAudit);
-    </script>
+  </div>
+  <div id="alerts"></div>
+  <script src="/static/app.js"></script>
+  <script>
+    document.getElementById('navbar-container').innerHTML = `<object type="text/html" data="/navbar.html"></object>`;
+    async function loadAudit() {
+      try {
+        const logs = await fetchJSON('/api/audit');
+        const tbody = document.querySelector('#auditTable tbody');
+        tbody.innerHTML='';
+        logs.forEach(l=>{
+          const tr = document.createElement('tr');
+          tr.innerHTML=`<td>${new Date(l.created_at).toLocaleString()}</td>
+                        <td>${l.actor}</td>
+                        <td>${l.action_type}</td>
+                        <td>${l.target||'—'}</td>
+                        <td>${l.details||'—'}</td>`;
+          tbody.appendChild(tr);
+        });
+      } catch(e){ showAlert('Failed to load audit logs','danger'); console.error(e);}
+    }
+    loadAudit();
+  </script>
 </body>
 </html>

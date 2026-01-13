@@ -1,100 +1,45 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Actions - PatchPilot</title>
-    <link rel="stylesheet" href="/static/styles.css">
+  <meta charset="UTF-8">
+  <title>Actions — PatchPilot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    {% include "navbar.html" %}
-
-    <div class="container">
-        <h1>Initiate Action</h1>
-
-        <form id="action-form">
-            <div>
-                <label for="devices">Select Devices:</label>
-                <select id="devices" name="devices" multiple size="10">
-                    <!-- Device options will be filled dynamically -->
-                </select>
-            </div>
-
-            <div>
-                <label for="action_type">Action Type:</label>
-                <select id="action_type" name="action_type">
-                    <option value="command">Command</option>
-                    <option value="reboot">Reboot</option>
-                    <option value="shutdown">Shutdown</option>
-                    <option value="force_update">Force Update</option>
-                </select>
-            </div>
-
-            <div id="command-div">
-                <label for="command">Command / Script:</label>
-                <textarea id="command" name="command" rows="4" placeholder="Enter shell command or script"></textarea>
-            </div>
-
-            <div>
-                <label for="ttl">Time-to-live (TTL in minutes, 5–10080):</label>
-                <input type="number" id="ttl" name="ttl" min="5" max="10080" value="60">
-            </div>
-
-            <button type="submit">Submit Action</button>
-        </form>
-
-        <div id="action-result"></div>
+  <div id="navbar-container"></div>
+  <div class="container">
+    <h2>Actions</h2>
+    <div class="table-responsive">
+      <table id="actionsTable" class="table table-hover">
+        <thead>
+          <tr>
+            <th>ID</th><th>Type</th><th>Device</th><th>Actor</th><th>Created</th><th>TTL Remaining</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </div>
-
-    <script>
-        async function fetchDevices() {
-            const response = await fetch("/devices");
-            const devices = await response.json();
-            const select = document.getElementById("devices");
-            devices.forEach(d => {
-                const option = document.createElement("option");
-                option.value = d.device_id;
-                option.text = `${d.device_name} (${d.hostname})`;
-                select.appendChild(option);
-            });
-        }
-
-        document.getElementById("action-form").addEventListener("submit", async (e) => {
-            e.preventDefault();
-
-            const selected = Array.from(document.getElementById("devices").selectedOptions).map(o => o.value);
-            const actionType = document.getElementById("action_type").value;
-            const command = document.getElementById("command").value;
-            const ttl = parseInt(document.getElementById("ttl").value);
-
-            if (selected.length === 0) {
-                alert("Please select at least one device.");
-                return;
-            }
-
-            const payloads = selected.map(device_id => ({
-                id: crypto.randomUUID(),
-                action_type: actionType,
-                parameters: actionType === "command" ? command : null,
-                expires_at: new Date(Date.now() + Math.min(Math.max(ttl, 5) * 60 * 1000, 7*24*60*60*1000)).toISOString(),
-                canceled: false
-            }));
-
-            let successCount = 0;
-
-            for (const payload of payloads) {
-                const res = await fetch("/api/actions", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-                if (res.ok) successCount++;
-            }
-
-            document.getElementById("action-result").innerText =
-                `${successCount} action(s) submitted successfully.`;
+  </div>
+  <div id="alerts"></div>
+  <script src="/static/app.js"></script>
+  <script>
+    document.getElementById('navbar-container').innerHTML = `<object type="text/html" data="/navbar.html"></object>`;
+    async function loadActions() {
+      try {
+        const acts = await fetchJSON('/api/actions');
+        const tbody = document.querySelector('#actionsTable tbody');
+        tbody.innerHTML = '';
+        acts.forEach(a=>{
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${a.id}</td><td>${a.action_type}</td><td>${a.device_name||'—'}</td>
+                          <td>${a.actor||'—'}</td><td>${new Date(a.created_at).toLocaleString()}</td>
+                          <td>${a.ttl_remaining || '—'}</td><td>${a.status || '—'}</td>`;
+          tbody.appendChild(tr);
         });
-
-        fetchDevices();
-    </script>
+      } catch(e){ showAlert('Failed to load actions','danger'); console.error(e);}
+    }
+    loadActions();
+  </script>
 </body>
 </html>

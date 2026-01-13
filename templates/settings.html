@@ -1,74 +1,48 @@
-{{#*inline "page"}}
-<div class="container mt-4">
-    <h3 class="mb-3">Server Settings</h3>
-
-    <div class="card shadow-sm">
-        <div class="card-body">
-
-            <form id="settingsForm" method="POST" action="/settings/update">
-
-                <!-- Auto Approve Devices -->
-                <div class="mb-3">
-                    <label class="form-label fw-bold">Auto Approve Devices</label>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="autoApprove" name="auto_approve_devices" {{#if settings.auto_approve_devices}}checked{{/if}}>
-                        <label class="form-check-label" for="autoApprove">Approve new devices automatically</label>
-                    </div>
-                </div>
-
-                <hr>
-
-                <!-- Auto Refresh Dashboard -->
-                <div class="mb-3">
-                    <label class="form-label fw-bold">Auto Refresh Dashboard</label>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="autoRefresh" name="auto_refresh_enabled" {{#if settings.auto_refresh_enabled}}checked{{/if}}>
-                        <label class="form-check-label" for="autoRefresh">Enable auto-refresh</label>
-                    </div>
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label">Refresh Interval (seconds)</label>
-                    <input type="number" class="form-control" name="auto_refresh_seconds" min="5" max="3600"
-                           value="{{settings.auto_refresh_seconds}}">
-                </div>
-
-                <hr>
-
-                <!-- Default Action TTL -->
-                <div class="mb-3">
-                    <label class="form-label">Default Action TTL (seconds)</label>
-                    <input type="number" class="form-control" name="default_action_ttl_seconds" min="60" max="86400"
-                           value="{{settings.default_action_ttl_seconds}}">
-                </div>
-
-                <!-- Action Polling -->
-                <div class="mb-3">
-                    <label class="form-label fw-bold">Action Polling</label>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="actionPolling" name="action_polling_enabled" {{#if settings.action_polling_enabled}}checked{{/if}}>
-                        <label class="form-check-label" for="actionPolling">Enable action polling</label>
-                    </div>
-                </div>
-
-                <!-- Ping Target IP -->
-                <div class="mb-3">
-                    <label class="form-label">Ping Target IP</label>
-                    <input type="text" class="form-control" name="ping_target_ip" value="{{settings.ping_target_ip}}">
-                </div>
-
-                <hr>
-
-                <button type="submit" class="btn btn-primary mt-2">
-                    <i class="bi bi-save"></i> Save Settings
-                </button>
-
-            </form>
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Settings — PatchPilot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div id="navbar-container"></div>
+  <div class="container">
+    <h2>Settings</h2>
+    <div class="card">
+      <div class="card-body">
+        <div class="field">
+          <label><input type="checkbox" id="settingsDarkMode"> Enable Dark Mode</label>
         </div>
+        <div class="field">
+          <label><input type="checkbox" id="settingsAutoRefresh"> Auto Refresh Devices</label>
+        </div>
+        <div class="field">
+          <label>Refresh Interval (seconds)</label>
+          <input type="number" min="5" id="settingsRefreshInterval" value="30">
+        </div>
+        <div class="text-end">
+          <button class="btn" id="saveSettingsBtn">Save</button>
+        </div>
+      </div>
     </div>
+  </div>
 
-</div>
-{{/inline}}
+  <div id="alerts"></div>
+  <script src="/static/app.js"></script>
+  <script>
+    document.getElementById('navbar-container').innerHTML = `<object type="text/html" data="/navbar.html"></object>`;
 
-{{> (lookup . "layout") }}
+    // Load saved settings
+    document.getElementById('settingsDarkMode').checked = localStorage.getItem('darkMode')==='enabled';
+    document.getElementById('settingsAutoRefresh').checked = localStorage.getItem('autoRefresh')==='enabled';
+    document.getElementById('settingsRefreshInterval').value = localStorage.getItem('refreshInterval') || 30;
+
+    document.getElementById('saveSettingsBtn').addEventListener('click',()=>{
+      saveSettings();
+      showAlert('Settings saved','success');
+    });
+  </script>
+</body>
+</html>
