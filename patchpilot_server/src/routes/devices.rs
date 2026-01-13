@@ -1,23 +1,19 @@
-use rocket::{get, post, delete, routes, State};
+use rocket::{get, post, routes, State};
 use rocket::form::Form;
 use rocket::http::Status;
-use rocket::response::Redirect;
 use rocket::serde::json::Json;
-use rocket_dyn_templates::Template;
 
 use diesel::prelude::*;
-use chrono::{Utc, NaiveDateTime};
+use chrono::Utc;
 use std::sync::Arc;
 
-use crate::db::{DbPool, db_log_audit, insert_history, insert_audit};
-
+use crate::db::{DbPool, log_audit};
 use crate::models::{Device, NewDevice};
 use crate::AppState;
 use crate::schema::devices::dsl::*;
 use crate::auth::{AuthUser, RoleName};
 
-
-/// GET /api/devices - return all devices
+/// GET /devices - return all devices
 #[get("/devices")]
 pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Status> {
     let pool = pool.inner().clone();
@@ -39,7 +35,7 @@ pub async fn heartbeat() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "alive" }))
 }
 
-/// GET /api/device/<device_id>
+/// GET /device/<device_id>
 #[get("/device/<device_id_param>")]
 pub async fn get_device_details(pool: &State<DbPool>, device_id_param: i64) -> Result<Json<Device>, Status> {
     let pool = pool.inner().clone();
@@ -56,7 +52,7 @@ pub async fn get_device_details(pool: &State<DbPool>, device_id_param: i64) -> R
     Ok(Json(device))
 }
 
-/// POST /api/approve/<device_id> - approve a device (admin only)
+/// POST /approve/<device_id> - approve a device (admin only)
 #[post("/approve/<device_id_param>")]
 pub async fn approve_device(pool: &State<DbPool>, device_id_param: i64, user: AuthUser) -> Result<Status, Status> {
     if !user.has_role(RoleName::Admin) {
@@ -65,7 +61,6 @@ pub async fn approve_device(pool: &State<DbPool>, device_id_param: i64, user: Au
     let username = user.username.clone();
     let pool = pool.inner().clone();
 
-    // handle res properly
     rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         diesel::update(devices.filter(device_id.eq(device_id_param)))
@@ -112,7 +107,7 @@ pub struct DeviceIncoming {
     pub ip_address: Option<String>,
 }
 
-/// POST /api/register_or_update - register or update a device
+/// POST /register_or_update - register or update a device
 #[post("/register_or_update", data = "<info>")]
 pub async fn register_or_update_device(
     pool: &State<DbPool>,
@@ -120,7 +115,6 @@ pub async fn register_or_update_device(
     info: Json<DeviceIncoming>,
     user: AuthUser,
 ) -> Result<Json<serde_json::Value>, Status> {
-    // require admin
     if !user.has_role(RoleName::Admin) {
         return Err(Status::Unauthorized);
     }
@@ -132,7 +126,6 @@ pub async fn register_or_update_device(
 
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
         let mut conn = pool_for_db.get().map_err(|_| Status::InternalServerError)?;
-        // Try to find existing by device_id
         let existing = devices
             .filter(device_id.eq(info.device_id))
             .first::<Device>(&mut conn)
@@ -164,7 +157,6 @@ pub async fn register_or_update_device(
             ip_address: info.ip_address,
         };
 
-        // Upsert by device_id
         diesel::insert_into(devices)
             .values(&updated)
             .on_conflict(device_id)
@@ -184,7 +176,6 @@ pub async fn register_or_update_device(
             Some("Device registered or updated"),
         );
 
-        // Mark device as recently seen for pending cleanup tracking
         app_state.update_pending_device(&updated.device_id.to_string());
 
         Ok(serde_json::json!({

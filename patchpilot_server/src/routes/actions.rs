@@ -1,16 +1,16 @@
 use rocket::{get, post, routes, State};
 use rocket::form::Form;
 use rocket::http::Status;
-use rocket::response::Redirect;
 use rocket::serde::json::Json;
-use rocket_dyn_templates::Template;
 
 use diesel::prelude::*;
-use chrono::Utc;
+use diesel::associations::HasTable;
+use chrono::{Utc, Duration};
 
-use crate::db::DbPool;
-use crate::models::Action;
-use crate::schema::actions::dsl::*;
+use crate::db::{DbPool, load_settings, log_audit as db_log_audit};
+use crate::models::{Action, NewAction, NewActionTarget};
+use crate::schema::actions::dsl as actions_dsl;
+use crate::schema::action_targets::dsl as action_targets;
 use crate::auth::AuthUser;
 
 #[derive(FromForm)]
@@ -36,7 +36,7 @@ pub async fn submit_action(
         let now = Utc::now().naive_utc();
 
         // Load server settings for TTL default/cap
-        let settings_row = db_load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
+        let settings_row = load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
 
         // Determine TTL
         let ttl_to_use = form
@@ -44,7 +44,7 @@ pub async fn submit_action(
             .map(|t| if t < settings_row.default_action_ttl_seconds { t } else { settings_row.default_action_ttl_seconds })
             .unwrap_or(settings_row.default_action_ttl_seconds);
 
-        let expires_at = now + Duration::seconds(ttl_to_use);
+        let expiry_time = now + Duration::seconds(ttl_to_use);
 
         // Insert action
         let new_action = NewAction {
@@ -52,11 +52,11 @@ pub async fn submit_action(
             parameters: None,
             author: Some(username.clone()),
             created_at: now,
-            expires_at,
+            expires_at: expiry_time,
             canceled: false,
         };
 
-        diesel::insert_into(actions::table)
+        diesel::insert_into(actions_dsl::actions)
             .values(&new_action)
             .execute(&mut conn)
             .map_err(|e| {
@@ -65,9 +65,9 @@ pub async fn submit_action(
             })?;
 
         // Retrieve action id
-        let last_id: i64 = actions::table
-            .select(actions::id)
-            .order(actions::id.desc())
+        let last_id: i64 = actions_dsl::actions
+            .select(actions_dsl::id)
+            .order(actions_dsl::id.desc())
             .first::<i64>(&mut conn)
             .map_err(|e| {
                 log::error!("Failed to obtain action id: {:?}", e);
@@ -76,7 +76,7 @@ pub async fn submit_action(
 
         // Insert action target
         let new_target = NewActionTarget::pending(last_id, form.target_device_id);
-        diesel::insert_into(action_targets::table)
+        diesel::insert_into(action_targets::action_targets)
             .values(&new_target)
             .execute(&mut conn)
             .map_err(|e| {
@@ -109,7 +109,7 @@ pub async fn list_actions(pool: &State<DbPool>) -> Result<Json<Vec<Action>>, Sta
     let pool = pool.inner().clone();
     let res = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<Action>, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let rows = actions::table.load::<Action>(&mut conn).map_err(|_| Status::InternalServerError)?;
+        let rows = actions_dsl::actions.load::<Action>(&mut conn).map_err(|_| Status::InternalServerError)?;
         Ok(rows)
     })
     .await
@@ -119,10 +119,11 @@ pub async fn list_actions(pool: &State<DbPool>) -> Result<Json<Vec<Action>>, Sta
 }
 
 use rocket::Route;
+
 pub fn routes() -> Vec<Route> {
     routes![submit_action, list_actions]
 }
 
-pub fn api_routes() -> Vec<rocket::Route> {
+pub fn api_routes() -> Vec<Route> {
     routes![submit_action, list_actions]
 }

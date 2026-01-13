@@ -4,9 +4,10 @@ use rocket::serde::json::Json;
 
 use diesel::prelude::*;
 
-use crate::db::DbPool;
+use crate::db::{DbPool, log_audit as db_log_audit};
 use crate::models::{HistoryEntry, AuditLog};
-use crate::schema::{history_log::dsl::*, audit::dsl::*};
+use crate::schema::history_log::dsl::{history_log, created_at as history_created_at};
+use crate::schema::audit::dsl::{audit, created_at as audit_created_at};
 
 /// API: GET /api/history
 #[get("/")]
