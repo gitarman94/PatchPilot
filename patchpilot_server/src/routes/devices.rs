@@ -5,13 +5,13 @@ use diesel::prelude::*;
 use chrono::Utc;
 
 use crate::db::{DbPool, log_audit};
-use crate::auth::AuthUser;
-use crate::models::{Device, NewDevice, UserRole};
+use crate::auth::{AuthUser, RoleName};
+use crate::models::{Device, NewDevice};
 use crate::schema::devices::dsl::*;
 use crate::state::AppState;
 
 /// GET /api/devices - return all devices
-#[get("/api/devices")]
+#[get("/devices")]
 pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Status> {
     let pool = pool.inner().clone();
     let devices_res = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<Device>, Status> {
@@ -23,18 +23,17 @@ pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Stat
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
-
     Ok(Json(devices_res))
 }
 
 /// Heartbeat endpoint
-#[post("/api/heartbeat")]
+#[post("/heartbeat")]
 pub async fn heartbeat() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "alive" }))
 }
 
-/// GET /api/device/<device_id> - device lookup by `device_id`
-#[get("/api/device/<device_id_param>")]
+/// GET /api/device/<device_id>
+#[get("/device/<device_id_param>")]
 pub async fn get_device_details(pool: &State<DbPool>, device_id_param: i64) -> Result<Json<Device>, Status> {
     let pool = pool.inner().clone();
     let device = rocket::tokio::task::spawn_blocking(move || -> Result<Device, Status> {
@@ -47,19 +46,17 @@ pub async fn get_device_details(pool: &State<DbPool>, device_id_param: i64) -> R
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
-
     Ok(Json(device))
 }
 
 /// POST /api/approve/<device_id> - approve a device (admin only)
-#[post("/api/approve/<device_id_param>")]
+#[post("/approve/<device_id_param>")]
 pub async fn approve_device(pool: &State<DbPool>, device_id_param: i64, user: AuthUser) -> Result<Status, Status> {
-    if !user.has_role(UserRole::Admin) {
+    if !user.has_role(RoleName::Admin) {
         return Err(Status::Unauthorized);
     }
     let username = user.username.clone();
     let pool = pool.inner().clone();
-
     let res = rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         diesel::update(devices.filter(device_id.eq(device_id_param)))
@@ -77,11 +74,10 @@ pub async fn approve_device(pool: &State<DbPool>, device_id_param: i64, user: Au
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
-
     Ok(Status::Ok)
 }
 
-/// Incoming device JSON payload (adjust fields as needed)
+/// Incoming device JSON payload
 #[derive(Debug, serde::Deserialize)]
 pub struct DeviceIncoming {
     pub device_id: i64,
@@ -102,12 +98,12 @@ pub struct DeviceIncoming {
     pub device_model: String,
     pub uptime: Option<i64>,
     pub updates_available: bool,
-    pub network_interfaces: Option<String>,
+    pub network_interfaces: Option<serde_json::Value>,
     pub ip_address: Option<String>,
 }
 
 /// POST /api/register_or_update - register or update a device
-#[post("/api/register_or_update", data = "<info>")]
+#[post("/register_or_update", data = "<info>")]
 pub async fn register_or_update_device(
     pool: &State<DbPool>,
     app_state: &State<Arc<AppState>>,
@@ -115,7 +111,7 @@ pub async fn register_or_update_device(
     user: AuthUser,
 ) -> Result<Json<serde_json::Value>, Status> {
     // require admin
-    if !user.has_role(UserRole::Admin) {
+    if !user.has_role(RoleName::Admin) {
         return Err(Status::Unauthorized);
     }
 
@@ -126,7 +122,6 @@ pub async fn register_or_update_device(
 
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
         let mut conn = pool_for_db.get().map_err(|_| Status::InternalServerError)?;
-
         // Try to find existing by device_id
         let existing = devices
             .filter(device_id.eq(info.device_id))
@@ -159,7 +154,7 @@ pub async fn register_or_update_device(
             ip_address: info.ip_address,
         };
 
-        // Upsert by device_id (ensure device_id is unique in DB)
+        // Upsert by device_id
         diesel::insert_into(devices)
             .values(&updated)
             .on_conflict(device_id)
@@ -204,4 +199,6 @@ pub fn routes() -> Vec<Route> {
         approve_device,
         register_or_update_device
     ]
+    .into_iter()
+    .collect()
 }

@@ -8,30 +8,36 @@ pub mod pages;
 pub mod users_groups;
 pub mod roles;
 
-/// API routes (JSON API)
+/// Return API routes mounted under /api
 pub fn api_routes() -> Vec<Route> {
-    let mut routes = Vec::new();
-    routes.extend(devices::api_routes());
-    routes.extend(actions::api_routes());
-    routes.extend(settings::api_routes());
-    routes.extend(history::api_routes());
-    routes.extend(users_groups::api_users_groups_routes());
-    routes.extend(roles::api_roles_routes());
+    let mut routes: Vec<Route> = Vec::new();
+    // devices and actions provide API endpoints and export `routes()`
+    routes.extend(devices::routes());
+    routes.extend(actions::routes());
     routes
 }
 
-/// Page routes (HTML pages)
+/// Return page (HTML) routes mounted under /
 pub fn page_routes() -> Vec<Route> {
-    let mut routes = Vec::new();
-    routes.extend(pages::page_routes());
-    routes
+    routes![
+        pages::dashboard,
+        pages::devices_page,
+        pages::device_detail,
+        pages::actions_page,
+        pages::history_page,
+        pages::settings_page
+    ]
+    .into_iter()
+    .collect()
 }
 
-/// Authentication routes (login/logout)
+/// Authentication endpoints (mounted under /auth)
 pub fn auth_routes() -> Vec<Route> {
     routes![
         crate::auth::login_page,
         crate::auth::login,
         crate::auth::logout
     ]
+    .into_iter()
+    .collect()
 }

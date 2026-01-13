@@ -1,26 +1,25 @@
 use rocket::form::Form;
 use rocket::http::{Cookie, CookieJar, Status};
-use rocket::outcome::Outcome;
-use rocket::request::{FromRequest, Request};
+use rocket::request::{FromRequest, Request, Outcome};
 use rocket::response::Redirect;
 use rocket::State;
-
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-
-use bcrypt::verify;
+use bcrypt::{verify, hash, DEFAULT_COST};
 use std::fs::read_to_string;
 
 use crate::db::{DbPool, log_audit};
 use crate::schema::{users, roles, user_roles};
 use diesel::result::QueryResult;
 
+/// Form for login
 #[derive(FromForm)]
 pub struct LoginForm {
     pub username: String,
     pub password: String,
 }
 
+/// Authenticated user provided by request guard
 #[derive(Clone, Debug)]
 pub struct AuthUser {
     pub id: i32,
@@ -28,6 +27,7 @@ pub struct AuthUser {
     pub role: String,
 }
 
+/// Role name helper enum (local to auth)
 #[derive(Debug, PartialEq, Eq)]
 pub enum RoleName {
     Admin,
@@ -69,29 +69,29 @@ impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        // read user_id cookie
-        let user_id: i32 = match req
+        // read user_id cookie (private/encrypted)
+        let user_id = match req
             .cookies()
             .get_private("user_id")
-            .and_then(|c| c.value().parse().ok())
+            .and_then(|c| c.value().parse::<i32>().ok())
         {
             Some(id) => id,
-            None => return Outcome::Failure((Status::Unauthorized, ())),
+            None => return Outcome::Error((Status::Unauthorized, ())),
         };
 
-        // get the DB pool from state (typed)
+        // get the DB pool from state
         let pool = match req.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Failure((Status::InternalServerError, ())),
+            _ => return Outcome::Error((Status::InternalServerError, ())),
         };
 
         // get a pooled connection
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
+            Err(_) => return Outcome::Error((Status::InternalServerError, ())),
         };
 
-        // query user + role (nullable)
+        // query user + optional role
         let result = users::table
             .filter(users::id.eq(user_id))
             .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
@@ -105,10 +105,9 @@ impl<'r> FromRequest<'r> for AuthUser {
                     .as_deref()
                     .map(|r| RoleName::from_name(r).as_str().to_string())
                     .unwrap_or_else(|| RoleName::User.as_str().to_string());
-
                 Outcome::Success(AuthUser { id, username, role })
             }
-            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
+            Err(_) => Outcome::Error((Status::Unauthorized, ())),
         }
     }
 }
@@ -125,6 +124,7 @@ pub fn login(
         Err(_) => return Redirect::to("/login"),
     };
 
+    // fetch user + password hash + optional role
     let result = users::table
         .filter(users::username.eq(&form.username))
         .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
@@ -141,7 +141,8 @@ pub fn login(
         return Redirect::to("/login");
     }
 
-    cookies.add_private(Cookie::build("user_id", id.to_string()).finish());
+    // set private cookie
+    cookies.add_private(Cookie::new("user_id", id.to_string()));
 
     let role = role_opt
         .as_deref()
@@ -158,14 +159,15 @@ pub fn login(
 
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
-    let user_id = cookies
+    // try to read current cookie
+    let user_id_opt = cookies
         .get_private("user_id")
         .and_then(|c| c.value().parse::<i32>().ok());
 
     // remove cookie
-    cookies.remove_private(Cookie::build("user_id").finish());
+    cookies.remove_private(Cookie::named("user_id"));
 
-    if let Some(uid) = user_id {
+    if let Some(uid) = user_id_opt {
         if let Ok(mut conn) = pool.get() {
             if let Ok((username, _role_opt)) = users::table
                 .filter(users::id.eq(uid))

@@ -1,4 +1,4 @@
-use rocket::{get, Route, State, http::Status};
+use rocket::{get, State, http::Status};
 use rocket::serde::json::Json;
 use diesel::prelude::*;
 
@@ -8,41 +8,72 @@ use crate::schema::history_log::dsl::{history_log, created_at as history_created
 use crate::schema::audit::dsl::{audit, created_at as audit_created_at};
 
 /// API: GET /api/history
-#[get("/api/history")]
+#[get("/")]
 pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryEntry>>, Status> {
     let pool_clone = pool.inner().clone();
-    let result: Vec<HistoryEntry> = rocket::tokio::task::spawn_blocking(move || {
+    let result: Vec<HistoryEntry> = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<HistoryEntry>, Status> {
         let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
-        history_log
+        let logs = history_log
             .order(history_created_at.desc())
             .load::<HistoryEntry>(&mut conn)
-            .map_err(|_| Status::InternalServerError)
+            .map_err(|_| Status::InternalServerError)?;
+        Ok(logs)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
-
     Ok(Json(result))
 }
 
-/// API: GET /api/audit
-#[get("/api/audit")]
+/// API: GET /api/audit (latest 100 entries)
+#[get("/audit")]
 pub async fn api_audit(pool: &State<DbPool>) -> Result<Json<Vec<AuditLog>>, Status> {
     let pool_clone = pool.inner().clone();
-    let result: Vec<AuditLog> = rocket::tokio::task::spawn_blocking(move || {
+    let result: Vec<AuditLog> = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<AuditLog>, Status> {
         let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
-        audit
+        let logs = audit
             .order(audit_created_at.desc())
             .limit(100)
             .load::<AuditLog>(&mut conn)
-            .map_err(|_| Status::InternalServerError)
+            .map_err(|_| Status::InternalServerError)?;
+        Ok(logs)
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
-
     Ok(Json(result))
 }
 
-/// Route list for history APIs
-pub fn api_routes() -> Vec<Route> {
-    routes![api_history, api_audit]
+/// Async helper: log an audit action
+pub async fn log_audit(
+    pool: &DbPool,
+    actor_val: &str,
+    action_type_val: &str,
+    target_val: Option<&str>,
+    details_val: Option<&str>,
+) -> Result<(), Status> {
+    let pool = pool.clone();
+    let actor_val = actor_val.to_string();
+    let action_type_val = action_type_val.to_string();
+    let target_val = target_val.map(|s| s.to_string());
+    let details_val = details_val.map(|s| s.to_string());
+    rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        db_log_audit(
+            &mut conn,
+            &actor_val,
+            &action_type_val,
+            target_val.as_deref(),
+            details_val.as_deref(),
+        )
+        .map_err(|_| Status::InternalServerError)?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| Status::InternalServerError)??;
+    Ok(())
+}
+
+use rocket::Route;
+
+pub fn routes() -> Vec<Route> {
+    routes![api_history, api_audit].into_iter().collect()
 }
