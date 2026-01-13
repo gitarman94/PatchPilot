@@ -7,7 +7,6 @@ use std::collections::HashMap;
 
 use crate::db::{DbPool, log_audit as db_log_audit};
 use crate::auth::{AuthUser, RoleName};
-use crate::models::UserRole;
 use crate::schema::{users, groups, user_groups};
 
 #[derive(FromForm)]

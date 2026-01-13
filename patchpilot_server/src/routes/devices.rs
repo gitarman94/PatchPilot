@@ -57,7 +57,9 @@ pub async fn approve_device(pool: &State<DbPool>, device_id_param: i64, user: Au
     }
     let username = user.username.clone();
     let pool = pool.inner().clone();
-    let res = rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
+
+    // handle res properly
+    rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         diesel::update(devices.filter(device_id.eq(device_id_param)))
             .set(approved.eq(true))
@@ -74,6 +76,7 @@ pub async fn approve_device(pool: &State<DbPool>, device_id_param: i64, user: Au
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Status::Ok)
 }
 
@@ -150,7 +153,7 @@ pub async fn register_or_update_device(
             device_model: info.device_model,
             uptime: info.uptime,
             updates_available: info.updates_available,
-            network_interfaces: info.network_interfaces,
+            network_interfaces: info.network_interfaces.map(|v| v.to_string()),
             ip_address: info.ip_address,
         };
 

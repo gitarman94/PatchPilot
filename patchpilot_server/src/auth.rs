@@ -5,7 +5,7 @@ use rocket::response::Redirect;
 use rocket::State;
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-use bcrypt::{verify, hash, DEFAULT_COST};
+use bcrypt::verify;
 use std::fs::read_to_string;
 
 use crate::db::{DbPool, log_audit};
@@ -76,19 +76,19 @@ impl<'r> FromRequest<'r> for AuthUser {
             .and_then(|c| c.value().parse::<i32>().ok())
         {
             Some(id) => id,
-            None => return Outcome::Error((Status::Unauthorized, ())),
+            None => return Outcome::Failure((Status::Unauthorized, ())),
         };
 
         // get the DB pool from state
         let pool = match req.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
-            _ => return Outcome::Error((Status::InternalServerError, ())),
+            _ => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         // get a pooled connection
         let mut conn = match pool.get() {
             Ok(c) => c,
-            Err(_) => return Outcome::Error((Status::InternalServerError, ())),
+            Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
         // query user + optional role
@@ -107,7 +107,7 @@ impl<'r> FromRequest<'r> for AuthUser {
                     .unwrap_or_else(|| RoleName::User.as_str().to_string());
                 Outcome::Success(AuthUser { id, username, role })
             }
-            Err(_) => Outcome::Error((Status::Unauthorized, ())),
+            Err(_) => Outcome::Failure((Status::Unauthorized, ())),
         }
     }
 }
@@ -118,13 +118,11 @@ pub fn login(
     cookies: &CookieJar<'_>,
     pool: &State<DbPool>,
 ) -> Redirect {
-    // obtain a connection from the pool
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => return Redirect::to("/login"),
     };
 
-    // fetch user + password hash + optional role
     let result = users::table
         .filter(users::username.eq(&form.username))
         .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
@@ -142,7 +140,7 @@ pub fn login(
     }
 
     // set private cookie
-    cookies.add_private(Cookie::new("user_id", id.to_string()));
+    cookies.add_private(Cookie::build("user_id", id.to_string()).finish());
 
     let role = role_opt
         .as_deref()
@@ -159,13 +157,11 @@ pub fn login(
 
 #[get("/logout")]
 pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
-    // try to read current cookie
     let user_id_opt = cookies
         .get_private("user_id")
         .and_then(|c| c.value().parse::<i32>().ok());
 
-    // remove cookie
-    cookies.remove_private(Cookie::named("user_id"));
+    cookies.remove_private(Cookie::build("user_id").finish());
 
     if let Some(uid) = user_id_opt {
         if let Ok(mut conn) = pool.get() {
