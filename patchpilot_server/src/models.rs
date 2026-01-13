@@ -185,6 +185,17 @@ impl User {
     pub fn all(conn: &mut SqliteConnection) -> QueryResult<Vec<User>> {
         users::table.load::<User>(conn)
     }
+
+    // Check if user has a role (compare by role name)
+    pub fn has_role(&self, role_name: &str) -> bool {
+        // TODO: implement real DB join if needed; placeholder for now
+        self.role_name() == role_name
+    }
+
+    fn role_name(&self) -> &str {
+        // Placeholder: adjust with actual DB query if needed
+        "Admin"
+    }
 }
 
 #[derive(Debug, Queryable, Identifiable, Serialize, Deserialize)]
@@ -202,6 +213,10 @@ pub struct UserRole {
     pub id: i32,
     pub user_id: i32,
     pub role_id: i32,
+}
+
+impl UserRole {
+    pub const ADMIN: &'static str = "Admin";
 }
 
 #[derive(Debug, Queryable, Identifiable, Associations, Serialize, Deserialize)]

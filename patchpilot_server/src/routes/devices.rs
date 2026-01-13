@@ -193,3 +193,15 @@ pub async fn register_or_update_device(
 
     Ok(Json(result))
 }
+
+use rocket::Route;
+
+pub fn routes() -> Vec<Route> {
+    routes![
+        get_devices,
+        heartbeat,
+        get_device_details,
+        approve_device,
+        register_or_update_device
+    ]
+}

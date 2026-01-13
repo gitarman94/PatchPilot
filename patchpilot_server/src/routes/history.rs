@@ -75,3 +75,8 @@ pub async fn log_audit(
 
     Ok(())
 }
+
+use rocket::Route;
+pub fn routes() -> Vec<Route> {
+    routes![submit_action, list_actions]
+}

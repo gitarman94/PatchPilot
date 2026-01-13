@@ -10,10 +10,10 @@ pub mod roles;
 
 pub fn api_routes() -> Vec<Route> {
     let mut routes = Vec::new();
-    routes.extend(devices::api_routes());
-    routes.extend(actions::api_routes());
-    routes.extend(settings::api_routes());
-    routes.extend(history::api_routes());
+    routes.extend(devices::routes());
+    routes.extend(actions::routes());
+    routes.extend(settings::routes());
+    routes.extend(history::routes());
     routes.extend(users_groups::api_users_groups_routes());
     routes.extend(roles::api_roles_routes());
     routes

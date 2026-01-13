@@ -114,3 +114,8 @@ pub async fn list_actions(pool: &State<DbPool>) -> Result<Json<Vec<Action>>, Sta
 
     Ok(Json(res))
 }
+
+use rocket::Route;
+pub fn routes() -> Vec<Route> {
+    routes![submit_action, list_actions]
+}
