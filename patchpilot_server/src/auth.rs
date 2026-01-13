@@ -1,16 +1,16 @@
+use rocket::{get, post};
 use rocket::form::Form;
+use rocket::response::Redirect;
 use rocket::http::{Cookie, CookieJar, Status};
-use rocket::outcome::Outcome;
 use rocket::request::{FromRequest, Request};
-use rocket::serde::Serialize;
-use rocket::tokio;
-use std::fs::read_to_string;
+use rocket::outcome::Outcome;
+use rocket::FromForm;
+
 use diesel::prelude::*;
 use bcrypt::verify;
+
 use crate::db::{DbPool, log_audit};
 use crate::schema::{users, roles, user_roles};
-use diesel::result::QueryResult;
-use rocket::FromForm; // make sure derive FromForm works if used in this file
 
 /// Form for login
 #[derive(FromForm)]

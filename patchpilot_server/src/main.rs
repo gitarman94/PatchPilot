@@ -1,5 +1,9 @@
+// bring Rocket procedural macros into scope
 #[macro_use]
 extern crate rocket;
+
+use rocket::fs::{FileServer, relative};
+use rocket_dyn_templates::Template;
 
 mod schema;
 mod db;
@@ -13,12 +17,12 @@ mod pending_cleanup;
 
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
-use rocket::fs::{FileServer, relative};
-use rocket_dyn_templates::Template;
+
 use db::{DbPool, initialize, get_conn};
 use auth::AuthUser;
 use models::ServerSettings;
 use state::{SystemState, AppState};
+
 
 #[launch]
 fn rocket() -> _ {
