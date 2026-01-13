@@ -6,11 +6,13 @@ use rocket::State;
 
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
+
 use bcrypt::verify;
 use std::fs::read_to_string;
 
 use crate::db::{DbPool, log_audit};
 use crate::schema::{users, roles, user_roles};
+use diesel::result::QueryResult;
 
 #[derive(FromForm)]
 pub struct LoginForm {
@@ -26,43 +28,39 @@ pub struct AuthUser {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum UserRole {
+pub enum RoleName {
     Admin,
     User,
 }
 
-impl UserRole {
+impl RoleName {
     pub fn as_str(&self) -> &'static str {
         match self {
-            UserRole::Admin => "Admin",
-            UserRole::User => "User",
+            RoleName::Admin => "Admin",
+            RoleName::User => "User",
         }
     }
 
-    pub fn from_name(name: &str) -> UserRole {
+    pub fn from_name(name: &str) -> RoleName {
         match name.to_ascii_lowercase().as_str() {
-            "admin" => UserRole::Admin,
-            _ => UserRole::User,
+            "admin" => RoleName::Admin,
+            _ => RoleName::User,
         }
     }
 }
 
 impl AuthUser {
-    pub fn has_role(&self, role: UserRole) -> bool {
+    pub fn has_role(&self, role: RoleName) -> bool {
         match role {
-            UserRole::Admin => self.role == UserRole::Admin.as_str(),
-            UserRole::User => true,
+            RoleName::Admin => self.role == RoleName::Admin.as_str(),
+            RoleName::User => true,
         }
     }
 
-    pub fn audit(
-        &self,
-        conn: &mut SqliteConnection,
-        action: &str,
-        target: Option<&str>,
-    ) {
+    /// Audit and return the DB result (so callers can decide how to handle errors).
+    pub fn audit(&self, conn: &mut SqliteConnection, action: &str, target: Option<&str>) -> QueryResult<()> {
         let actor = format!("{}:{}", self.id, self.username);
-        let _ = log_audit(conn, &actor, action, target, None);
+        log_audit(conn, &actor, action, target, None)
     }
 }
 
@@ -71,6 +69,7 @@ impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        // read user_id cookie
         let user_id: i32 = match req
             .cookies()
             .get_private("user_id")
@@ -80,16 +79,19 @@ impl<'r> FromRequest<'r> for AuthUser {
             None => return Outcome::Failure((Status::Unauthorized, ())),
         };
 
+        // get the DB pool from state (typed)
         let pool = match req.guard::<&State<DbPool>>().await {
             Outcome::Success(p) => p,
             _ => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
+        // get a pooled connection
         let mut conn = match pool.get() {
             Ok(c) => c,
             Err(_) => return Outcome::Failure((Status::InternalServerError, ())),
         };
 
+        // query user + role (nullable)
         let result = users::table
             .filter(users::id.eq(user_id))
             .left_outer_join(user_roles::table.on(user_roles::user_id.eq(users::id)))
@@ -101,8 +103,9 @@ impl<'r> FromRequest<'r> for AuthUser {
             Ok((id, username, role_opt)) => {
                 let role = role_opt
                     .as_deref()
-                    .map(|r| UserRole::from_name(r).as_str().to_string())
-                    .unwrap_or_else(|| UserRole::User.as_str().to_string());
+                    .map(|r| RoleName::from_name(r).as_str().to_string())
+                    .unwrap_or_else(|| RoleName::User.as_str().to_string());
+
                 Outcome::Success(AuthUser { id, username, role })
             }
             Err(_) => Outcome::Failure((Status::Unauthorized, ())),
@@ -116,6 +119,7 @@ pub fn login(
     cookies: &CookieJar<'_>,
     pool: &State<DbPool>,
 ) -> Redirect {
+    // obtain a connection from the pool
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => return Redirect::to("/login"),
@@ -137,19 +141,18 @@ pub fn login(
         return Redirect::to("/login");
     }
 
-    cookies.add_private(
-        Cookie::build("user_id", id.to_string())
-            .same_site(SameSite::Lax)
-            .finish(),
-    );
+    // add cookie (private). Use Cookie::new; we won't set SameSite here to avoid builder API inconsistencies.
+    cookies.add_private(Cookie::new("user_id", id.to_string()));
 
     let role = role_opt
         .as_deref()
-        .map(|r| UserRole::from_name(r).as_str().to_string())
-        .unwrap_or_else(|| UserRole::User.as_str().to_string());
+        .map(|r| RoleName::from_name(r).as_str().to_string())
+        .unwrap_or_else(|| RoleName::User.as_str().to_string());
 
     let user = AuthUser { id, username, role };
-    user.audit(&mut conn, "login", None);
+
+    // audit but ignore failures for login (do not abort login on audit failure)
+    let _ = user.audit(&mut conn, "login", None);
 
     Redirect::to("/dashboard")
 }
@@ -160,7 +163,8 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
         .get_private("user_id")
         .and_then(|c| c.value().parse::<i32>().ok());
 
-    cookies.remove_private(Cookie::build("user_id").finish());
+    // remove cookie
+    cookies.remove_private(Cookie::named("user_id"));
 
     if let Some(uid) = user_id {
         if let Ok(mut conn) = pool.get() {
@@ -173,11 +177,11 @@ pub fn logout(cookies: &CookieJar<'_>, pool: &State<DbPool>) -> Redirect {
             {
                 let role = role_opt
                     .as_deref()
-                    .map(|r| UserRole::from_name(r).as_str().to_string())
-                    .unwrap_or_else(|| UserRole::User.as_str().to_string());
+                    .map(|r| RoleName::from_name(r).as_str().to_string())
+                    .unwrap_or_else(|| RoleName::User.as_str().to_string());
 
                 let user = AuthUser { id: uid, username, role };
-                user.audit(&mut conn, "logout", None);
+                let _ = user.audit(&mut conn, "logout", None);
             }
         }
     }

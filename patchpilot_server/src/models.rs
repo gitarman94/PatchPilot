@@ -4,22 +4,23 @@ use chrono::{NaiveDateTime, Utc};
 use serde::{Serialize, Deserialize};
 
 use crate::schema::{
-    devices, actions, action_targets, history_log, audit, users, roles, user_roles,
-    user_groups, groups, server_settings,
+    devices, actions, action_targets, history_log, audit, users, roles, user_roles, user_groups,
+    groups, server_settings,
 };
 
-#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
+/// Device table row
+#[derive(Debug, Queryable, Identifiable, Serialize, Deserialize)]
 #[diesel(table_name = devices)]
 pub struct Device {
-    pub id: i32,
-    pub device_id: i64,
+    pub id: i64,                  // schema: BigInt
+    pub device_id: i64,           // schema: BigInt (your unique 12-digit ID)
     pub device_name: String,
     pub hostname: String,
     pub os_name: String,
     pub architecture: String,
     pub last_checkin: NaiveDateTime,
     pub approved: bool,
-    pub cpu_usage: f64,
+    pub cpu_usage: f32,           // schema: Float -> f32
     pub cpu_count: i32,
     pub cpu_brand: String,
     pub ram_total: i64,
@@ -30,12 +31,13 @@ pub struct Device {
     pub network_throughput: i64,
     pub device_type: String,
     pub device_model: String,
-    pub uptime: Option<String>,
+    pub uptime: Option<i64>,      // Nullable<BigInt>
     pub updates_available: bool,
     pub network_interfaces: Option<String>,
     pub ip_address: Option<String>,
 }
 
+/// New device for insert / update
 #[derive(Debug, Insertable, AsChangeset, Serialize, Deserialize)]
 #[diesel(table_name = devices)]
 pub struct NewDevice {
@@ -46,7 +48,7 @@ pub struct NewDevice {
     pub architecture: String,
     pub last_checkin: NaiveDateTime,
     pub approved: bool,
-    pub cpu_usage: f64,
+    pub cpu_usage: f32,
     pub cpu_count: i32,
     pub cpu_brand: String,
     pub ram_total: i64,
@@ -57,7 +59,7 @@ pub struct NewDevice {
     pub network_throughput: i64,
     pub device_type: String,
     pub device_model: String,
-    pub uptime: Option<String>,
+    pub uptime: Option<i64>,
     pub updates_available: bool,
     pub network_interfaces: Option<String>,
     pub ip_address: Option<String>,
@@ -65,20 +67,29 @@ pub struct NewDevice {
 
 impl Device {
     pub fn all(conn: &mut SqliteConnection) -> QueryResult<Vec<Device>> {
-        devices::table.load(conn)
+        devices::table.load::<Device>(conn)
     }
 
-    pub fn find_by_id(conn: &mut SqliteConnection, device_id_param: i64) -> QueryResult<Device> {
+    /// Find a device by its unique device_id (not the DB primary key `id`)
+    pub fn find_by_device_id(conn: &mut SqliteConnection, device_id_param: i64) -> QueryResult<Device> {
         devices::table
             .filter(devices::device_id.eq(device_id_param))
-            .first(conn)
+            .first::<Device>(conn)
+    }
+
+    /// Find by internal DB id (if ever needed)
+    pub fn find_by_id(conn: &mut SqliteConnection, id_param: i64) -> QueryResult<Device> {
+        devices::table
+            .filter(devices::id.eq(id_param))
+            .first::<Device>(conn)
     }
 }
 
-#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
+/// Action table row
+#[derive(Debug, Queryable, Identifiable, Serialize, Deserialize)]
 #[diesel(table_name = actions)]
 pub struct Action {
-    pub id: i32,
+    pub id: i64,
     pub action_type: String,
     pub parameters: Option<String>,
     pub author: Option<String>,
@@ -100,16 +111,17 @@ pub struct NewAction {
 
 impl Action {
     pub fn all(conn: &mut SqliteConnection) -> QueryResult<Vec<Action>> {
-        actions::table.load(conn)
+        actions::table.load::<Action>(conn)
     }
 }
 
-#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
+/// Action targets (per-device)
+#[derive(Debug, Queryable, Identifiable, Serialize, Deserialize)]
 #[diesel(table_name = action_targets)]
 pub struct ActionTarget {
-    pub id: i32,
-    pub action_id: i32,
-    pub device_id: i32,
+    pub id: i64,
+    pub action_id: i64,
+    pub device_id: i64,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
@@ -118,15 +130,15 @@ pub struct ActionTarget {
 #[derive(Debug, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = action_targets)]
 pub struct NewActionTarget {
-    pub action_id: i32,
-    pub device_id: i32,
+    pub action_id: i64,
+    pub device_id: i64,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
 }
 
 impl NewActionTarget {
-    pub fn pending(action_id: i32, device_id: i32) -> Self {
+    pub fn pending(action_id: i64, device_id: i64) -> Self {
         Self {
             action_id,
             device_id,
@@ -137,10 +149,10 @@ impl NewActionTarget {
     }
 }
 
-#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
+#[derive(Debug, Queryable, Identifiable, Serialize, Deserialize)]
 #[diesel(table_name = history_log)]
 pub struct HistoryEntry {
-    pub id: i32,
+    pub id: i64,
     pub action_id: i64,
     pub device_name: Option<String>,
     pub actor: Option<String>,
@@ -151,11 +163,11 @@ pub struct HistoryEntry {
 
 impl HistoryEntry {
     pub fn all(conn: &mut SqliteConnection) -> QueryResult<Vec<HistoryEntry>> {
-        history_log::table.load(conn)
+        history_log::table.load::<HistoryEntry>(conn)
     }
 }
 
-#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
+#[derive(Debug, Queryable, Identifiable, Serialize, Deserialize)]
 #[diesel(table_name = audit)]
 pub struct AuditLog {
     pub id: i32,
@@ -166,7 +178,7 @@ pub struct AuditLog {
     pub created_at: NaiveDateTime,
 }
 
-#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
+#[derive(Debug, Queryable, Identifiable, Serialize, Deserialize)]
 #[diesel(table_name = users)]
 pub struct User {
     pub id: i32,
@@ -177,11 +189,11 @@ pub struct User {
 
 impl User {
     pub fn all(conn: &mut SqliteConnection) -> QueryResult<Vec<User>> {
-        users::table.load(conn)
+        users::table.load::<User>(conn)
     }
 }
 
-#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
+#[derive(Debug, Queryable, Identifiable, Serialize, Deserialize)]
 #[diesel(table_name = roles)]
 pub struct Role {
     pub id: i32,
@@ -208,7 +220,7 @@ pub struct UserGroup {
     pub group_id: i32,
 }
 
-#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
+#[derive(Debug, Queryable, Identifiable, Serialize, Deserialize)]
 #[diesel(table_name = groups)]
 pub struct Group {
     pub id: i32,
@@ -216,7 +228,7 @@ pub struct Group {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize, Clone)]
+#[derive(Debug, Queryable, Identifiable, Serialize, Deserialize, Clone)]
 #[diesel(table_name = server_settings)]
 pub struct ServerSettings {
     pub id: i32,
@@ -231,6 +243,6 @@ pub struct ServerSettings {
 
 impl ServerSettings {
     pub fn load(conn: &mut SqliteConnection) -> QueryResult<ServerSettings> {
-        server_settings::table.first(conn)
+        server_settings::table.first::<ServerSettings>(conn)
     }
 }

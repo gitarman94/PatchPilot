@@ -3,26 +3,24 @@ use rocket::serde::json::Json;
 use diesel::prelude::*;
 
 use crate::db::{DbPool, log_audit as db_log_audit};
-use crate::models::{HistoryLog, AuditLog};
+use crate::models::{HistoryEntry, AuditLog};
 use crate::schema::history_log::dsl::{history_log, created_at as history_created_at};
 use crate::schema::audit::dsl::{audit, created_at as audit_created_at};
 
 /// API: GET /api/history
 #[get("/api/history")]
-pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, Status> {
-    let pool = pool.inner().clone();
-
-    let result: Vec<HistoryLog> = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<HistoryLog>, Status> {
-        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryEntry>>, Status> {
+    let pool_clone = pool.inner().clone();
+    let result: Vec<HistoryEntry> = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<HistoryEntry>, Status> {
+        let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
         let logs = history_log
             .order(history_created_at.desc())
-            .load::<HistoryLog>(&mut conn)
+            .load::<HistoryEntry>(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
         Ok(logs)
     })
     .await
-    .map_err(|_| Status::InternalServerError)?
-    ?;
+    .map_err(|_| Status::InternalServerError)??;
 
     Ok(Json(result))
 }
@@ -30,10 +28,9 @@ pub async fn api_history(pool: &State<DbPool>) -> Result<Json<Vec<HistoryLog>>, 
 /// API: GET /api/audit (latest 100 entries)
 #[get("/api/audit")]
 pub async fn api_audit(pool: &State<DbPool>) -> Result<Json<Vec<AuditLog>>, Status> {
-    let pool = pool.inner().clone();
-
+    let pool_clone = pool.inner().clone();
     let result: Vec<AuditLog> = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<AuditLog>, Status> {
-        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        let mut conn = pool_clone.get().map_err(|_| Status::InternalServerError)?;
         let logs = audit
             .order(audit_created_at.desc())
             .limit(100)
@@ -42,8 +39,7 @@ pub async fn api_audit(pool: &State<DbPool>) -> Result<Json<Vec<AuditLog>>, Stat
         Ok(logs)
     })
     .await
-    .map_err(|_| Status::InternalServerError)?
-    ?;
+    .map_err(|_| Status::InternalServerError)??;
 
     Ok(Json(result))
 }
@@ -75,8 +71,7 @@ pub async fn log_audit(
         Ok(())
     })
     .await
-    .map_err(|_| Status::InternalServerError)?
-    ?;
+    .map_err(|_| Status::InternalServerError)??;
 
     Ok(())
 }

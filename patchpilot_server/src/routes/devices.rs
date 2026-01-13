@@ -5,76 +5,68 @@ use rocket::serde::json::Json;
 use diesel::prelude::*;
 use chrono::Utc;
 
-use crate::db::{DbPool, get_conn, log_audit};
-use crate::auth::{AuthUser, UserRole};
+use crate::db::{DbPool, log_audit};
+use crate::auth::{AuthUser, RoleName};
 use crate::models::{Device, NewDevice};
 use crate::schema::devices::dsl::*;
 use crate::state::AppState;
 
-/// Get all devices
-#[get("/devices")]
+/// GET /api/devices - return all devices
+#[get("/api/devices")]
 pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Status> {
     let pool = pool.inner().clone();
-
-    rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = get_conn(&pool);
+    let devices_res = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<Device>, Status> {
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         let all_devices = devices
             .load::<Device>(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
-        Ok(Json(all_devices))
+        Ok(all_devices)
     })
     .await
-    .map_err(|_| Status::InternalServerError)?
+    .map_err(|_| Status::InternalServerError)??;
+
+    Ok(Json(devices_res))
 }
 
 /// Heartbeat endpoint
-#[post("/heartbeat")]
+#[post("/api/heartbeat")]
 pub async fn heartbeat() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "alive" }))
 }
 
-/// Get details for a specific device
-#[get("/device/<device_id_param>")]
-pub async fn get_device_details(
-    pool: &State<DbPool>,
-    device_id_param: i64,
-) -> Result<Json<Device>, Status> {
+/// GET /api/device/<device_id> - device lookup by `device_id`
+#[get("/api/device/<device_id_param>")]
+pub async fn get_device_details(pool: &State<DbPool>, device_id_param: i64) -> Result<Json<Device>, Status> {
     let pool = pool.inner().clone();
-
-    rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = get_conn(&pool);
-        let device = devices
-            .filter(id.eq(device_id_param))
+    let device = rocket::tokio::task::spawn_blocking(move || -> Result<Device, Status> {
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        let found = devices
+            .filter(device_id.eq(device_id_param))
             .first::<Device>(&mut conn)
             .map_err(|_| Status::NotFound)?;
-        Ok(Json(device))
+        Ok(found)
     })
     .await
-    .map_err(|_| Status::InternalServerError)?
+    .map_err(|_| Status::InternalServerError)??;
+
+    Ok(Json(device))
 }
 
-/// Approve a device
-#[post("/approve/<device_id_param>")]
-pub async fn approve_device(
-    pool: &State<DbPool>,
-    device_id_param: i64,
-    user: AuthUser,
-) -> Result<Status, Status> {
-    if !user.has_role(UserRole::Admin) {
+/// POST /api/approve/<device_id> - approve a device (admin only)
+#[post("/api/approve/<device_id_param>")]
+pub async fn approve_device(pool: &State<DbPool>, device_id_param: i64, user: AuthUser) -> Result<Status, Status> {
+    if !user.has_role(RoleName::Admin) {
         return Err(Status::Unauthorized);
     }
-
     let username = user.username.clone();
     let pool = pool.inner().clone();
 
-    rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = get_conn(&pool);
-
-        diesel::update(devices.filter(id.eq(device_id_param)))
+    let res = rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
+        let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
+        diesel::update(devices.filter(device_id.eq(device_id_param)))
             .set(approved.eq(true))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
-
         let _ = log_audit(
             &mut conn,
             &username,
@@ -82,35 +74,63 @@ pub async fn approve_device(
             Some(&device_id_param.to_string()),
             Some("Device approved"),
         );
-
-        Ok(Status::Ok)
+        Ok(())
     })
     .await
-    .map_err(|_| Status::InternalServerError)?
+    .map_err(|_| Status::InternalServerError)??;
+
+    Ok(Status::Ok)
 }
 
-/// Register or update a device
-#[post("/register_or_update", data = "<info>")]
+/// Incoming device JSON payload (adjust fields as needed)
+#[derive(Debug, serde::Deserialize)]
+pub struct DeviceIncoming {
+    pub device_id: i64,
+    pub device_name: String,
+    pub hostname: String,
+    pub os_name: String,
+    pub architecture: String,
+    pub cpu_usage: f32,
+    pub cpu_count: i32,
+    pub cpu_brand: String,
+    pub ram_total: i64,
+    pub ram_used: i64,
+    pub disk_total: i64,
+    pub disk_free: i64,
+    pub disk_health: String,
+    pub network_throughput: i64,
+    pub device_type: String,
+    pub device_model: String,
+    pub uptime: Option<i64>,
+    pub updates_available: bool,
+    pub network_interfaces: Option<String>,
+    pub ip_address: Option<String>,
+}
+
+/// POST /api/register_or_update - register or update a device
+#[post("/api/register_or_update", data = "<info>")]
 pub async fn register_or_update_device(
     pool: &State<DbPool>,
     app_state: &State<Arc<AppState>>,
-    info: Json<NewDevice>,
+    info: Json<DeviceIncoming>,
     user: AuthUser,
 ) -> Result<Json<serde_json::Value>, Status> {
-    if !user.has_role(UserRole::Admin) {
+    // require admin
+    if !user.has_role(RoleName::Admin) {
         return Err(Status::Unauthorized);
     }
 
     let username = user.username.clone();
     let info = info.into_inner();
-    let pool = pool.inner().clone();
-    let app_state = app_state.inner().clone(); // Arc<AppState>
+    let pool_for_db = pool.inner().clone();
+    let app_state = app_state.inner().clone();
 
-    rocket::tokio::task::spawn_blocking(move || {
-        let mut conn = get_conn(&pool);
+    let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
+        let mut conn = pool_for_db.get().map_err(|_| Status::InternalServerError)?;
 
+        // Try to find existing by device_id
         let existing = devices
-            .filter(id.eq(info.device_id))
+            .filter(device_id.eq(info.device_id))
             .first::<Device>(&mut conn)
             .optional()
             .map_err(|_| Status::InternalServerError)?;
@@ -140,13 +160,17 @@ pub async fn register_or_update_device(
             ip_address: info.ip_address,
         };
 
+        // Upsert by device_id (assumes device_id has a uniqueness constraint)
         diesel::insert_into(devices)
             .values(&updated)
-            .on_conflict(id)
+            .on_conflict(device_id)
             .do_update()
             .set(&updated)
             .execute(&mut conn)
-            .map_err(|_| Status::InternalServerError)?;
+            .map_err(|e| {
+                log::error!("DB insert/update failed: {:?}", e);
+                Status::InternalServerError
+            })?;
 
         let _ = log_audit(
             &mut conn,
@@ -156,15 +180,17 @@ pub async fn register_or_update_device(
             Some("Device registered or updated"),
         );
 
-        // Mark device as recently seen / pending cleanup tracking
+        // Mark device as recently seen for pending cleanup tracking
         app_state.update_pending_device(&updated.device_id.to_string());
 
-        Ok(Json(serde_json::json!({
+        Ok(serde_json::json!({
             "device_id": updated.device_id,
             "last_checkin": updated.last_checkin.to_string(),
             "status": "ok"
-        })))
+        }))
     })
     .await
-    .map_err(|_| Status::InternalServerError)?
+    .map_err(|_| Status::InternalServerError)??;
+
+    Ok(Json(result))
 }

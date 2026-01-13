@@ -5,7 +5,6 @@ extern crate diesel;
 #[macro_use]
 extern crate rocket;
 
-// Declare modules
 mod schema;
 mod db;
 mod models;
@@ -24,7 +23,7 @@ use rocket_dyn_templates::Template;
 
 use db::{DbPool, initialize, get_conn};
 use auth::AuthUser;
-use models::{UserRole, ServerSettings};
+use models::ServerSettings;
 use state::{SystemState, AppState};
 use action_ttl::spawn_action_ttl_task;
 use pending_cleanup::spawn_pending_cleanup;
@@ -37,8 +36,8 @@ fn rocket() -> _ {
     // Load server settings
     let settings = {
         let mut conn = get_conn(&pool);
-        let s = ServerSettings::load(&mut conn)
-            .expect("Failed to load server settings from DB");
+        // settings::ServerSettings::load returns ServerSettings (panics on DB failure)
+        let s = ServerSettings::load(&mut conn);
         Arc::new(RwLock::new(s))
     };
 
@@ -72,7 +71,6 @@ fn rocket() -> _ {
                     .map(|s| s.auto_refresh_seconds)
                     .unwrap_or(30)
                     .max(30) as u64;
-
                 app_state_clone.cleanup_stale_devices(max_age);
                 rocket::tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             }
@@ -85,7 +83,7 @@ fn rocket() -> _ {
         let user = AuthUser {
             id: 1,
             username: "admin".to_string(),
-            role: UserRole::Admin.as_str().to_string(),
+            role: "Admin".to_string(), // use literal role string
         };
         if let Err(e) = user.audit(&mut conn, "server_started", None) {
             log::error!("Failed to log server start audit: {:?}", e);
@@ -96,12 +94,12 @@ fn rocket() -> _ {
     app_state.system.refresh();
 
     // Log system info
-    info!(
+    log::info!(
         "System memory: total {} MB, available {} MB",
         app_state.system.total_memory() / 1024 / 1024,
         app_state.system.available_memory() / 1024 / 1024
     );
-    info!("PatchPilot server ready");
+    log::info!("PatchPilot server ready");
 
     // Rocket server build: static files, API, and templates
     rocket::build()
