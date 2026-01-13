@@ -7,8 +7,7 @@ use chrono::{Utc, NaiveDateTime};
 use std::env;
 
 use crate::schema::*;
-use crate::models::AuditLog;
-use crate::db::ServerSettingsRow;
+use crate::models::{AuditLog, ServerSettingsRow};
 
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
@@ -233,20 +232,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     .execute(conn)?;
 
     Ok(())
-}
-
-// SERVER SETTINGS STRUCT
-#[derive(Queryable, Insertable, AsChangeset, Debug, Clone)]
-#[diesel(table_name = server_settings)]
-pub struct ServerSettingsRow {
-    pub id: i32,
-    pub auto_approve_devices: bool,
-    pub auto_refresh_enabled: bool,
-    pub auto_refresh_seconds: i64,
-    pub default_action_ttl_seconds: i64,
-    pub action_polling_enabled: bool,
-    pub ping_target_ip: String,
-    pub force_https: bool,
 }
 
 // LOAD / SAVE SETTINGS

@@ -1,4 +1,3 @@
-use rocket::form::Form;
 use rocket::http::{Cookie, CookieJar, Status};
 use rocket::request::{FromRequest, Request, Outcome as RequestOutcome};
 use rocket::response::Redirect;
@@ -10,8 +9,7 @@ use diesel::sqlite::SqliteConnection;
 use bcrypt::verify;
 use std::fs::read_to_string;
 
-use crate::db::{DbPool, log_audit, insert_history, insert_audit};
-
+use crate::db::{DbPool, log_audit};
 use crate::schema::{users, roles, user_roles};
 use diesel::result::QueryResult;
 
@@ -123,7 +121,7 @@ impl<'r> FromRequest<'r> for AuthUser {
 
 #[post("/login", data = "<form>")]
 pub fn login(
-    form: Form<LoginForm>,
+    form: rocket::form::Form<LoginForm>,
     cookies: &CookieJar<'_>,
     pool: &State<DbPool>,
 ) -> Redirect {
