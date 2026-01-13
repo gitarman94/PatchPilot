@@ -7,7 +7,7 @@ use chrono::{Utc, NaiveDateTime};
 use std::env;
 
 use crate::schema::*;
-use crate::models::AuditLog;
+use crate::models::{AuditLog, ServerSettingsRow};
 
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
@@ -31,8 +31,7 @@ fn init_logger() {
 }
 
 fn init_pool() -> DbPool {
-    let database_url =
-        env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
+    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
 
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
     let pool = Pool::builder()
@@ -50,6 +49,7 @@ pub fn get_conn(pool: &DbPool) -> DbConn {
 }
 
 fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
+    // devices table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS devices (
@@ -81,6 +81,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
+    // actions table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS actions (
@@ -96,6 +97,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
+    // action_targets table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS action_targets (
@@ -110,6 +112,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
+    // history_log table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS history_log (
@@ -125,6 +128,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
+    // audit table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS audit (
@@ -139,6 +143,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
+    // users table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS users (
@@ -151,6 +156,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
+    // roles table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS roles (
@@ -161,6 +167,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
+    // user_roles table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS user_roles (
@@ -172,6 +179,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
+    // groups table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS groups (
@@ -183,6 +191,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
+    // user_groups table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS user_groups (
@@ -194,6 +203,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
+    // server_settings table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS server_settings (
@@ -210,6 +220,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
+    // insert default server_settings row
     sql_query(
         r#"
         INSERT OR IGNORE INTO server_settings
@@ -223,6 +234,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     Ok(())
 }
 
+// SERVER SETTINGS STRUCT
 #[derive(Queryable, Insertable, AsChangeset, Debug, Clone)]
 #[diesel(table_name = server_settings)]
 pub struct ServerSettingsRow {
@@ -236,6 +248,7 @@ pub struct ServerSettingsRow {
     pub force_https: bool,
 }
 
+// LOAD / SAVE SETTINGS
 pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsRow> {
     server_settings::table.first(conn)
 }
@@ -250,6 +263,7 @@ pub fn save_settings(
     Ok(())
 }
 
+// HISTORY LOG
 #[derive(Insertable)]
 #[diesel(table_name = history_log)]
 pub struct NewHistory<'a> {
@@ -270,6 +284,7 @@ pub fn insert_history(
         .execute(conn)
 }
 
+// AUDIT LOG
 #[derive(Insertable)]
 #[diesel(table_name = audit)]
 struct NewAudit<'a> {
@@ -297,6 +312,7 @@ pub fn insert_audit(
         .execute(conn)
 }
 
+// LOG AUDIT WRAPPER FOR ROUTES
 pub fn log_audit(
     conn: &mut SqliteConnection,
     actor: &str,
@@ -317,6 +333,10 @@ pub fn log_audit(
     Ok(())
 }
 
+/// Alias to fix `db_log_audit` imports
+pub use log_audit as db_log_audit;
+
+// ACTION TTL HELPERS
 pub fn update_action_ttl(
     conn: &mut SqliteConnection,
     action_id_val: i64,

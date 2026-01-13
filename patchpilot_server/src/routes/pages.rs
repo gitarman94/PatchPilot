@@ -1,5 +1,5 @@
 use rocket::{get, State};
-use rocket_dyn_templates::Template;
+use rocket_dyn_templates::{Template, context};
 
 use crate::db::DbPool;
 use crate::models::{Device, Action, HistoryEntry, User};

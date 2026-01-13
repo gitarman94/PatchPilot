@@ -6,12 +6,14 @@ use rocket::serde::json::Json;
 use rocket_dyn_templates::Template;
 
 use diesel::prelude::*;
-use serde_json::json;
+use chrono::{Utc, NaiveDateTime};
+use std::sync::Arc;
 
-use crate::db::DbPool;
-use crate::models::Device;
+use crate::db::{DbPool, db_log_audit};
+use crate::models::{Device, NewDevice, AppState};
 use crate::schema::devices::dsl::*;
-use crate::auth::AuthUser;
+use crate::auth::{AuthUser, RoleName};
+
 
 /// GET /api/devices - return all devices
 #[get("/devices")]
