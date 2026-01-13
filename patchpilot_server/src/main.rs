@@ -1,9 +1,28 @@
+#[macro_use] extern crate rocket;
+
+mod db;
+mod models;
+mod auth;
+mod state;
+mod settings;
+mod routes;
+
+use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
+
+use rocket::fs::FileServer;
+use rocket_dyn_templates::Template;
+use db::{DbPool, initialize, get_conn};
+use models::{AuthUser, UserRole, ServerSettings};
+use state::{SystemState, AppState};
+use routes::{spawn_action_ttl_task, spawn_pending_cleanup};
+
 #[launch]
 fn rocket() -> _ {
-    // Initialize DB + Logger (creates tables + default settings row)
+    // Initialize DB + Logger
     let pool: DbPool = initialize();
 
-    // Load server settings (ensure DB tables exist first)
+    // Load server settings
     let settings = {
         let mut conn = get_conn(&pool);
         let s = ServerSettings::load(&mut conn)
@@ -30,7 +49,7 @@ fn rocket() -> _ {
     spawn_action_ttl_task(app_state.clone());
     spawn_pending_cleanup(app_state.clone());
 
-    // Cleanup stale pending devices periodically
+    // Periodic cleanup of stale devices
     {
         let app_state_clone = app_state.clone();
         rocket::tokio::spawn(async move {
@@ -71,8 +90,9 @@ fn rocket() -> _ {
     );
     info!("PatchPilot server ready");
 
-    // Rocket Build
+    // Rocket Build: Serve static files, API routes, and dynamic templates
     rocket::build()
+        .attach(Template::fairing())
         .manage(pool)
         .manage(app_state)
         .mount("/api", routes::api_routes())
@@ -81,6 +101,6 @@ fn rocket() -> _ {
         .mount("/roles", routes::roles::api_roles_routes())
         .mount("/history", routes![routes::history::api_history])
         .mount("/audit", routes![routes::history::api_audit])
-        .mount("/static", FileServer::from("/opt/patchpilot_server/static"))
+        .mount("/static", FileServer::from(relative!("static")))
         .mount("/", routes::page_routes())
 }

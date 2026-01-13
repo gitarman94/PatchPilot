@@ -2,51 +2,35 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>PatchPilot — Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard - PatchPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
+  <script defer src="/static/app.js"></script>
 </head>
 <body>
-  <div id="navbar-container"></div>
-  <div class="container">
-    <h2>Dashboard</h2>
+  {% include "navbar.html" %}
 
-    <!-- Summary -->
-    <div class="summary-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px;">
-      <div class="summary-card">
-        <div>Total Devices: <span id="totalDevices">—</span></div>
-      </div>
-      <div class="summary-card">Online: <span id="onlineDevices">—</span></div>
-      <div class="summary-card">Pending: <span id="pendingDevices">—</span></div>
-      <div class="summary-card">Updates: <span id="updatesAvailable">—</span></div>
-    </div>
+  <h1>Dashboard</h1>
+  <p>Total Devices: {{ total_devices }}</p>
 
-    <!-- Device Table -->
-    <div class="card mt-3">
-      <div class="card-body">
-        <h3>Devices</h3>
-        <table id="devicesTable">
-          <thead>
-            <tr>
-              <th>Hostname</th><th>OS</th><th>Type</th><th>Status</th><th>CPU</th><th>RAM</th><th>Disk</th><th>Ping</th><th>Last Check-in</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <!-- Alerts container -->
-  <div id="alerts" style="position:fixed; top:1rem; right:1rem; z-index:1200;"></div>
-
-  <script src="/static/app.js"></script>
-  <script>
-    // Load navbar
-    document.getElementById('navbar-container').innerHTML = `<object type="text/html" data="/navbar.html"></object>`;
-    
-    // Load devices table
-    loadDevices();
-  </script>
+  <table id="dashboard-table">
+    <thead>
+      <tr>
+        <th>Hostname</th>
+        <th>IP</th>
+        <th>OS</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for device in devices %}
+        <tr>
+          <td>{{ device.hostname }}</td>
+          <td>{{ device.ip }}</td>
+          <td>{{ device.os }}</td>
+          <td>{{ device.status }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </body>
 </html>

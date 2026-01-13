@@ -1,33 +1,53 @@
-use std::path::Path;
-use rocket::fs::NamedFile;
+use rocket::serde::json::Json;
+use rocket_dyn_templates::{Template, context};
+use crate::db::DbConn;
+use crate::models::{Device, Action, HistoryEntry, User};
 
-
-#[get("/")]
-pub async fn dashboard() -> Option<NamedFile> {
-    NamedFile::open("/opt/patchpilot_server/templates/dashboard.html").await.ok()
+#[get("/dashboard")]
+pub async fn dashboard(conn: DbConn) -> Template {
+    let devices = Device::all(&conn).await.unwrap_or_default();
+    Template::render("dashboard", context! {
+        devices: devices,
+        total_devices: devices.len(),
+    })
 }
 
-#[get("/device_detail.html")]
-pub async fn device_detail() -> Option<NamedFile> {
-    NamedFile::open("/opt/patchpilot_server/templates/device_detail.html").await.ok()
+#[get("/devices")]
+pub async fn devices_page(conn: DbConn) -> Template {
+    let devices = Device::all(&conn).await.unwrap_or_default();
+    Template::render("devices", context! {
+        devices: devices
+    })
 }
 
-#[get("/actions.html")]
-pub async fn actions_page() -> Option<NamedFile> {
-    NamedFile::open("/opt/patchpilot_server/templates/actions.html").await.ok()
+#[get("/device/<id>")]
+pub async fn device_detail(conn: DbConn, id: i32) -> Template {
+    let device = Device::find_by_id(&conn, id).await;
+    Template::render("device_detail", context! {
+        device: device
+    })
 }
 
-#[get("/history.html")]
-pub async fn history_page() -> Option<NamedFile> {
-    NamedFile::open("/opt/patchpilot_server/templates/history.html").await.ok()
+#[get("/actions")]
+pub async fn actions_page(conn: DbConn) -> Template {
+    let actions = Action::all(&conn).await.unwrap_or_default();
+    Template::render("actions", context! {
+        actions: actions
+    })
 }
 
-#[get("/favicon.ico")]
-pub async fn favicon() -> Option<NamedFile> {
-    NamedFile::open("/opt/patchpilot_server/static/favicon.ico").await.ok()
+#[get("/history")]
+pub async fn history_page(conn: DbConn) -> Template {
+    let history = HistoryEntry::all(&conn).await.unwrap_or_default();
+    Template::render("history", context! {
+        history: history
+    })
 }
 
-#[get("/audit")]
-pub async fn audit_page() -> Option<NamedFile> {
-    NamedFile::open(Path::new("templates/audit.html")).await.ok()
+#[get("/settings")]
+pub async fn settings_page(conn: DbConn) -> Template {
+    let users = User::all(&conn).await.unwrap_or_default();
+    Template::render("settings", context! {
+        users: users
+    })
 }

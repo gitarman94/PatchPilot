@@ -2,30 +2,33 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Devices — PatchPilot</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Devices - PatchPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
+  <script defer src="/static/app.js"></script>
 </head>
 <body>
-  <div id="navbar-container"></div>
-  <div class="container">
-    <h2>Devices</h2>
-    <div class="table-responsive">
-      <table id="devicesTable" class="table table-hover">
-        <thead>
-          <tr>
-            <th>Hostname</th><th>OS</th><th>Type</th><th>Status</th><th>CPU</th><th>RAM</th><th>Disk</th><th>Ping</th><th>Last Check-in</th><th>Actions</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
-  <div id="alerts"></div>
-  <script src="/static/app.js"></script>
-  <script>
-    document.getElementById('navbar-container').innerHTML = `<object type="text/html" data="/navbar.html"></object>`;
-    loadDevices();
-  </script>
+  {% include "navbar.html" %}
+  <h1>Devices</h1>
+
+  <table id="devices-table">
+    <thead>
+      <tr>
+        <th>Hostname</th>
+        <th>IP</th>
+        <th>OS</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for device in devices %}
+        <tr>
+          <td>{{ device.hostname }}</td>
+          <td>{{ device.ip }}</td>
+          <td>{{ device.os }}</td>
+          <td>{{ device.status }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </body>
 </html>
