@@ -5,18 +5,19 @@ use diesel::sql_query;
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use chrono::{Utc, NaiveDateTime};
 use std::env;
-use crate::models::AuditLog;
-
-#[macro_use]
-extern crate diesel;
 
 use crate::schema::*;
+use crate::models::AuditLog;
 
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
 
-/// Initialize logging
-pub fn init_logger() {
+pub fn initialize() -> DbPool {
+    init_logger();
+    init_pool()
+}
+
+fn init_logger() {
     Logger::try_with_str("info")
         .unwrap()
         .log_to_file(FileSpec::default().directory("logs"))
@@ -25,34 +26,26 @@ pub fn init_logger() {
         .unwrap();
 }
 
-/// Create DB connection pool and ensure DB is initialized
-pub fn init_pool() -> DbPool {
-    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
+fn init_pool() -> DbPool {
+    let database_url =
+        env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
+
     let pool = Pool::builder()
         .build(manager)
         .expect("Failed to create DB pool");
 
-    // Ensure DB tables exist and default server_settings row is inserted
-    if let Ok(mut conn) = pool.get() {
-        if let Err(e) = initialize_database(&mut conn) {
-            panic!("Failed to initialize database: {:?}", e);
-        }
-    } else {
-        panic!("Failed to get a connection from the pool");
-    }
+    let mut conn = pool.get().expect("Failed to get DB connection");
+    initialize_database(&mut conn).expect("DB initialization failed");
 
     pool
 }
 
-/// Get a connection from the pool
 pub fn get_conn(pool: &DbPool) -> DbConn {
     pool.get().expect("Failed to get DB connection")
 }
 
-/// Initialize database tables and default rows if missing
 fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
-    // devices
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS devices (
@@ -83,7 +76,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
         "#
     ).execute(conn)?;
 
-    // actions
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS actions (
@@ -98,7 +90,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
         "#
     ).execute(conn)?;
 
-    // action_targets
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS action_targets (
@@ -112,7 +103,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
         "#
     ).execute(conn)?;
 
-    // history_log
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS history_log (
@@ -127,7 +117,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
         "#
     ).execute(conn)?;
 
-    // audit
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS audit (
@@ -141,7 +130,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
         "#
     ).execute(conn)?;
 
-    // users
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS users (
@@ -153,7 +141,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
         "#
     ).execute(conn)?;
 
-    // roles
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS roles (
@@ -163,7 +150,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
         "#
     ).execute(conn)?;
 
-    // user_roles
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS user_roles (
@@ -174,7 +160,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
         "#
     ).execute(conn)?;
 
-    // groups
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS groups (
@@ -185,7 +170,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
         "#
     ).execute(conn)?;
 
-    // user_groups
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS user_groups (
@@ -196,7 +180,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
         "#
     ).execute(conn)?;
 
-    // server_settings
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS server_settings (
@@ -212,11 +195,11 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
         "#
     ).execute(conn)?;
 
-    // Ensure there is exactly one settings row (id = 1)
     sql_query(
         r#"
         INSERT OR IGNORE INTO server_settings
-        (id, auto_approve_devices, auto_refresh_enabled, auto_refresh_seconds, default_action_ttl_seconds, action_polling_enabled, ping_target_ip, force_https)
+        (id, auto_approve_devices, auto_refresh_enabled, auto_refresh_seconds,
+         default_action_ttl_seconds, action_polling_enabled, ping_target_ip, force_https)
         VALUES (1, 0, 1, 30, 3600, 1, '8.8.8.8', 0);
         "#
     ).execute(conn)?;
@@ -224,14 +207,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     Ok(())
 }
 
-/// Initialize DB (logging + pool + tables)
-pub fn initialize() -> DbPool {
-    init_logger();
-    init_pool()
-}
-
-/// ServerSettings row representation
-#[derive(Queryable, Insertable, AsChangeset, Debug, Clone, Default)]
+#[derive(Queryable, Insertable, AsChangeset, Debug, Clone)]
 #[diesel(table_name = server_settings)]
 pub struct ServerSettingsRow {
     pub id: i32,
@@ -244,33 +220,15 @@ pub struct ServerSettingsRow {
     pub force_https: bool,
 }
 
-/// Load server settings (create default if missing)
 pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsRow> {
     use crate::schema::server_settings::dsl::*;
-    match server_settings.first::<ServerSettingsRow>(conn) {
-        Ok(s) => Ok(s),
-        Err(diesel::result::Error::NotFound) => {
-            let default = ServerSettingsRow {
-                id: 1,
-                auto_approve_devices: false,
-                auto_refresh_enabled: true,
-                auto_refresh_seconds: 30,
-                default_action_ttl_seconds: 3600,
-                action_polling_enabled: true,
-                ping_target_ip: "8.8.8.8".to_string(),
-                force_https: false,
-            };
-            diesel::insert_into(server_settings)
-                .values(&default)
-                .execute(conn)?;
-            Ok(default)
-        }
-        Err(e) => Err(e),
-    }
+    server_settings.first(conn)
 }
 
-/// Save server settings row (replace single-row record)
-pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettingsRow) -> QueryResult<()> {
+pub fn save_settings(
+    conn: &mut SqliteConnection,
+    settings: &ServerSettingsRow,
+) -> QueryResult<()> {
     use crate::schema::server_settings::dsl::*;
     diesel::replace_into(server_settings)
         .values(settings)
@@ -278,7 +236,6 @@ pub fn save_settings(conn: &mut SqliteConnection, settings: &ServerSettingsRow) 
     Ok(())
 }
 
-/// New history record
 #[derive(Insertable)]
 #[diesel(table_name = history_log)]
 pub struct NewHistory<'a> {
@@ -290,80 +247,83 @@ pub struct NewHistory<'a> {
     pub created_at: NaiveDateTime,
 }
 
-pub fn insert_history(conn: &mut SqliteConnection, entry: &NewHistory<'_>) -> QueryResult<usize> {
+pub fn insert_history(
+    conn: &mut SqliteConnection,
+    entry: &NewHistory<'_>,
+) -> QueryResult<usize> {
     use crate::schema::history_log::dsl::*;
     diesel::insert_into(history_log)
         .values(entry)
         .execute(conn)
 }
 
-/// New audit record
 #[derive(Insertable)]
 #[diesel(table_name = audit)]
-pub struct NewAudit<'a> {
-    pub actor: &'a str,
-    pub action_type: &'a str,
-    pub target: Option<&'a str>,
-    pub details: Option<&'a str>,
-    pub created_at: NaiveDateTime,
+struct NewAudit<'a> {
+    actor: &'a str,
+    action_type: &'a str,
+    target: Option<&'a str>,
+    details: Option<&'a str>,
+    created_at: NaiveDateTime,
 }
 
-pub fn insert_audit(conn: &mut SqliteConnection, entry: &AuditLog) -> QueryResult<usize> {
+pub fn insert_audit(
+    conn: &mut SqliteConnection,
+    entry: &AuditLog,
+) -> QueryResult<usize> {
     use crate::schema::audit::dsl::*;
-    let new = NewAudit {
+    let record = NewAudit {
         actor: &entry.actor,
         action_type: &entry.action_type,
         target: entry.target.as_deref(),
         details: entry.details.as_deref(),
         created_at: entry.created_at,
     };
-    diesel::insert_into(audit)
-        .values(&new)
-        .execute(conn)
+    diesel::insert_into(audit).values(&record).execute(conn)
 }
 
-/// Convenience logging for audit entries
 pub fn log_audit(
     conn: &mut SqliteConnection,
-    username_val: &str,
-    action_val: &str,
-    target_val: Option<&str>,
-    details_val: Option<&str>,
+    actor: &str,
+    action: &str,
+    target: Option<&str>,
+    details: Option<&str>,
 ) -> QueryResult<()> {
-    let audit_entry = AuditLog {
+    let entry = AuditLog {
         id: 0,
-        actor: username_val.to_string(),
-        action_type: action_val.to_string(),
-        target: target_val.map(|s| s.to_string()),
-        details: details_val.map(|s| s.to_string()),
+        actor: actor.to_string(),
+        action_type: action.to_string(),
+        target: target.map(str::to_string),
+        details: details.map(str::to_string),
         created_at: Utc::now().naive_utc(),
     };
-    let _ = insert_audit(conn, &audit_entry)?;
+    insert_audit(conn, &entry)?;
     Ok(())
 }
 
-/// Update action TTL using server default limits
 pub fn update_action_ttl(
     conn: &mut SqliteConnection,
     action_id_val: i64,
     new_ttl_seconds: i64,
-    settings_row: &ServerSettingsRow,
+    settings: &ServerSettingsRow,
 ) -> QueryResult<usize> {
     use crate::schema::actions::dsl::*;
-    let ttl_to_set = std::cmp::min(new_ttl_seconds, settings_row.default_action_ttl_seconds);
-    let new_expiry = Utc::now().naive_utc() + chrono::Duration::seconds(ttl_to_set);
+    let ttl = std::cmp::min(new_ttl_seconds, settings.default_action_ttl_seconds);
+    let expires = Utc::now().naive_utc() + chrono::Duration::seconds(ttl);
     diesel::update(actions.filter(id.eq(action_id_val)))
-        .set(expires_at.eq(new_expiry))
+        .set(expires_at.eq(expires))
         .execute(conn)
 }
 
-/// Fetch remaining TTL for an action
-pub fn fetch_action_ttl(conn: &mut SqliteConnection, action_id_val: i64) -> QueryResult<i64> {
+pub fn fetch_action_ttl(
+    conn: &mut SqliteConnection,
+    action_id_val: i64,
+) -> QueryResult<i64> {
     use crate::schema::actions::dsl::*;
-    let expires_at_val: chrono::NaiveDateTime = actions
+    let expiry: NaiveDateTime = actions
         .filter(id.eq(action_id_val))
         .select(expires_at)
         .first(conn)?;
     let now = Utc::now().naive_utc();
-    Ok(std::cmp::max(0, (expires_at_val - now).num_seconds()))
+    Ok(std::cmp::max(0, (expiry - now).num_seconds()))
 }

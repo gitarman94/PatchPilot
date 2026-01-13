@@ -2,16 +2,16 @@ use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use chrono::{NaiveDateTime, Utc};
 use serde::{Serialize, Deserialize};
+
 use crate::schema::{
-    devices, actions, action_targets, history_log, audit, users, roles, user_roles, server_settings,
-    user_groups, groups,
+    devices, actions, action_targets, history_log, audit, users, roles, user_roles,
+    user_groups, groups, server_settings,
 };
 
-// Device models
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = devices)]
 pub struct Device {
-    pub id: i64,
+    pub id: i32,
     pub device_id: i64,
     pub device_name: String,
     pub hostname: String,
@@ -19,7 +19,7 @@ pub struct Device {
     pub architecture: String,
     pub last_checkin: NaiveDateTime,
     pub approved: bool,
-    pub cpu_usage: f32,
+    pub cpu_usage: f64,
     pub cpu_count: i32,
     pub cpu_brand: String,
     pub ram_total: i64,
@@ -30,7 +30,7 @@ pub struct Device {
     pub network_throughput: i64,
     pub device_type: String,
     pub device_model: String,
-    pub uptime: Option<i64>,
+    pub uptime: Option<String>,
     pub updates_available: bool,
     pub network_interfaces: Option<String>,
     pub ip_address: Option<String>,
@@ -46,7 +46,7 @@ pub struct NewDevice {
     pub architecture: String,
     pub last_checkin: NaiveDateTime,
     pub approved: bool,
-    pub cpu_usage: f32,
+    pub cpu_usage: f64,
     pub cpu_count: i32,
     pub cpu_brand: String,
     pub ram_total: i64,
@@ -57,7 +57,7 @@ pub struct NewDevice {
     pub network_throughput: i64,
     pub device_type: String,
     pub device_model: String,
-    pub uptime: Option<i64>,
+    pub uptime: Option<String>,
     pub updates_available: bool,
     pub network_interfaces: Option<String>,
     pub ip_address: Option<String>,
@@ -65,21 +65,20 @@ pub struct NewDevice {
 
 impl Device {
     pub fn all(conn: &mut SqliteConnection) -> QueryResult<Vec<Device>> {
-        use crate::schema::devices::dsl::*;
-        devices.load::<Device>(conn)
+        devices::table.load(conn)
     }
 
     pub fn find_by_id(conn: &mut SqliteConnection, device_id_param: i64) -> QueryResult<Device> {
-        use crate::schema::devices::dsl::*;
-        devices.filter(id.eq(device_id_param)).first(conn)
+        devices::table
+            .filter(devices::device_id.eq(device_id_param))
+            .first(conn)
     }
 }
 
-// Action models
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = actions)]
 pub struct Action {
-    pub id: i64,
+    pub id: i32,
     pub action_type: String,
     pub parameters: Option<String>,
     pub author: Option<String>,
@@ -101,17 +100,16 @@ pub struct NewAction {
 
 impl Action {
     pub fn all(conn: &mut SqliteConnection) -> QueryResult<Vec<Action>> {
-        use crate::schema::actions::dsl::*;
-        actions.load::<Action>(conn)
+        actions::table.load(conn)
     }
 }
 
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = action_targets)]
 pub struct ActionTarget {
-    pub id: i64,
-    pub action_id: i64,
-    pub device_id: i64,
+    pub id: i32,
+    pub action_id: i32,
+    pub device_id: i32,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
@@ -120,15 +118,15 @@ pub struct ActionTarget {
 #[derive(Debug, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = action_targets)]
 pub struct NewActionTarget {
-    pub action_id: i64,
-    pub device_id: i64,
+    pub action_id: i32,
+    pub device_id: i32,
     pub status: String,
     pub last_update: NaiveDateTime,
     pub response: Option<String>,
 }
 
 impl NewActionTarget {
-    pub fn pending(action_id: i64, device_id: i64) -> Self {
+    pub fn pending(action_id: i32, device_id: i32) -> Self {
         Self {
             action_id,
             device_id,
@@ -139,11 +137,10 @@ impl NewActionTarget {
     }
 }
 
-// History log model
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = history_log)]
 pub struct HistoryEntry {
-    pub id: i64,
+    pub id: i32,
     pub action_id: i64,
     pub device_name: Option<String>,
     pub actor: Option<String>,
@@ -154,12 +151,10 @@ pub struct HistoryEntry {
 
 impl HistoryEntry {
     pub fn all(conn: &mut SqliteConnection) -> QueryResult<Vec<HistoryEntry>> {
-        use crate::schema::history_log::dsl::*;
-        history_log.load::<HistoryEntry>(conn)
+        history_log::table.load(conn)
     }
 }
 
-// Audit log model
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = audit)]
 pub struct AuditLog {
@@ -171,7 +166,6 @@ pub struct AuditLog {
     pub created_at: NaiveDateTime,
 }
 
-// User / Roles models
 #[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = users)]
 pub struct User {
@@ -183,8 +177,7 @@ pub struct User {
 
 impl User {
     pub fn all(conn: &mut SqliteConnection) -> QueryResult<Vec<User>> {
-        use crate::schema::users::dsl::*;
-        users.load::<User>(conn)
+        users::table.load(conn)
     }
 }
 
@@ -205,14 +198,6 @@ pub struct UserRole {
     pub role_id: i32,
 }
 
-impl UserRole {
-    pub const ADMIN: &'static str = "Admin";
-
-    pub fn as_str(&self) -> &'static str {
-        Self::ADMIN
-    }
-}
-
 #[derive(Debug, Queryable, Identifiable, Associations, Serialize, Deserialize)]
 #[diesel(belongs_to(User))]
 #[diesel(belongs_to(Group))]
@@ -231,8 +216,7 @@ pub struct Group {
     pub description: Option<String>,
 }
 
-// Server Settings
-#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Queryable, Identifiable, Selectable, Serialize, Deserialize, Clone)]
 #[diesel(table_name = server_settings)]
 pub struct ServerSettings {
     pub id: i32,
@@ -247,7 +231,6 @@ pub struct ServerSettings {
 
 impl ServerSettings {
     pub fn load(conn: &mut SqliteConnection) -> QueryResult<ServerSettings> {
-        use crate::schema::server_settings::dsl::*;
-        server_settings.first(conn)
+        server_settings::table.first(conn)
     }
 }
