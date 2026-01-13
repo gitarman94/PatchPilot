@@ -1,5 +1,3 @@
-// ---------- Helper Functions ----------
-
 // Fetch JSON from API with error handling
 async function fetchJSON(url) {
     const resp = await fetch(url);
@@ -30,8 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
     applyDarkMode(saved);
 });
 
-// ---------- Table Population Functions ----------
-
+// Table Population Functions 
 async function loadDevices() {
     try {
         const devices = await fetchJSON('/api/devices');
@@ -142,8 +139,7 @@ async function loadUsers() {
     }
 }
 
-// ---------- Page Initialization ----------
-
+// Page Initialization 
 document.addEventListener('DOMContentLoaded', () => {
     // Dark mode toggle button
     const darkBtn = document.getElementById('toggleDarkModeBtn');
