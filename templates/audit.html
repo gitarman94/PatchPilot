@@ -2,46 +2,37 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Audit — PatchPilot</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Audit - PatchPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
+  <script defer src="/static/app.js"></script>
 </head>
 <body>
-  <div id="navbar-container"></div>
-  <div class="container">
-    <h2>Audit</h2>
-    <div class="table-responsive">
-      <table id="auditTable" class="table table-hover">
-        <thead>
-          <tr>
-            <th>Time</th><th>User</th><th>Action</th><th>Target</th><th>Details</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
-  <div id="alerts"></div>
-  <script src="/static/app.js"></script>
-  <script>
-    document.getElementById('navbar-container').innerHTML = `<object type="text/html" data="/navbar.html"></object>`;
-    async function loadAudit() {
-      try {
-        const logs = await fetchJSON('/api/audit');
-        const tbody = document.querySelector('#auditTable tbody');
-        tbody.innerHTML='';
-        logs.forEach(l=>{
-          const tr = document.createElement('tr');
-          tr.innerHTML=`<td>${new Date(l.created_at).toLocaleString()}</td>
-                        <td>${l.actor}</td>
-                        <td>${l.action_type}</td>
-                        <td>${l.target||'—'}</td>
-                        <td>${l.details||'—'}</td>`;
-          tbody.appendChild(tr);
-        });
-      } catch(e){ showAlert('Failed to load audit logs','danger'); console.error(e);}
-    }
-    loadAudit();
-  </script>
+  {% include "navbar.html" %}
+  <h1>Audit Logs</h1>
+
+  <table id="audit-table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>User</th>
+        <th>Action</th>
+        <th>Target</th>
+        <th>Details</th>
+        <th>Timestamp</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in audit %}
+        <tr>
+          <td>{{ entry.id }}</td>
+          <td>{{ entry.user }}</td>
+          <td>{{ entry.action }}</td>
+          <td>{{ entry.target }}</td>
+          <td>{{ entry.details }}</td>
+          <td>{{ entry.timestamp }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </body>
 </html>
