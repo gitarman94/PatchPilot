@@ -6,7 +6,7 @@ use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use chrono::{Utc, NaiveDateTime};
 use std::env;
 use std::fs::OpenOptions;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::schema::*;
 use crate::models::AuditLog;
@@ -32,47 +32,63 @@ fn init_logger() {
         .unwrap();
 }
 
-fn init_pool() -> DbPool {
-    let raw_database_url =
-        env::var("DATABASE_URL").unwrap_or_else(|_| "/opt/patchpilot_server/patchpilot.db".to_string());
-
-    let db_path_str = if raw_database_url.starts_with("sqlite:///") {
-        raw_database_url.trim_start_matches("sqlite:///").to_string()
-    } else if raw_database_url.starts_with("sqlite://") {
-        raw_database_url.trim_start_matches("sqlite://").to_string()
-    } else if raw_database_url.starts_with("sqlite:") {
-        raw_database_url.trim_start_matches("sqlite:").to_string()
+fn normalize_sqlite_path(raw: &str) -> PathBuf {
+    if raw.starts_with("sqlite:////") {
+        PathBuf::from(raw.trim_start_matches("sqlite:"))
+    } else if raw.starts_with("sqlite:///") {
+        PathBuf::from(format!("/{}", raw.trim_start_matches("sqlite:///")))
+    } else if raw.starts_with("sqlite://") {
+        PathBuf::from(raw.trim_start_matches("sqlite://"))
+    } else if raw.starts_with("sqlite:") {
+        PathBuf::from(raw.trim_start_matches("sqlite:"))
     } else {
-        raw_database_url.clone()
-    };
+        PathBuf::from(raw)
+    }
+}
 
-    let db_path = Path::new(&db_path_str);
-
-    if !db_path.exists() {
-        if let Some(parent) = db_path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)
-                    .expect("Failed to create DB parent directories");
-            }
+fn ensure_database_file(path: &Path) {
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .expect("Failed to create DB parent directories");
         }
+    }
+
+    if !path.exists() {
         OpenOptions::new()
             .create(true)
             .write(true)
-            .open(db_path)
+            .open(path)
             .expect("Failed to create database file");
     }
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Ok(metadata) = std::fs::metadata(db_path) {
+        if let Ok(metadata) = std::fs::metadata(path) {
             let mut perms = metadata.permissions();
             perms.set_mode(0o660);
-            let _ = std::fs::set_permissions(db_path, perms);
+            let _ = std::fs::set_permissions(path, perms);
         }
     }
+}
 
-    let manager = ConnectionManager::<SqliteConnection>::new(db_path_str.clone());
+fn init_pool() -> DbPool {
+    let raw_database_url = env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "sqlite:////opt/patchpilot_server/patchpilot.db".to_string());
+
+    let db_path = normalize_sqlite_path(&raw_database_url);
+    ensure_database_file(&db_path);
+
+    let db_path_str = db_path
+        .to_str()
+        .expect("Invalid DB path")
+        .to_string();
+
+    let normalized_url = format!("sqlite://{}", db_path_str);
+    env::set_var("DATABASE_URL", &normalized_url);
+
+    let manager = ConnectionManager::<SqliteConnection>::new(db_path_str);
     let pool = Pool::builder()
         .build(manager)
         .expect("Failed to create DB pool");

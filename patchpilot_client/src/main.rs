@@ -14,8 +14,10 @@ use nix::unistd::Uid;
 use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use rand::RngCore;
+use base64::Engine;
 
-/// Logger handle to keep alive
+// Logger handle to keep alive
 lazy_static::lazy_static! {
     static ref LOGGER_HANDLE: Mutex<Option<flexi_logger::LoggerHandle>> = Mutex::new(None);
 }
@@ -81,6 +83,34 @@ fn ensure_logs_dir() -> Result<(), Box<dyn std::error::Error>> {
             .arg("patchpilot:patchpilot")
             .arg(&logs_dir)
             .output();
+    }
+
+    Ok(())
+}
+
+// Ensure Rocket .env file exists and has a valid secret
+fn ensure_env_file() -> Result<(), Box<dyn std::error::Error>> {
+    let base_dir = get_base_dir();
+    let env_path = Path::new(&format!("{}/.env", base_dir));
+
+    let mut env_content = if env_path.exists() {
+        fs::read_to_string(env_path)?
+    } else {
+        String::new()
+    };
+
+    if !env_content.contains("ROCKET_SECRET_KEY") {
+        let mut key_bytes = [0u8; 48];
+        rand::thread_rng().fill_bytes(&mut key_bytes);
+        let key = base64::engine::general_purpose::STANDARD.encode(key_bytes);
+        env_content.push_str(&format!("\nROCKET_SECRET_KEY={}", key));
+        fs::write(env_path, &env_content)?;
+    }
+
+    for line in env_content.lines() {
+        if let Some((k, v)) = line.split_once('=') {
+            std::env::set_var(k.trim(), v.trim());
+        }
     }
 
     Ok(())
@@ -157,14 +187,20 @@ fn log_initial_system_info() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Ensure .env exists and is loaded first
+    ensure_env_file()?;
+
+    // Logs first
     ensure_logs_dir()?;
 
+    // Initialize logger
     let handle = init_logging()?;
     {
         let mut guard = LOGGER_HANDLE.lock().await;
         *guard = Some(handle);
     }
 
+    // Runtime environment
     setup_runtime_environment()?;
 
     #[cfg(target_os = "linux")]
