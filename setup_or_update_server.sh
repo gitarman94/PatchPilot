@@ -82,7 +82,7 @@ fi
 # DB setup
 SQLITE_DB="${APP_DIR}/patchpilot.db"
 touch "$SQLITE_DB"
-chmod 600 "$SQLITE_DB"
+chmod 755 "$SQLITE_DB"
 
 # Build Rust app
 cd "$APP_DIR"
@@ -108,14 +108,14 @@ EOF
 
 ROCKET_SECRET_KEY=$(openssl rand -base64 48 | tr -d '=+/')
 echo "ROCKET_SECRET_KEY=${ROCKET_SECRET_KEY}" >> "$APP_ENV_FILE"
-chmod 600 "$APP_ENV_FILE"
+chmod 755 "$APP_ENV_FILE"
 
 # Admin token
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
 if [[ ! -f "$TOKEN_FILE" ]]; then
     ADMIN_TOKEN=$(openssl rand -base64 32 | tr -d '=+/')
     echo "$ADMIN_TOKEN" > "$TOKEN_FILE"
-    chmod 600 "$TOKEN_FILE"
+    chmod 755 "$TOKEN_FILE"
 else
     ADMIN_TOKEN=$(cat "$TOKEN_FILE")
 fi
