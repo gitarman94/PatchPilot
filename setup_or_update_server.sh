@@ -115,6 +115,10 @@ EOF
 
 ROCKET_SECRET_KEY=$(openssl rand -base64 48 | tr -d '=+/')
 echo "ROCKET_SECRET_KEY=${ROCKET_SECRET_KEY}" >> "$APP_ENV_FILE"
+
+# Allow insecure dev mode in Rocket
+echo "ROCKET_INSECURE_ALLOW_DEV=true" >> "$APP_ENV_FILE"
+
 chmod 755 "$APP_ENV_FILE"
 
 # Admin token
