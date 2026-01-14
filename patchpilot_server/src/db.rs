@@ -77,8 +77,6 @@ fn init_pool() -> DbPool {
         .expect("Invalid DB path")
         .to_string();
 
-    let normalized_url = format!("sqlite://{}", db_path_str);
-
     let manager = ConnectionManager::<SqliteConnection>::new(db_path_str);
     let pool = Pool::builder()
         .build(manager)
