@@ -14,7 +14,6 @@ use crate::models::AuditLog;
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
 
-/// Initialize logger and DB pool
 pub fn initialize() -> DbPool {
     init_logger();
     init_pool()
@@ -34,11 +33,18 @@ fn init_logger() {
 }
 
 fn init_pool() -> DbPool {
-    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "/opt/patchpilot_server/patchpilot.db".to_string());
+    let raw_database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "/opt/patchpilot_server/patchpilot.db".to_string());
 
-    // Ensure DB file exists (create parent dirs if needed)
-    if !Path::new(&database_url).exists() {
-        if let Some(parent) = Path::new(&database_url).parent() {
+    let database_path = if raw_database_url.starts_with("sqlite:") {
+        let after = raw_database_url["sqlite:".len()..].to_string();
+        let without_leading = after.trim_start_matches('/');
+        format!("/{}", without_leading)
+    } else {
+        raw_database_url
+    };
+
+    if !Path::new(&database_path).exists() {
+        if let Some(parent) = Path::new(&database_path).parent() {
             if !parent.exists() {
                 std::fs::create_dir_all(parent).expect("Failed to create DB parent directories");
             }
@@ -46,11 +52,11 @@ fn init_pool() -> DbPool {
         OpenOptions::new()
             .create(true)
             .write(true)
-            .open(&database_url)
+            .open(&database_path)
             .expect("Failed to create database file");
     }
 
-    let manager = ConnectionManager::<SqliteConnection>::new(database_url.clone());
+    let manager = ConnectionManager::<SqliteConnection>::new(database_path.clone());
     let pool = Pool::builder()
         .build(manager)
         .expect("Failed to create DB pool");
@@ -67,9 +73,7 @@ pub fn get_conn(pool: &DbPool) -> DbConn {
     pool.get().expect("Failed to get DB connection")
 }
 
-/// Initialize database tables
 fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
-    // devices table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS devices (
@@ -101,7 +105,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
-    // actions table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS actions (
@@ -117,7 +120,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
-    // action_targets table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS action_targets (
@@ -132,7 +134,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
-    // history_log table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS history_log (
@@ -148,7 +149,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
-    // audit table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS audit (
@@ -163,7 +163,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
-    // users table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS users (
@@ -176,7 +175,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
-    // roles table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS roles (
@@ -187,7 +185,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
-    // user_roles table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS user_roles (
@@ -199,7 +196,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
-    // groups table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS groups (
@@ -211,7 +207,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
-    // user_groups table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS user_groups (
@@ -223,7 +218,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
-    // server_settings table
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS server_settings (
@@ -240,7 +234,6 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     )
     .execute(conn)?;
 
-    // insert default server_settings row
     sql_query(
         r#"
         INSERT OR IGNORE INTO server_settings
@@ -254,12 +247,9 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     Ok(())
 }
 
-
-// DATABASE STRUCTS
-// SERVER SETTINGS STRUCT
 #[derive(Queryable, Insertable, AsChangeset, Debug, Clone)]
 #[diesel(table_name = server_settings)]
-pub struct ServerSettingsRow { // <-- made public
+pub struct ServerSettingsRow {
     pub id: i32,
     pub auto_approve_devices: bool,
     pub auto_refresh_enabled: bool,
@@ -270,8 +260,6 @@ pub struct ServerSettingsRow { // <-- made public
     pub force_https: bool,
 }
 
-
-// LOAD / SAVE SETTINGS
 pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsRow> {
     server_settings::table.first(conn)
 }
@@ -286,8 +274,6 @@ pub fn save_settings(
     Ok(())
 }
 
-
-// HISTORY LOG
 #[derive(Insertable)]
 #[diesel(table_name = history_log)]
 pub struct NewHistory<'a> {
@@ -308,8 +294,6 @@ pub fn insert_history(
         .execute(conn)
 }
 
-
-// AUDIT LOG
 #[derive(Insertable)]
 #[diesel(table_name = audit)]
 struct NewAudit<'a> {
@@ -337,7 +321,6 @@ pub fn insert_audit(
         .execute(conn)
 }
 
-// LOG AUDIT WRAPPER FOR ROUTES
 pub fn log_audit(
     conn: &mut SqliteConnection,
     actor: &str,
@@ -360,8 +343,6 @@ pub fn log_audit(
 
 pub use log_audit as db_log_audit;
 
-
-// ACTION TTL HELPERS
 pub fn update_action_ttl(
     conn: &mut SqliteConnection,
     action_id_val: i64,
