@@ -102,7 +102,7 @@ address = "0.0.0.0"
 port = 8080
 log = "normal"
 
-[release]
+[production]
 log = "critical"
 
 [development]
