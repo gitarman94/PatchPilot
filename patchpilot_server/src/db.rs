@@ -5,6 +5,8 @@ use diesel::sql_query;
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use chrono::{Utc, NaiveDateTime};
 use std::env;
+use std::fs::OpenOptions;
+use std::path::Path;
 
 use crate::schema::*;
 use crate::models::AuditLog;
@@ -34,13 +36,29 @@ fn init_logger() {
 fn init_pool() -> DbPool {
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "patchpilot.db".to_string());
 
+    // Ensure DB file exists
+    if !Path::new(&database_url).exists() {
+        if let Some(parent) = Path::new(&database_url).parent() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+        }
+        OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&database_url)
+            .expect("Failed to create database file");
+    }
+
     let manager = ConnectionManager::<SqliteConnection>::new(database_url);
     let pool = Pool::builder()
         .build(manager)
         .expect("Failed to create DB pool");
 
-    let mut conn = pool.get().expect("Failed to get DB connection");
-    initialize_database(&mut conn).expect("DB initialization failed");
+    {
+        let mut conn = pool.get().expect("Failed to get DB connection");
+        initialize_database(&mut conn).expect("DB initialization failed");
+    }
 
     pool
 }
