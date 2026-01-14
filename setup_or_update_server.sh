@@ -104,6 +104,11 @@ log = "normal"
 
 [release]
 log = "critical"
+
+[dev]
+log = "normal"
+address = "0.0.0.0"
+port = 8080
 EOF
 
 # Environment file for systemd
