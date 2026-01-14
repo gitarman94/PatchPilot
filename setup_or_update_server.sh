@@ -102,14 +102,12 @@ EOF
 # Environment for systemd
 APP_ENV_FILE="${APP_DIR}/.env"
 cat > "${APP_ENV_FILE}" <<EOF
-DATABASE_URL=sqlite://${APP_DIR}/patchpilot.db
+DATABASE_URL=sqlite:${APP_DIR}/patchpilot.db
 RUST_LOG=info
 EOF
 
-# Rocket secret key (required for release mode)
-ROCKET_SECRET_KEY=$(openssl rand -base64 64)
+ROCKET_SECRET_KEY=$(openssl rand -base64 48 | tr -d '=+/')
 echo "ROCKET_SECRET_KEY=${ROCKET_SECRET_KEY}" >> "$APP_ENV_FILE"
-
 chmod 600 "$APP_ENV_FILE"
 
 # Admin token
