@@ -111,13 +111,12 @@ DATABASE_URL=sqlite:///${APP_DIR}/patchpilot.db
 RUST_LOG=info
 ROCKET_ADDRESS=0.0.0.0
 ROCKET_PORT=8080
+ROCKET_ENV=development
+ROCKET_INSECURE_ALLOW_DEV=true
 EOF
 
 ROCKET_SECRET_KEY=$(openssl rand -base64 48 | tr -d '=+/')
 echo "ROCKET_SECRET_KEY=${ROCKET_SECRET_KEY}" >> "$APP_ENV_FILE"
-
-# Allow insecure dev mode in Rocket
-echo "ROCKET_INSECURE_ALLOW_DEV=true" >> "$APP_ENV_FILE"
 
 chmod 755 "$APP_ENV_FILE"
 
