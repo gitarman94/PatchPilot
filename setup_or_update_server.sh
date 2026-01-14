@@ -105,7 +105,7 @@ log = "normal"
 [production]
 log = "critical"
 
-[development]
+[dev]
 log = "normal"
 address = "0.0.0.0"
 port = 8080
@@ -118,7 +118,7 @@ DATABASE_URL=sqlite:///${APP_DIR}/patchpilot.db
 RUST_LOG=info
 ROCKET_ADDRESS=0.0.0.0
 ROCKET_PORT=8080
-ROCKET_ENV=development
+ROCKET_ENV=dev
 ROCKET_INSECURE_ALLOW_DEV=true
 EOF
 

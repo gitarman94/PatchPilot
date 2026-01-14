@@ -74,19 +74,20 @@ fn rocket() -> _ {
 
     // Rocket server build: static files, API, and templates
     rocket::build()
-    .attach(Template::fairing())
-    .attach(action_ttl::ActionTtlFairing)
-    .attach(pending_cleanup::PendingCleanupFairing)
-    .manage(pool)
-    .manage(app_state)
-    .mount("/api", routes::api_routes())
-    .mount("/auth", routes::auth_routes())
-    .mount("/users-groups", routes::users_groups::api_users_groups_routes())
-    .mount("/roles", routes::roles::api_roles_routes())
-    .mount("/history", rocket::routes![routes::history::api_history])
-    .mount("/audit", rocket::routes![routes::history::api_audit])
-    .mount("/settings", routes::settings::routes())
-    .mount("/static", FileServer::from(relative!("static")))
-    .mount("/", routes::page_routes())
-
+        .attach(Template::fairing())
+        .attach(action_ttl::ActionTtlFairing)
+        .attach(pending_cleanup::PendingCleanupFairing)
+        .manage(pool)
+        .manage(app_state)
+        // API and functional routes
+        .mount("/api", routes::api_routes())
+        .mount("/auth", routes::auth_routes())
+        .mount("/users-groups", routes::users_groups::api_users_groups_routes())
+        .mount("/roles", routes::roles::api_roles_routes())
+        .mount("/history", rocket::routes![routes::history::api_history])
+        .mount("/audit", rocket::routes![routes::history::api_audit])
+        .mount("/settings", routes::settings::routes())
+        .mount("/static", FileServer::from(relative!("static")))
+        // Mount catch-all page routes last to avoid collisions
+        .mount("/", routes::page_routes())
 }
