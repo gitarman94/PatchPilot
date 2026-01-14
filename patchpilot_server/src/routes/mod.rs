@@ -11,9 +11,12 @@ pub mod settings;
 /// Return API routes mounted under /api
 pub fn api_routes() -> Vec<Route> {
     let mut routes: Vec<Route> = Vec::new();
-    // devices and actions provide API endpoints and export `routes()`
+
+    // devices, actions, and history provide API endpoints and export `routes()`
     routes.extend(devices::routes());
     routes.extend(actions::routes());
+    routes.extend(history::routes());
+
     routes
 }
 
