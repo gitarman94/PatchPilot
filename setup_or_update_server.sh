@@ -45,7 +45,7 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
     systemctl stop "${SERVICE_NAME}" || true
     systemctl disable "${SERVICE_NAME}" || true
 
-    pkill -f "^${APP_DIR}/target/release/patchpilot_server$" || true
+    pkill -f "^${APP_DIR}/target/${BUILD_MODE}/patchpilot_server$" || true
     rm -rf "${APP_DIR}" /opt/patchpilot_install*
     mkdir -p /opt/patchpilot_install "$APP_DIR"
 fi
@@ -143,7 +143,7 @@ find "$APP_DIR" -type d -exec chmod 755 {} \;
 find "$APP_DIR" -type f -exec chmod 755 {} \;
 
 # Explicit executables
-chmod +x "$APP_DIR/target/release/patchpilot_server"
+chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server"
 chmod +x "$APP_DIR/server_test.sh"
 
 # Setup systemd service
@@ -157,7 +157,7 @@ User=patchpilot
 Group=patchpilot
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_ENV_FILE}
-ExecStart=${APP_DIR}/target/release/patchpilot_server
+ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
 Restart=always
 RestartSec=10
 
