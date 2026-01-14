@@ -18,8 +18,6 @@ mod pending_cleanup;
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use db::{DbPool, initialize, get_conn};
-use auth::AuthUser;
-// removed unused import: models::ServerSettings;
 use state::{SystemState, AppState};
 
 #[launch]
