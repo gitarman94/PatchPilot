@@ -1,9 +1,8 @@
-use rocket::{get, State};
+use rocket::{get, routes, Route, State};
 use rocket_dyn_templates::{Template, context};
 
 use crate::db::DbPool;
 use crate::models::{Device, Action, HistoryEntry, User};
-
 
 #[get("/dashboard")]
 pub async fn dashboard(pool: &State<DbPool>) -> Template {
@@ -81,4 +80,16 @@ pub async fn settings_page(pool: &State<DbPool>) -> Template {
     let users = User::all(&mut conn).unwrap_or_default();
 
     Template::render("settings", context! { users: users })
+}
+
+/// Expose all page routes as a single vector for mounting in main.rs
+pub fn routes() -> Vec<Route> {
+    routes![
+        dashboard,
+        devices_page,
+        device_detail,
+        actions_page,
+        history_page,
+        settings_page
+    ]
 }
