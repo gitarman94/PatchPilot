@@ -36,24 +36,23 @@ fn init_pool() -> DbPool {
     let raw_database_url =
         env::var("DATABASE_URL").unwrap_or_else(|_| "/opt/patchpilot_server/patchpilot.db".to_string());
 
-    // Normalize to sqlite:///absolute/path format
-    let database_url = if raw_database_url.starts_with("sqlite:///") {
-        raw_database_url.clone()
+    let db_path_str = if raw_database_url.starts_with("sqlite:///") {
+        raw_database_url.trim_start_matches("sqlite:///").to_string()
     } else if raw_database_url.starts_with("sqlite://") {
-        format!("sqlite:///{}", &raw_database_url[9..])
+        raw_database_url.trim_start_matches("sqlite://").to_string()
+    } else if raw_database_url.starts_with("sqlite:") {
+        raw_database_url.trim_start_matches("sqlite:").to_string()
     } else {
-        format!("sqlite:///{}", raw_database_url)
+        raw_database_url.clone()
     };
 
-    // Extract file path
-    let db_path_str = database_url.trim_start_matches("sqlite:///");
-    let db_path = Path::new(db_path_str);
+    let db_path = Path::new(&db_path_str);
 
-    // Ensure the DB file exists
     if !db_path.exists() {
         if let Some(parent) = db_path.parent() {
             if !parent.exists() {
-                std::fs::create_dir_all(parent).expect("Failed to create DB parent directories");
+                std::fs::create_dir_all(parent)
+                    .expect("Failed to create DB parent directories");
             }
         }
         OpenOptions::new()
@@ -63,13 +62,25 @@ fn init_pool() -> DbPool {
             .expect("Failed to create database file");
     }
 
-    let manager = ConnectionManager::<SqliteConnection>::new(database_url);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = std::fs::metadata(db_path) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o660);
+            let _ = std::fs::set_permissions(db_path, perms);
+        }
+    }
+
+    let manager = ConnectionManager::<SqliteConnection>::new(db_path_str.clone());
     let pool = Pool::builder()
         .build(manager)
         .expect("Failed to create DB pool");
 
     {
         let mut conn = pool.get().expect("Failed to get DB connection");
+        let _ = sql_query("PRAGMA foreign_keys = ON;").execute(&mut conn);
+        let _ = sql_query("PRAGMA journal_mode = WAL;").execute(&mut conn);
         initialize_database(&mut conn).expect("DB initialization failed");
     }
 
