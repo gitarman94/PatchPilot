@@ -1,4 +1,4 @@
-use rocket::{get, routes, Route, State};
+use rocket::{get, State};
 use rocket_dyn_templates::{Template, context};
 
 use crate::db::DbPool;
@@ -9,7 +9,10 @@ pub async fn dashboard(pool: &State<DbPool>) -> Template {
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => {
-            return Template::render("dashboard", context! { devices: Vec::<Device>::new(), total_devices: 0 });
+            return Template::render(
+                "dashboard",
+                context! { devices: Vec::<Device>::new(), total_devices: 0 }
+            );
         }
     };
 
@@ -80,16 +83,4 @@ pub async fn settings_page(pool: &State<DbPool>) -> Template {
     let users = User::all(&mut conn).unwrap_or_default();
 
     Template::render("settings", context! { users: users })
-}
-
-/// Expose all page routes as a single vector for mounting in main.rs
-pub fn routes() -> Vec<Route> {
-    routes![
-        dashboard,
-        devices_page,
-        device_detail,
-        actions_page,
-        history_page,
-        settings_page
-    ]
 }
