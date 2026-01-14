@@ -51,27 +51,6 @@ fn rocket() -> _ {
         })),
     });
 
-    // Spawn background tasks
-    action_ttl::spawn_action_ttl_task(app_state.clone());
-    pending_cleanup::spawn_pending_cleanup(app_state.clone());
-
-    // Periodic cleanup of stale devices
-    {
-        let app_state_clone = app_state.clone();
-        rocket::tokio::spawn(async move {
-            loop {
-                let max_age = app_state_clone
-                    .settings
-                    .read()
-                    .map(|s| s.auto_refresh_seconds)
-                    .unwrap_or(30)
-                    .max(30) as u64;
-                app_state_clone.cleanup_stale_devices(max_age);
-                rocket::tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-            }
-        });
-    }
-
     // Log server start audit (best-effort)
     {
         let mut conn = get_conn(&pool);
@@ -92,16 +71,19 @@ fn rocket() -> _ {
 
     // Rocket server build: static files, API, and templates
     rocket::build()
-        .attach(Template::fairing())
-        .manage(pool)
-        .manage(app_state)
-        .mount("/api", routes::api_routes())
-        .mount("/auth", routes::auth_routes())
-        .mount("/users-groups", routes::users_groups::api_users_groups_routes())
-        .mount("/roles", routes::roles::api_roles_routes())
-        .mount("/history", rocket::routes![routes::history::api_history])
-        .mount("/audit", rocket::routes![routes::history::api_audit])
-        .mount("/settings", routes::settings::routes())
-        .mount("/static", FileServer::from(relative!("static")))
-        .mount("/", routes::page_routes())
+    .attach(Template::fairing())
+    .attach(action_ttl::ActionTtlFairing)
+    .attach(pending_cleanup::PendingCleanupFairing)
+    .manage(pool)
+    .manage(app_state)
+    .mount("/api", routes::api_routes())
+    .mount("/auth", routes::auth_routes())
+    .mount("/users-groups", routes::users_groups::api_users_groups_routes())
+    .mount("/roles", routes::roles::api_roles_routes())
+    .mount("/history", rocket::routes![routes::history::api_history])
+    .mount("/audit", rocket::routes![routes::history::api_audit])
+    .mount("/settings", routes::settings::routes())
+    .mount("/static", FileServer::from(relative!("static")))
+    .mount("/", routes::page_routes())
+
 }

@@ -1,50 +1,43 @@
 use std::sync::Arc;
 use std::time::Duration;
+
+use rocket::{Build, Rocket};
+use rocket::fairing::{Fairing, Info, Kind};
 use rocket::tokio;
+
 use crate::state::AppState;
-use crate::schema::action_targets;
-use diesel::prelude::*;
 
-/// Spawns a background task to clean up completed action_targets
-pub fn spawn_pending_cleanup(state: Arc<AppState>) {
-    tokio::spawn(async move {
-        loop {
-            // Read cleanup interval from settings (minimum safeguard)
-            let interval_secs = {
-                let settings = state.settings.read().unwrap();
-                settings.auto_refresh_seconds.max(5) // minimum 5 seconds
-            };
+pub struct PendingCleanupFairing;
 
-            tokio::time::sleep(Duration::from_secs(interval_secs as u64)).await;
-
-            // Only proceed if action polling/cleanup is enabled
-            let cleanup_enabled = state.settings.read().unwrap().action_polling_enabled;
-            if !cleanup_enabled {
-                continue;
-            }
-
-            // Perform database cleanup
-            if let Ok(mut conn) = state.db_pool.get() {
-                let cutoff = chrono::Utc::now().naive_utc();
-                let deleted_count = diesel::delete(
-                    action_targets::table
-                        .filter(action_targets::status.eq("completed"))
-                        .filter(action_targets::last_update.lt(cutoff)),
-                )
-                .execute(&mut conn)
-                .unwrap_or(0);
-
-                // Use the AppState.log_audit(...) method (not direct closure access)
-                if deleted_count > 0 {
-                    let _ = state.log_audit(
-                        &mut conn,
-                        "system",
-                        "action.pending_cleanup",
-                        None,
-                        Some(&format!("Deleted {} completed action_targets", deleted_count)),
-                    );
-                }
-            }
+#[rocket::async_trait]
+impl Fairing for PendingCleanupFairing {
+    fn info(&self) -> Info {
+        Info {
+            name: "Pending Device Cleanup",
+            kind: Kind::Ignite,
         }
-    });
+    }
+
+    async fn on_ignite(&self, rocket: Rocket<Build>) -> rocket::fairing::Result {
+        let state = rocket
+            .state::<Arc<AppState>>()
+            .expect("AppState not managed")
+            .clone();
+
+        tokio::spawn(async move {
+            loop {
+                let max_age = state
+                    .settings
+                    .read()
+                    .map(|s| s.auto_refresh_seconds.max(30))
+                    .unwrap_or(60) as u64;
+
+                state.cleanup_stale_devices(max_age);
+
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+        });
+
+        Ok(rocket)
+    }
 }
