@@ -104,6 +104,8 @@ APP_ENV_FILE="${APP_DIR}/.env"
 cat > "${APP_ENV_FILE}" <<EOF
 DATABASE_URL=sqlite:${APP_DIR}/patchpilot.db
 RUST_LOG=info
+ROCKET_ADDRESS=0.0.0.0
+ROCKET_PORT=8080
 EOF
 
 ROCKET_SECRET_KEY=$(openssl rand -base64 48 | tr -d '=+/')
