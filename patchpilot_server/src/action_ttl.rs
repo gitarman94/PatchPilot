@@ -1,4 +1,3 @@
-// src/action_ttl.rs
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,7 +17,7 @@ pub struct ActionTtlFairing;
 impl Fairing for ActionTtlFairing {
     fn info(&self) -> Info {
         Info {
-            name: "Action TTL Background Task",
+            name: "Action TTL Cleanup",
             kind: Kind::Ignite,
         }
     }
@@ -26,16 +25,15 @@ impl Fairing for ActionTtlFairing {
     async fn on_ignite(&self, rocket: Rocket<Build>) -> rocket::fairing::Result {
         let state = rocket
             .state::<Arc<AppState>>()
-            .expect("AppState not managed");
-
-        let state = Arc::clone(state);
+            .expect("AppState not managed")
+            .clone();
 
         tokio::spawn(async move {
             loop {
                 let (interval_secs, polling_enabled) = {
                     let settings = state.settings.read().unwrap();
                     (
-                        settings.auto_refresh_seconds,
+                        settings.auto_refresh_seconds.max(30),
                         settings.action_polling_enabled,
                     )
                 };
@@ -57,17 +55,15 @@ impl Fairing for ActionTtlFairing {
                         .unwrap_or_default();
 
                     for action_id in expired_action_ids {
-                        if let Err(e) = diesel::update(
-                            actions::table.filter(actions::id.eq(action_id)),
-                        )
-                        .set(actions::canceled.eq(true))
-                        .execute(&mut conn)
+                        if diesel::update(actions::table.filter(actions::id.eq(action_id)))
+                            .set(actions::canceled.eq(true))
+                            .execute(&mut conn)
+                            .is_err()
                         {
-                            eprintln!("Failed to cancel action {}: {:?}", action_id, e);
                             continue;
                         }
 
-                        if let Err(e) = diesel::update(
+                        let _ = diesel::update(
                             action_targets::table
                                 .filter(action_targets::action_id.eq(action_id))
                                 .filter(action_targets::status.eq("pending")),
@@ -76,29 +72,16 @@ impl Fairing for ActionTtlFairing {
                             action_targets::status.eq("expired"),
                             action_targets::last_update.eq(now),
                         ))
-                        .execute(&mut conn)
-                        {
-                            eprintln!(
-                                "Failed to update action_targets for {}: {:?}",
-                                action_id, e
-                            );
-                        }
+                        .execute(&mut conn);
 
                         if let Some(audit_fn) = state.log_audit.as_ref() {
-                            if let Err(e) = audit_fn(
+                            let _ = audit_fn(
                                 &mut conn,
                                 "system",
                                 "action.ttl_expired",
                                 Some(&action_id.to_string()),
-                                Some(
-                                    "Action automatically canceled due to TTL expiration",
-                                ),
-                            ) {
-                                eprintln!(
-                                    "Failed to log audit for action {}: {:?}",
-                                    action_id, e
-                                );
-                            }
+                                Some("Action automatically canceled due to TTL expiration"),
+                            );
                         }
                     }
                 }
