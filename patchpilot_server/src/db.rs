@@ -33,18 +33,25 @@ fn init_logger() {
 }
 
 fn init_pool() -> DbPool {
-    let raw_database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "/opt/patchpilot_server/patchpilot.db".to_string());
+    let raw_database_url =
+        env::var("DATABASE_URL").unwrap_or_else(|_| "/opt/patchpilot_server/patchpilot.db".to_string());
 
-    let database_path = if raw_database_url.starts_with("sqlite:") {
-        let after = raw_database_url["sqlite:".len()..].to_string();
-        let without_leading = after.trim_start_matches('/');
-        format!("/{}", without_leading)
+    // Normalize to sqlite:///absolute/path format
+    let database_url = if raw_database_url.starts_with("sqlite:///") {
+        raw_database_url.clone()
+    } else if raw_database_url.starts_with("sqlite://") {
+        format!("sqlite:///{}", &raw_database_url[9..])
     } else {
-        raw_database_url
+        format!("sqlite:///{}", raw_database_url)
     };
 
-    if !Path::new(&database_path).exists() {
-        if let Some(parent) = Path::new(&database_path).parent() {
+    // Extract file path
+    let db_path_str = database_url.trim_start_matches("sqlite:///");
+    let db_path = Path::new(db_path_str);
+
+    // Ensure the DB file exists
+    if !db_path.exists() {
+        if let Some(parent) = db_path.parent() {
             if !parent.exists() {
                 std::fs::create_dir_all(parent).expect("Failed to create DB parent directories");
             }
@@ -52,11 +59,11 @@ fn init_pool() -> DbPool {
         OpenOptions::new()
             .create(true)
             .write(true)
-            .open(&database_path)
+            .open(db_path)
             .expect("Failed to create database file");
     }
 
-    let manager = ConnectionManager::<SqliteConnection>::new(database_path.clone());
+    let manager = ConnectionManager::<SqliteConnection>::new(database_url);
     let pool = Pool::builder()
         .build(manager)
         .expect("Failed to create DB pool");

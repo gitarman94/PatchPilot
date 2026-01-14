@@ -73,7 +73,7 @@ export RUSTUP_HOME="${APP_DIR}/.rustup"
 export PATH="${CARGO_HOME}/bin:$PATH"
 mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
 
-# Install Rust if cargo not found
+# Install Rust if rustup not found
 if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
     echo "🛠️ Installing Rust..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
@@ -87,7 +87,7 @@ export PATH="${CARGO_HOME}/bin:$PATH"
 # SQLite DB setup
 SQLITE_DB="${APP_DIR}/patchpilot.db"
 touch "$SQLITE_DB"
-chmod 644 "$SQLITE_DB"
+chmod 755 "$SQLITE_DB"
 
 # Build Rust app
 cd "$APP_DIR"
@@ -115,14 +115,14 @@ EOF
 
 ROCKET_SECRET_KEY=$(openssl rand -base64 48 | tr -d '=+/')
 echo "ROCKET_SECRET_KEY=${ROCKET_SECRET_KEY}" >> "$APP_ENV_FILE"
-chmod 644 "$APP_ENV_FILE"
+chmod 755 "$APP_ENV_FILE"
 
 # Admin token
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
 if [[ ! -f "$TOKEN_FILE" ]]; then
     ADMIN_TOKEN=$(openssl rand -base64 32 | tr -d '=+/')
     echo "$ADMIN_TOKEN" > "$TOKEN_FILE"
-    chmod 644 "$TOKEN_FILE"
+    chmod 755 "$TOKEN_FILE"
 else
     ADMIN_TOKEN=$(cat "$TOKEN_FILE")
 fi
@@ -133,10 +133,13 @@ if ! id -u patchpilot >/dev/null 2>&1; then
 fi
 chown -R patchpilot:patchpilot "$APP_DIR"
 
-# Permissions
+# Permissions (all 755)
 find "$APP_DIR" -type d -exec chmod 755 {} \;
-find "$APP_DIR" -type f -exec chmod 644 {} \;
+find "$APP_DIR" -type f -exec chmod 755 {} \;
+
+# Explicit executables
 chmod +x "$APP_DIR/target/release/patchpilot_server"
+chmod +x "$APP_DIR/server_test.sh"
 
 # Setup systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
