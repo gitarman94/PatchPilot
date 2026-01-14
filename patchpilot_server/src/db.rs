@@ -33,17 +33,9 @@ fn init_logger() {
 }
 
 fn normalize_sqlite_path(raw: &str) -> PathBuf {
-    if raw.starts_with("sqlite:////") {
-        PathBuf::from(raw.trim_start_matches("sqlite:"))
-    } else if raw.starts_with("sqlite:///") {
-        PathBuf::from(format!("/{}", raw.trim_start_matches("sqlite:///")))
-    } else if raw.starts_with("sqlite://") {
-        PathBuf::from(raw.trim_start_matches("sqlite://"))
-    } else if raw.starts_with("sqlite:") {
-        PathBuf::from(raw.trim_start_matches("sqlite:"))
-    } else {
-        PathBuf::from(raw)
-    }
+    let stripped = raw.strip_prefix("sqlite:").unwrap_or(raw);
+    let trimmed = stripped.trim_start_matches('/');
+    PathBuf::from(format!("/{}", trimmed))
 }
 
 fn ensure_database_file(path: &Path) {
