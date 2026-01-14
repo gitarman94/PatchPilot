@@ -200,6 +200,6 @@ pub fn delete_user(user: AuthUser, pool: &State<DbPool>, user_id_val: i32) -> Re
     Redirect::to("/users-groups")
 }
 
-pub fn api_users_groups_routes() -> Vec<rocket::Route> {
-    routes![ list_users_groups, add_group, add_user, delete_group, delete_user ].into_iter().collect()
+pub fn routes() -> Vec<rocket::Route> {
+    routes![list_users_groups, add_group, add_user, delete_group, delete_user].into_iter().collect()
 }

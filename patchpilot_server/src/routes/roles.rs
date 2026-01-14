@@ -7,7 +7,7 @@ use diesel::prelude::*;
 
 use crate::db::{DbPool, log_audit};
 use crate::auth::{AuthUser, RoleName};
-use crate::models::{Role as RoleModel};
+use crate::models::Role as RoleModel;
 use crate::schema::{roles, user_roles};
 
 #[derive(FromForm)]
@@ -63,6 +63,6 @@ pub fn delete_role(user: AuthUser, pool: &State<DbPool>, role_id: i32) -> Redire
     Redirect::to("/roles")
 }
 
-pub fn api_roles_routes() -> Vec<rocket::Route> {
+pub fn routes() -> Vec<rocket::Route> {
     routes![list_roles, add_role, delete_role].into_iter().collect()
 }
