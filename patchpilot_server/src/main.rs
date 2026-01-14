@@ -54,8 +54,13 @@ fn rocket() -> _ {
     // Log server start audit (best-effort)
     {
         let mut conn = get_conn(&pool);
-        let user = AuthUser { id: 1, username: "admin".to_string(), role: "Admin".to_string() };
-        if let Err(e) = user.audit(&mut conn, "server_started", None) {
+        if let Err(e) = app_state.log_audit(
+            &mut conn,
+            "system",
+            "server_started",
+            None,
+            Some("PatchPilot server started"),
+        ) {
             log::error!("Failed to log server start audit: {:?}", e);
         }
     }
