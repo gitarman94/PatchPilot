@@ -78,7 +78,6 @@ fn init_pool() -> DbPool {
         .to_string();
 
     let normalized_url = format!("sqlite://{}", db_path_str);
-    env::set_var("DATABASE_URL", &normalized_url);
 
     let manager = ConnectionManager::<SqliteConnection>::new(db_path_str);
     let pool = Pool::builder()
