@@ -23,6 +23,7 @@ for arg in "$@"; do
     case "$arg" in
         --force) FORCE_REINSTALL=true ;;
         --upgrade) UPGRADE=true ;;
+        --debug) BUILD_MODE="debug" ;;
     esac
 done
 
@@ -91,7 +92,8 @@ chmod 755 "$SQLITE_DB"
 
 # Build Rust app
 cd "$APP_DIR"
-"${CARGO_HOME}/bin/cargo" build --release
+echo "🛠️ Building PatchPilot server in ${BUILD_MODE} mode..."
+"${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
 
 # Rocket configuration
 cat > "${APP_DIR}/Rocket.toml" <<EOF
