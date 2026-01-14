@@ -79,7 +79,6 @@ fn rocket() -> _ {
         .attach(pending_cleanup::PendingCleanupFairing)
         .manage(pool)
         .manage(app_state)
-        // API and functional routes
         .mount("/api", routes::api_routes())
         .mount("/auth", routes::auth_routes())
         .mount("/users-groups", routes::users_groups::api_users_groups_routes())
@@ -88,6 +87,5 @@ fn rocket() -> _ {
         .mount("/audit", rocket::routes![routes::history::api_audit])
         .mount("/settings", routes::settings::routes())
         .mount("/static", FileServer::from(relative!("static")))
-        // Mount catch-all page routes last to avoid collisions
-        .mount("/", routes::page_routes())
+        .mount("/", routes::pages::routes()) // Corrected from page_routes to pages
 }
