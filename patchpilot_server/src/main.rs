@@ -1,4 +1,3 @@
-// bring Rocket procedural macros into scope
 #[macro_use]
 extern crate rocket;
 
@@ -19,6 +18,7 @@ use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use db::{DbPool, initialize, get_conn};
 use state::{SystemState, AppState};
+use rocket::figment::{Figment, providers::{Env, Format, Toml}};
 
 #[launch]
 fn rocket() -> _ {
@@ -72,8 +72,12 @@ fn rocket() -> _ {
     );
     log::info!("PatchPilot server ready");
 
-    // Rocket server build: static files, API, and templates
-    rocket::build()
+    // Rocket figment: merge Rocket.toml + env vars
+    let figment = Figment::from(rocket::Config::default())
+        .merge(Toml::file("Rocket.toml").nested())
+        .merge(Env::prefixed("ROCKET_"));
+
+    rocket::custom(figment)
         .attach(Template::fairing())
         .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)

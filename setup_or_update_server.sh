@@ -17,6 +17,7 @@ ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${B
 
 FORCE_REINSTALL=false
 UPGRADE=false
+BUILD_MODE="debug"
 
 # Parse args
 for arg in "$@"; do
@@ -24,6 +25,7 @@ for arg in "$@"; do
         --force) FORCE_REINSTALL=true ;;
         --upgrade) UPGRADE=true ;;
         --debug) BUILD_MODE="debug" ;;
+        --release) BUILD_MODE="release" ;;
     esac
 done
 
@@ -95,18 +97,18 @@ cd "$APP_DIR"
 echo "🛠️ Building PatchPilot server in ${BUILD_MODE} mode..."
 "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
 
-# Rocket configuration
+# Rocket configuration (UPDATED: use log_level instead of deprecated log key)
 cat > "${APP_DIR}/Rocket.toml" <<EOF
 [default]
 address = "0.0.0.0"
 port = 8080
-log = "normal"
+log_level = "normal"
 
 [production]
-log = "critical"
+log_level = "critical"
 
 [dev]
-log = "normal"
+log_level = "normal"
 address = "0.0.0.0"
 port = 8080
 EOF
@@ -118,10 +120,11 @@ DATABASE_URL=sqlite:///${APP_DIR}/patchpilot.db
 RUST_LOG=info
 ROCKET_ADDRESS=0.0.0.0
 ROCKET_PORT=8080
-ROCKET_ENV=dev
+ROCKET_PROFILE=dev
 ROCKET_INSECURE_ALLOW_DEV=true
 EOF
 
+# Generate 48-byte base64 secret key for Rocket
 ROCKET_SECRET_KEY=$(openssl rand -base64 48 | tr -d '=+/')
 echo "ROCKET_SECRET_KEY=${ROCKET_SECRET_KEY}" >> "$APP_ENV_FILE"
 
