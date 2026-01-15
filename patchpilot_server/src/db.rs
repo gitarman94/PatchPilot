@@ -5,7 +5,7 @@ use diesel::sql_query;
 use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use chrono::{Utc, NaiveDateTime};
 use std::env;
-use std::fs::OpenOptions;
+use std::fs::{OpenOptions, create_dir_all, set_permissions, metadata};
 use std::path::{Path, PathBuf};
 
 use crate::schema::*;
@@ -20,9 +20,23 @@ pub fn initialize() -> DbPool {
 }
 
 fn init_logger() {
+    // Ensure logs directory exists and permissions are correct
+    let logs_dir = Path::new("logs");
+    if !logs_dir.exists() {
+        create_dir_all(logs_dir).expect("Failed to create logs directory");
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = metadata(logs_dir).unwrap().permissions();
+        perms.set_mode(0o755);
+        let _ = set_permissions(logs_dir, perms);
+    }
+
     Logger::try_with_str("info")
         .unwrap()
-        .log_to_file(FileSpec::default().directory("logs"))
+        .log_to_file(FileSpec::default().directory(logs_dir))
         .rotate(
             Criterion::Age(Age::Day),
             Naming::Numbers,
@@ -41,8 +55,15 @@ fn normalize_sqlite_path(raw: &str) -> PathBuf {
 fn ensure_database_file(path: &Path) {
     if let Some(parent) = path.parent() {
         if !parent.exists() {
-            std::fs::create_dir_all(parent)
-                .expect("Failed to create DB parent directories");
+            create_dir_all(parent).expect("Failed to create DB parent directories");
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = metadata(parent).unwrap().permissions();
+            perms.set_mode(0o755);
+            let _ = set_permissions(parent, perms);
         }
     }
 
@@ -57,11 +78,9 @@ fn ensure_database_file(path: &Path) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Ok(metadata) = std::fs::metadata(path) {
-            let mut perms = metadata.permissions();
-            perms.set_mode(0o660);
-            let _ = std::fs::set_permissions(path, perms);
-        }
+        let mut perms = metadata(path).unwrap().permissions();
+        perms.set_mode(0o755);
+        let _ = set_permissions(path, perms);
     }
 }
 
@@ -124,7 +143,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             network_interfaces TEXT,
             ip_address TEXT
         );
-        "#
+        "#,
     )
     .execute(conn)?;
 
@@ -139,7 +158,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             expires_at DATETIME NOT NULL,
             canceled BOOLEAN NOT NULL DEFAULT 0
         );
-        "#
+        "#,
     )
     .execute(conn)?;
 
@@ -153,7 +172,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             last_update DATETIME NOT NULL,
             response TEXT
         );
-        "#
+        "#,
     )
     .execute(conn)?;
 
@@ -168,7 +187,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             details TEXT,
             created_at DATETIME NOT NULL
         );
-        "#
+        "#,
     )
     .execute(conn)?;
 
@@ -182,7 +201,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             details TEXT,
             created_at DATETIME NOT NULL
         );
-        "#
+        "#,
     )
     .execute(conn)?;
 
@@ -194,7 +213,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             password_hash TEXT NOT NULL,
             created_at DATETIME NOT NULL
         );
-        "#
+        "#,
     )
     .execute(conn)?;
 
@@ -204,7 +223,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL UNIQUE
         );
-        "#
+        "#,
     )
     .execute(conn)?;
 
@@ -215,7 +234,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             user_id INTEGER NOT NULL,
             role_id INTEGER NOT NULL
         );
-        "#
+        "#,
     )
     .execute(conn)?;
 
@@ -226,7 +245,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             name TEXT NOT NULL UNIQUE,
             description TEXT
         );
-        "#
+        "#,
     )
     .execute(conn)?;
 
@@ -237,7 +256,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             user_id INTEGER NOT NULL,
             group_id INTEGER NOT NULL
         );
-        "#
+        "#,
     )
     .execute(conn)?;
 
@@ -253,7 +272,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             ping_target_ip TEXT NOT NULL DEFAULT '8.8.8.8',
             force_https BOOLEAN NOT NULL DEFAULT 0
         );
-        "#
+        "#,
     )
     .execute(conn)?;
 
@@ -263,7 +282,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
         (id, auto_approve_devices, auto_refresh_enabled, auto_refresh_seconds,
          default_action_ttl_seconds, action_polling_enabled, ping_target_ip, force_https)
         VALUES (1, 0, 1, 30, 3600, 1, '8.8.8.8', 0);
-        "#
+        "#,
     )
     .execute(conn)?;
 
