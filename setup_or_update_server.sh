@@ -67,7 +67,7 @@ rm -rf /opt/patchpilot_install
 # Install required packages
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev
+apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev openssl
 
 # Rust environment (self-contained)
 export CARGO_HOME="${APP_DIR}/.cargo"
@@ -75,20 +75,28 @@ export RUSTUP_HOME="${APP_DIR}/.rustup"
 export PATH="${CARGO_HOME}/bin:$PATH"
 mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
 
-# Install Rust if missing (FIXED HOME / EUID mismatch)
+# Install Rust if missing (FIX for HOME/EUID mismatch when running as root)
+# Explanation:
+#  - rustup enforces a check that $HOME matches the euid home; when running as root with HOME != /root it errors.
+#  - We set HOME=/root for the installer process while still directing rustup to write into our CARGO_HOME/RUSTUP_HOME.
+#  - Note: rustup respects CARGO_HOME/RUSTUP_HOME env vars, so toolchain and cargo ends up under APP_DIR.
 if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
     echo "🛠️ Installing Rust..."
 
-    # Force HOME to match rustup expectations while running as root
-    HOME="${APP_DIR}" \
-    CARGO_HOME="${CARGO_HOME}" \
-    RUSTUP_HOME="${RUSTUP_HOME}" \
+    # Ensure the installer runs with a HOME matching the euid home (/root),
+    # but instruct rustup to place toolchain under our self-contained directories.
+    # The environment variables after the 'sh -s --' affect the installer process.
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-        | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
+      | HOME=/root CARGO_HOME="${CARGO_HOME}" RUSTUP_HOME="${RUSTUP_HOME}" sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
-# Ensure rust toolchain
-"${CARGO_HOME}/bin/rustup" default stable
+# Ensure rustup/cargo in our self-contained dir are used
+export PATH="${CARGO_HOME}/bin:$PATH"
+
+# Activate toolchain (no-op if already active)
+if [[ -x "${CARGO_HOME}/bin/rustup" ]]; then
+    "${CARGO_HOME}/bin/rustup" default stable || true
+fi
 
 # SQLite DB
 SQLITE_DB="${APP_DIR}/patchpilot.db"
@@ -100,7 +108,7 @@ cd "$APP_DIR"
 echo "🛠️ Building PatchPilot server (${BUILD_MODE})..."
 "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
 
-# Rocket config
+# Rocket config (use log_level to avoid Rocket deprecation warnings)
 cat > "${APP_DIR}/Rocket.toml" <<EOF
 [default]
 address = "0.0.0.0"
@@ -138,16 +146,19 @@ if [[ ! -f "$TOKEN_FILE" ]]; then
     chmod 755 "$TOKEN_FILE"
 fi
 
-# Service user
+# Ensure patchpilot user exists
 if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -s /usr/sbin/nologin patchpilot
 fi
-chown -R patchpilot:patchpilot "$APP_DIR"
 
-# Permissions
+# Ensure ownership & permissions after installation
+chown -R patchpilot:patchpilot "$APP_DIR"
 find "$APP_DIR" -type d -exec chmod 755 {} \;
 find "$APP_DIR" -type f -exec chmod 755 {} \;
+
+# Make server binary executable (path uses build mode)
 chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server"
+chmod +x "$APP_DIR/server_test.sh" 2>/dev/null || true
 
 # systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
