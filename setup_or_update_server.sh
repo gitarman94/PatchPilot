@@ -75,7 +75,8 @@ mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
 
 # Install Rust using rustup if missing
 if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
-    echo "🛠️ Installing Rust..."
+    echo "🛠️ Installing Rust (self-contained)..."
+    export RUSTUP_INIT_SKIP_PATH_CHECK=yes
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
       | HOME=/root CARGO_HOME="${CARGO_HOME}" RUSTUP_HOME="${RUSTUP_HOME}" sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
