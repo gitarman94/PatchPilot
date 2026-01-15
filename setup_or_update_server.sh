@@ -46,7 +46,6 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
     echo "🧹 Cleaning up old installation..."
     systemctl stop "${SERVICE_NAME}" || true
     systemctl disable "${SERVICE_NAME}" || true
-
     pkill -f "^${APP_DIR}/target/${BUILD_MODE}/patchpilot_server$" || true
     rm -rf "${APP_DIR}" /opt/patchpilot_install*
     mkdir -p /opt/patchpilot_install "$APP_DIR"
@@ -70,40 +69,38 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev
 
-# Rust environment
+# Rust environment (self-contained)
 export CARGO_HOME="${APP_DIR}/.cargo"
 export RUSTUP_HOME="${APP_DIR}/.rustup"
-mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
 export PATH="${CARGO_HOME}/bin:$PATH"
+mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
 
-# Install Rust if rustup not found
+# Install Rust if missing (FIXED HOME / EUID mismatch)
 if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
     echo "🛠️ Installing Rust..."
 
-    # Temporarily override HOME to satisfy rustup when running as root
-    export HOME="${APP_DIR}"
-
+    # Force HOME to match rustup expectations while running as root
+    HOME="${APP_DIR}" \
+    CARGO_HOME="${CARGO_HOME}" \
+    RUSTUP_HOME="${RUSTUP_HOME}" \
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
-
-    unset HOME
 fi
 
-# Ensure cargo and rustc work via rustup
-export PATH="${CARGO_HOME}/bin:$PATH"
+# Ensure rust toolchain
 "${CARGO_HOME}/bin/rustup" default stable
 
-# SQLite DB setup
+# SQLite DB
 SQLITE_DB="${APP_DIR}/patchpilot.db"
 touch "$SQLITE_DB"
 chmod 755 "$SQLITE_DB"
 
-# Build Rust app
+# Build server
 cd "$APP_DIR"
-echo "🛠️ Building PatchPilot server in ${BUILD_MODE} mode..."
+echo "🛠️ Building PatchPilot server (${BUILD_MODE})..."
 "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
 
-# Rocket configuration
+# Rocket config
 cat > "${APP_DIR}/Rocket.toml" <<EOF
 [default]
 address = "0.0.0.0"
@@ -119,7 +116,7 @@ address = "0.0.0.0"
 port = 8080
 EOF
 
-# Environment file for systemd
+# Environment file
 APP_ENV_FILE="${APP_DIR}/.env"
 cat > "${APP_ENV_FILE}" <<EOF
 DATABASE_URL=sqlite:///${APP_DIR}/patchpilot.db
@@ -130,37 +127,29 @@ ROCKET_PROFILE=dev
 ROCKET_INSECURE_ALLOW_DEV=true
 EOF
 
-# Generate 48-byte base64 secret key for Rocket
 ROCKET_SECRET_KEY=$(openssl rand -base64 48 | tr -d '=+/')
 echo "ROCKET_SECRET_KEY=${ROCKET_SECRET_KEY}" >> "$APP_ENV_FILE"
-
 chmod 755 "$APP_ENV_FILE"
 
 # Admin token
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
 if [[ ! -f "$TOKEN_FILE" ]]; then
-    ADMIN_TOKEN=$(openssl rand -base64 32 | tr -d '=+/')
-    echo "$ADMIN_TOKEN" > "$TOKEN_FILE"
+    openssl rand -base64 32 | tr -d '=+/' > "$TOKEN_FILE"
     chmod 755 "$TOKEN_FILE"
-else
-    ADMIN_TOKEN=$(cat "$TOKEN_FILE")
 fi
 
-# Ensure patchpilot user exists
+# Service user
 if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -s /usr/sbin/nologin patchpilot
 fi
 chown -R patchpilot:patchpilot "$APP_DIR"
 
-# Permissions (all 755)
+# Permissions
 find "$APP_DIR" -type d -exec chmod 755 {} \;
 find "$APP_DIR" -type f -exec chmod 755 {} \;
-
-# Explicit executables
 chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server"
-chmod +x "$APP_DIR/server_test.sh"
 
-# Setup systemd service
+# systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server
