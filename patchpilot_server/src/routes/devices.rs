@@ -1,10 +1,10 @@
+// File: patchpilot_server/src/routes/devices.rs
 use rocket::{get, post, routes, State};
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use diesel::prelude::*;
 use chrono::Utc;
 use std::sync::Arc;
-
 use crate::db::{DbPool, log_audit};
 use crate::models::{Device, NewDevice};
 use crate::AppState;
@@ -24,6 +24,7 @@ pub async fn get_devices(pool: &State<DbPool>) -> Result<Json<Vec<Device>>, Stat
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Json(devices_res))
 }
 
@@ -33,7 +34,7 @@ pub async fn heartbeat() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "alive" }))
 }
 
-/// GET /device/<device_id>
+/// GET /device/<device_id> - return details for a device
 #[get("/device/<device_id_param>")]
 pub async fn get_device_details(pool: &State<DbPool>, device_id_param: i64) -> Result<Json<Device>, Status> {
     let pool = pool.inner().clone();
@@ -47,6 +48,7 @@ pub async fn get_device_details(pool: &State<DbPool>, device_id_param: i64) -> R
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Json(device))
 }
 
@@ -56,8 +58,10 @@ pub async fn approve_device(pool: &State<DbPool>, device_id_param: i64, user: Au
     if !user.has_role(RoleName::Admin) {
         return Err(Status::Unauthorized);
     }
+
     let username = user.username.clone();
     let pool = pool.inner().clone();
+
     rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
         diesel::update(devices.filter(device_id.eq(device_id_param)))
@@ -75,6 +79,7 @@ pub async fn approve_device(pool: &State<DbPool>, device_id_param: i64, user: Au
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Status::Ok)
 }
 
@@ -114,10 +119,12 @@ pub async fn register_or_update_device(
     if !user.has_role(RoleName::Admin) {
         return Err(Status::Unauthorized);
     }
+
     let username = user.username.clone();
     let info = info.into_inner();
     let pool_for_db = pool.inner().clone();
     let app_state = app_state.inner().clone();
+
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<serde_json::Value, Status> {
         let mut conn = pool_for_db.get().map_err(|_| Status::InternalServerError)?;
         let existing = devices
@@ -125,6 +132,7 @@ pub async fn register_or_update_device(
             .first::<Device>(&mut conn)
             .optional()
             .map_err(|_| Status::InternalServerError)?;
+
         let updated = NewDevice {
             device_id: info.device_id,
             device_name: info.device_name,
@@ -149,6 +157,7 @@ pub async fn register_or_update_device(
             network_interfaces: info.network_interfaces.map(|v| v.to_string()),
             ip_address: info.ip_address,
         };
+
         diesel::insert_into(devices)
             .values(&updated)
             .on_conflict(device_id)
@@ -159,6 +168,7 @@ pub async fn register_or_update_device(
                 log::error!("DB insert/update failed: {:?}", e);
                 Status::InternalServerError
             })?;
+
         let _ = log_audit(
             &mut conn,
             &username,
@@ -166,7 +176,9 @@ pub async fn register_or_update_device(
             Some(&updated.device_id.to_string()),
             Some("Device registered or updated"),
         );
+
         app_state.update_pending_device(&updated.device_id.to_string());
+
         Ok(serde_json::json!({
             "device_id": updated.device_id,
             "last_checkin": updated.last_checkin.to_string(),
@@ -175,18 +187,13 @@ pub async fn register_or_update_device(
     })
     .await
     .map_err(|_| Status::InternalServerError)??;
+
     Ok(Json(result))
 }
 
 use rocket::Route;
 pub fn routes() -> Vec<Route> {
-    routes![
-        get_devices,
-        heartbeat,
-        get_device_details,
-        approve_device,
-        register_or_update_device
-    ]
-    .into_iter()
-    .collect()
+    routes![get_devices, heartbeat, get_device_details, approve_device, register_or_update_device]
+        .into_iter()
+        .collect()
 }
