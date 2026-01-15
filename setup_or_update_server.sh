@@ -51,7 +51,7 @@ cd /opt/patchpilot_install
 curl -L "$ZIP_URL" -o latest.zip
 unzip -o latest.zip
 
-cd "${APP_DIR}"
+cd "$APP_DIR"
 mv /opt/patchpilot_install/PatchPilot-main/patchpilot_server/* "$APP_DIR"
 mv /opt/patchpilot_install/PatchPilot-main/templates "$APP_DIR"
 mv /opt/patchpilot_install/PatchPilot-main/server_test.sh "$APP_DIR"
@@ -109,6 +109,7 @@ ROCKET_ADDRESS=0.0.0.0
 ROCKET_PORT=8080
 ROCKET_PROFILE=dev
 ROCKET_INSECURE_ALLOW_DEV=true
+HOME=/home/patchpilot
 EOF
 
 ROCKET_SECRET_KEY=$(openssl rand -base64 48 | head -c 64)
@@ -125,9 +126,13 @@ if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -m -d /home/patchpilot -s /usr/sbin/nologin patchpilot
 fi
 
-mkdir -p /home/patchpilot
-chown patchpilot:patchpilot /home/patchpilot
+mkdir -p /home/patchpilot/.cargo /home/patchpilot/.rustup
+chown -R patchpilot:patchpilot /home/patchpilot
 chmod 700 /home/patchpilot
+chmod 700 /home/patchpilot/.cargo /home/patchpilot/.rustup
+
+mkdir -p /opt/patchpilot_server/migrations
+chown -R patchpilot:patchpilot /opt/patchpilot_server/migrations
 
 chown -R patchpilot:patchpilot "$APP_DIR"
 find "$APP_DIR" -type d -exec chmod 755 {} \;
