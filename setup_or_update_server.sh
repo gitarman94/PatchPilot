@@ -19,7 +19,6 @@ FORCE_REINSTALL=false
 UPGRADE=false
 BUILD_MODE="debug"
 
-# Parse args
 for arg in "$@"; do
     case "$arg" in
         --force) FORCE_REINSTALL=true ;;
@@ -37,8 +36,7 @@ if [[ -f /etc/os-release ]]; then
         *) echo "❌ Only Debian-based systems supported."; exit 1 ;;
     esac
 else
-    echo "❌ Cannot determine OS."
-    exit 1
+    echo "❌ Cannot determine OS."; exit 1
 fi
 
 # Cleanup if --force
@@ -64,7 +62,7 @@ mv /opt/patchpilot_install/PatchPilot-main/static "$APP_DIR"
 chmod +x "$APP_DIR/server_test.sh"
 rm -rf /opt/patchpilot_install
 
-# Install required packages
+# Install required OS packages
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev openssl
@@ -75,28 +73,15 @@ export RUSTUP_HOME="${APP_DIR}/.rustup"
 export PATH="${CARGO_HOME}/bin:$PATH"
 mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
 
-# Install Rust if missing (FIX for HOME/EUID mismatch when running as root)
-# Explanation:
-#  - rustup enforces a check that $HOME matches the euid home; when running as root with HOME != /root it errors.
-#  - We set HOME=/root for the installer process while still directing rustup to write into our CARGO_HOME/RUSTUP_HOME.
-#  - Note: rustup respects CARGO_HOME/RUSTUP_HOME env vars, so toolchain and cargo ends up under APP_DIR.
+# Install Rust using rustup if missing
 if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
     echo "🛠️ Installing Rust..."
-
-    # Ensure the installer runs with a HOME matching the euid home (/root),
-    # but instruct rustup to place toolchain under our self-contained directories.
-    # The environment variables after the 'sh -s --' affect the installer process.
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
       | HOME=/root CARGO_HOME="${CARGO_HOME}" RUSTUP_HOME="${RUSTUP_HOME}" sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
-# Ensure rustup/cargo in our self-contained dir are used
 export PATH="${CARGO_HOME}/bin:$PATH"
-
-# Activate toolchain (no-op if already active)
-if [[ -x "${CARGO_HOME}/bin/rustup" ]]; then
-    "${CARGO_HOME}/bin/rustup" default stable || true
-fi
+"${CARGO_HOME}/bin/rustup" default stable || true
 
 # SQLite DB
 SQLITE_DB="${APP_DIR}/patchpilot.db"
@@ -108,7 +93,7 @@ cd "$APP_DIR"
 echo "🛠️ Building PatchPilot server (${BUILD_MODE})..."
 "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
 
-# Rocket config (use log_level to avoid Rocket deprecation warnings)
+# Rocket.toml
 cat > "${APP_DIR}/Rocket.toml" <<EOF
 [default]
 address = "0.0.0.0"
@@ -135,15 +120,15 @@ ROCKET_PROFILE=dev
 ROCKET_INSECURE_ALLOW_DEV=true
 EOF
 
-# Generate valid Rocket secret key (48 bytes, proper base64)
-ROCKET_SECRET_KEY=$(openssl rand -base64 48)
+# Generate valid Rocket secret key (48 bytes, base64)
+ROCKET_SECRET_KEY=$(openssl rand -base64 48 | head -c 64)
 echo "ROCKET_SECRET_KEY=${ROCKET_SECRET_KEY}" >> "$APP_ENV_FILE"
 chmod 600 "$APP_ENV_FILE"
 
-# Admin token (32 bytes, base64, optional URL-safe)
+# Admin token (32 bytes, base64)
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
 if [[ ! -f "$TOKEN_FILE" ]]; then
-    openssl rand -base64 32 > "$TOKEN_FILE"
+    openssl rand -base64 32 | head -c 44 > "$TOKEN_FILE"
     chmod 600 "$TOKEN_FILE"
 fi
 
@@ -152,12 +137,12 @@ if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -s /usr/sbin/nologin patchpilot
 fi
 
-# Ensure ownership & permissions after installation
+# Ownership & permissions
 chown -R patchpilot:patchpilot "$APP_DIR"
 find "$APP_DIR" -type d -exec chmod 755 {} \;
 find "$APP_DIR" -type f -exec chmod 755 {} \;
 
-# Make server binary executable (path uses build mode)
+# Make server binary executable
 chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server"
 chmod +x "$APP_DIR/server_test.sh" 2>/dev/null || true
 
