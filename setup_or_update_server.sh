@@ -135,15 +135,16 @@ ROCKET_PROFILE=dev
 ROCKET_INSECURE_ALLOW_DEV=true
 EOF
 
-ROCKET_SECRET_KEY=$(openssl rand -base64 48 | tr -d '=+/')
+# Generate valid Rocket secret key (48 bytes, proper base64)
+ROCKET_SECRET_KEY=$(openssl rand -base64 48)
 echo "ROCKET_SECRET_KEY=${ROCKET_SECRET_KEY}" >> "$APP_ENV_FILE"
-chmod 755 "$APP_ENV_FILE"
+chmod 600 "$APP_ENV_FILE"
 
-# Admin token
+# Admin token (32 bytes, base64, optional URL-safe)
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
 if [[ ! -f "$TOKEN_FILE" ]]; then
-    openssl rand -base64 32 | tr -d '=+/' > "$TOKEN_FILE"
-    chmod 755 "$TOKEN_FILE"
+    openssl rand -base64 32 > "$TOKEN_FILE"
+    chmod 600 "$TOKEN_FILE"
 fi
 
 # Ensure patchpilot user exists
