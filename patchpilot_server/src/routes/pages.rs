@@ -53,7 +53,7 @@ pub async fn device_detail(pool: &State<DbPool>, id: i64) -> Template {
     Template::render("device_detail", context! { device: device })
 }
 
-#[get("/actions")]
+#[get("/actions_page")]
 pub async fn actions_page(pool: &State<DbPool>) -> Template {
     let mut conn = match pool.get() {
         Ok(c) => c,
