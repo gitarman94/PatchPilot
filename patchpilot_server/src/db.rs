@@ -20,20 +20,27 @@ pub fn initialize() -> DbPool {
 }
 
 fn init_logger() {
-    // Ensure logs directory exists and permissions are correct
-    let logs_dir = Path::new("logs");
+    use std::fs::{create_dir_all, metadata, set_permissions};
+    use std::path::Path;
+    use std::os::unix::fs::PermissionsExt;
+    use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
+
+    // Absolute logs directory
+    let logs_dir = Path::new("/opt/patchpilot_server/logs");
+
+    // Ensure logs directory exists
     if !logs_dir.exists() {
         create_dir_all(logs_dir).expect("Failed to create logs directory");
     }
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = metadata(logs_dir).unwrap().permissions();
-        perms.set_mode(0o755);
-        let _ = set_permissions(logs_dir, perms);
-    }
+    // Set correct permissions
+    let mut perms = metadata(logs_dir)
+        .expect("Failed to get logs directory metadata")
+        .permissions();
+    perms.set_mode(0o755);
+    set_permissions(logs_dir, perms).expect("Failed to set permissions on logs directory");
 
+    // Initialize logger
     Logger::try_with_str("info")
         .unwrap()
         .log_to_file(FileSpec::default().directory(logs_dir))
@@ -43,7 +50,7 @@ fn init_logger() {
             Cleanup::KeepLogFiles(7),
         )
         .start()
-        .unwrap();
+        .expect("Failed to start logger");
 }
 
 fn normalize_sqlite_path(raw: &str) -> PathBuf {
