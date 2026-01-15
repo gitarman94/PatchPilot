@@ -78,11 +78,11 @@ fn rocket() -> _ {
         .merge(Env::prefixed("ROCKET_"));
 
     rocket::custom(figment)
+        .manage(pool)
+        .manage(app_state)
         .attach(Template::fairing())
         .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)
-        .manage(pool)
-        .manage(app_state)
         .mount("/api", routes::api_routes())
         .mount("/auth", routes::auth_routes())
         .mount("/users-groups", routes::users_groups::routes())
