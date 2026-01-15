@@ -5,7 +5,7 @@ use rocket::serde::json::Json;
 use diesel::prelude::*;
 use chrono::{Utc, Duration};
 use crate::db::{DbPool, load_settings, log_audit as db_log_audit, insert_history, update_action_ttl, fetch_action_ttl, NewHistory};
-use crate::models::{Action, NewAction, NewActionTarget};
+use crate::models::{NewAction, NewActionTarget};
 use crate::schema::actions::dsl as actions_dsl;
 use crate::schema::action_targets::dsl as action_targets;
 use crate::auth::AuthUser;
