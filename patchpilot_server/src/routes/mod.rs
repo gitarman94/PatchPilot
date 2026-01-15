@@ -23,9 +23,9 @@ pub fn api_routes() -> Vec<Route> {
 /// Return page (HTML) routes mounted under /
 pub fn page_routes() -> Vec<Route> {
     routes![
-        pages::dashboard,
+        pages::dashboard_page,
         pages::devices_page,
-        pages::device_detail,
+        pages::device_detail_page,
         pages::actions_page,
         pages::history_page,
         pages::settings_page
