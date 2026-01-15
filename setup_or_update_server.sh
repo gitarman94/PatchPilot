@@ -73,14 +73,20 @@ apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 
 # Rust environment
 export CARGO_HOME="${APP_DIR}/.cargo"
 export RUSTUP_HOME="${APP_DIR}/.rustup"
-export PATH="${CARGO_HOME}/bin:$PATH"
 mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
+export PATH="${CARGO_HOME}/bin:$PATH"
 
 # Install Rust if rustup not found
 if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
     echo "🛠️ Installing Rust..."
+
+    # Temporarily override HOME to satisfy rustup when running as root
+    export HOME="${APP_DIR}"
+
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
+
+    unset HOME
 fi
 
 # Ensure cargo and rustc work via rustup
@@ -97,7 +103,7 @@ cd "$APP_DIR"
 echo "🛠️ Building PatchPilot server in ${BUILD_MODE} mode..."
 "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
 
-# Rocket configuration (UPDATED: use log_level instead of deprecated log key)
+# Rocket configuration
 cat > "${APP_DIR}/Rocket.toml" <<EOF
 [default]
 address = "0.0.0.0"
