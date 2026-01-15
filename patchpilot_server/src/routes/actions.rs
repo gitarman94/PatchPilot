@@ -9,7 +9,7 @@ use crate::db::{
     DbPool, load_settings, log_audit as db_log_audit, insert_history, update_action_ttl,
     fetch_action_ttl, NewHistory,
 };
-use crate::models::{NewAction, NewActionTarget};
+use crate::models::{Action as ActionModel, NewAction, NewActionTarget};
 use crate::schema::actions::dsl as actions_dsl;
 use crate::schema::action_targets::dsl as action_targets;
 use crate::auth::AuthUser;
@@ -178,6 +178,9 @@ pub async fn get_action_ttl(pool: &State<DbPool>, action_id: i64) -> Result<Json
 }
 
 use rocket::Route;
+
 pub fn routes() -> Vec<Route> {
-    routes![submit_action, list_actions, extend_action_ttl, get_action_ttl].into_iter().collect()
+    routes![submit_action, list_actions, extend_action_ttl, get_action_ttl]
+        .into_iter()
+        .collect()
 }
