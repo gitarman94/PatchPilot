@@ -2,7 +2,6 @@ use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 use diesel::sqlite::SqliteConnection;
 use diesel::sql_query;
-use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
 use chrono::{Utc, NaiveDateTime};
 use std::env;
 use std::fs::{OpenOptions, create_dir_all, set_permissions, metadata};
@@ -20,27 +19,26 @@ pub fn initialize() -> DbPool {
 }
 
 fn init_logger() {
-    use std::fs::{create_dir_all, metadata, set_permissions};
-    use std::path::Path;
-    use std::os::unix::fs::PermissionsExt;
     use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
+    use std::path::Path;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
-    // Absolute logs directory
     let logs_dir = Path::new("/opt/patchpilot_server/logs");
 
-    // Ensure logs directory exists
     if !logs_dir.exists() {
         create_dir_all(logs_dir).expect("Failed to create logs directory");
     }
 
-    // Set correct permissions
-    let mut perms = metadata(logs_dir)
-        .expect("Failed to get logs directory metadata")
-        .permissions();
-    perms.set_mode(0o755);
-    set_permissions(logs_dir, perms).expect("Failed to set permissions on logs directory");
+    #[cfg(unix)]
+    {
+        let mut perms = metadata(logs_dir)
+            .expect("Failed to get logs directory metadata")
+            .permissions();
+        perms.set_mode(0o755);
+        set_permissions(logs_dir, perms).expect("Failed to set permissions on logs directory");
+    }
 
-    // Initialize logger
     Logger::try_with_str("info")
         .unwrap()
         .log_to_file(FileSpec::default().directory(logs_dir))
