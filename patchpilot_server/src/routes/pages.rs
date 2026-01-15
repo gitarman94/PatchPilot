@@ -1,3 +1,4 @@
+// File: patchpilot_server/src/routes/pages.rs
 use rocket::{get, State};
 use rocket_dyn_templates::{Template, context};
 use crate::db::DbPool;
