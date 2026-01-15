@@ -83,9 +83,6 @@ fn rocket() -> _ {
         .mount("/auth", routes::auth_routes())
         .mount("/users-groups", routes::users_groups::routes())
         .mount("/roles", routes::roles::routes())
-        .mount("/history", rocket::routes![routes::history::api_history])
-        .mount("/audit", rocket::routes![routes::history::api_audit])
         .mount("/settings", routes::settings::routes())
         .mount("/static", FileServer::from(relative!("static")))
         .mount("/", routes::page_routes())
-}

@@ -2,7 +2,7 @@
 use rocket::{get, State};
 use rocket_dyn_templates::{Template, context};
 use crate::db::DbPool;
-use crate::models::{Device, Action, HistoryEntry, User};
+use crate::models::{Device, Action as ActionModel, HistoryEntry, User};
 
 #[get("/dashboard")]
 pub async fn dashboard(pool: &State<DbPool>) -> Template {
@@ -57,10 +57,10 @@ pub async fn device_detail(pool: &State<DbPool>, id: i64) -> Template {
 pub async fn actions_page(pool: &State<DbPool>) -> Template {
     let mut conn = match pool.get() {
         Ok(c) => c,
-        Err(_) => return Template::render("actions", context! { actions: Vec::<Action>::new() }),
+        Err(_) => return Template::render("actions", context! { actions: Vec::<ActionModel>::new() }),
     };
 
-    let actions = Action::all(&mut conn).unwrap_or_default();
+    let actions = ActionModel::all(&mut conn).unwrap_or_default();
     Template::render("actions", context! { actions: actions })
 }
 

@@ -4,12 +4,15 @@ use rocket::http::Status;
 use rocket::serde::json::Json;
 use diesel::prelude::*;
 use chrono::{Utc, Duration};
-use crate::db::{DbPool, load_settings, log_audit as db_log_audit, insert_history, update_action_ttl, fetch_action_ttl, NewHistory};
-use crate::models::{NewAction, NewActionTarget};
+
+use crate::db::{
+    DbPool, load_settings, log_audit as db_log_audit, insert_history, update_action_ttl,
+    fetch_action_ttl, NewHistory,
+};
+use crate::models::{Action as ActionModel, NewAction, NewActionTarget};
 use crate::schema::actions::dsl as actions_dsl;
 use crate::schema::action_targets::dsl as action_targets;
 use crate::auth::AuthUser;
-use crate::models::Action as ActionModel;
 
 #[derive(serde::Deserialize)]
 pub struct SubmitActionForm {
@@ -23,6 +26,7 @@ pub struct TtlForm {
     pub ttl_seconds: i64,
 }
 
+/// POST /actions/submit
 #[post("/actions/submit", data = "<form>")]
 pub async fn submit_action(
     pool: &State<DbPool>,
@@ -44,6 +48,7 @@ pub async fn submit_action(
             .unwrap_or(settings_row.default_action_ttl_seconds);
 
         let expiry_time = now + Duration::seconds(ttl_to_use);
+
         let new_action = NewAction {
             action_type: form.command.clone(),
             parameters: None,
@@ -85,10 +90,7 @@ pub async fn submit_action(
             &format!("action_submitted:{}", last_id),
             Some(&form.target_device_id.to_string()),
             Some("action submitted"),
-        ).map_err(|e| {
-            log::warn!("Failed to log audit for action {}: {:?}", last_id, e);
-            Status::InternalServerError
-        })?;
+        );
 
         let history_record = NewHistory {
             action_id: last_id,
@@ -98,10 +100,7 @@ pub async fn submit_action(
             details: Some(&form.command),
             created_at: now,
         };
-        insert_history(&mut conn, &history_record).map_err(|e| {
-            log::warn!("Failed to insert history row for action {}: {:?}", last_id, e);
-            Status::InternalServerError
-        })?;
+        let _ = insert_history(&mut conn, &history_record);
 
         Ok(last_id)
     })
@@ -111,6 +110,7 @@ pub async fn submit_action(
     Ok(Json(serde_json::json!({ "action_id": action_id_res, "status": "queued" })))
 }
 
+/// GET /actions
 #[get("/actions")]
 pub async fn list_actions(pool: &State<DbPool>) -> Result<Json<Vec<ActionModel>>, Status> {
     let pool = pool.inner().clone();
@@ -153,10 +153,7 @@ pub async fn extend_action_ttl(
             "extend_action_ttl",
             Some(&action_id.to_string()),
             Some(&format!("new_ttl={}", ttl_val)),
-        ).map_err(|e| {
-            log::warn!("Failed to log audit for TTL update {}: {:?}", action_id, e);
-            Status::InternalServerError
-        })?;
+        );
         Ok(())
     })
     .await
