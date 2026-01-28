@@ -33,34 +33,34 @@ fn rocket() -> _ {
     .start()
     .unwrap();
 
-    // Build Rocket configuration from Rocket.toml and ROCKET_* env vars
+    // Build Rocket configuration
     let figment = Figment::from(rocket::Config::default())
         .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("ROCKET_").global());
 
     rocket::custom(figment)
-        // Create and manage the database connection pool
+        // Manage DB pool
         .manage(initialize())
 
-        // Initialize application state after Rocket ignition
+        // Initialize AppState after Rocket ignition (so logging is active)
         .attach(AdHoc::on_ignite("Init AppState", |rocket| async move {
             let pool = rocket.state::<DbPool>().unwrap().clone();
 
-            // Load persistent server settings from the database
+            // Load server settings from DB
             let settings = {
                 let mut conn = get_conn(&pool);
                 Arc::new(RwLock::new(settings::ServerSettings::load(&mut conn)))
             };
 
-            // Initialize system metrics and runtime state
+            // Initialize system state (returns Arc<SystemState>)
             let system = SystemState::new(pool.clone());
 
             // Construct shared application state
             let app_state = Arc::new(AppState {
                 db_pool: pool.clone(),
-                system,
+                system: system.clone(),
                 pending_devices: Arc::new(RwLock::new(HashMap::new())),
-                settings,
+                settings: settings.clone(),
                 log_audit: Some(Arc::new(move |conn, actor, action, target, details| {
                     if let Err(e) = db::log_audit(conn, actor, action, target, details) {
                         log::error!("Audit logging failed: {:?}", e);
@@ -69,13 +69,21 @@ fn rocket() -> _ {
                 })),
             });
 
+            // Refresh system metrics and log memory (uses SystemState methods)
+            app_state.system.refresh();
+            log::info!(
+                "System memory: total {} MB, available {} MB",
+                app_state.system.total_memory() / 1024 / 1024,
+                app_state.system.available_memory() / 1024 / 1024
+            );
+
             rocket.manage(app_state)
         }))
 
-        // Register template rendering support
+        // Templates
         .attach(Template::fairing())
 
-        // Attach background maintenance fairings
+        // Background fairings
         .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)
 
@@ -96,7 +104,7 @@ fn rocket() -> _ {
             })
         }))
 
-        // Mount API, auth, and UI routes
+        // Routes
         .mount("/api", routes::api_routes())
         .mount("/auth", routes::auth_routes())
         .mount("/users-groups", routes::users_groups::routes())
