@@ -73,8 +73,8 @@ fn rocket() -> _ {
     log::info!("PatchPilot server ready");
 
     // Rocket figment: merge Rocket.toml + env vars
-    let figment = Figment::from(rocket::Config::default())
-        .merge(Toml::file("Rocket.toml").nested())
+    let figment = rocket::Config::figment()
+        .merge(Toml::file("Rocket.toml"))
         .merge(Env::prefixed("ROCKET_"));
 
     rocket::custom(figment)
