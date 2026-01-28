@@ -16,73 +16,93 @@ mod pending_cleanup;
 
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
+use std::{fs, path::Path};
+
 use db::{DbPool, initialize, get_conn};
 use state::{SystemState, AppState};
-use rocket::figment::providers::{Env, Toml, Format};
+use rocket::figment::{Figment, providers::{Env, Toml, Format}};
+
+fn load_env_file<P: AsRef<Path>>(path: P) {
+    let path = path.as_ref();
+    if !path.exists() { return; }
+    if let Ok(contents) = fs::read_to_string(path) {
+        for raw_line in contents.lines() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('#') { continue; }
+            let mut parts = line.splitn(2, '=');
+            if let (Some(key), Some(value)) = (parts.next(), parts.next()) {
+                let mut v = value.trim().to_string();
+                if v.starts_with('"') && v.ends_with('"') && v.len() >= 2 {
+                    v = v[1..v.len()-1].to_string();
+                }
+                std::env::set_var(key.trim(), v);
+            }
+        }
+    }
+}
 
 #[launch]
 fn rocket() -> _ {
-    // Initialize DB + Logger
+    let _ = env_logger::try_init();
+
+    load_env_file("/opt/patchpilot_server/.env");
+
+    if std::env::var("ROCKET_PROFILE").is_err() {
+        std::env::set_var("ROCKET_PROFILE", "dev");
+    }
+    if std::env::var("ROCKET_ADDRESS").is_err() {
+        std::env::set_var("ROCKET_ADDRESS", "0.0.0.0");
+    }
+    if std::env::var("ROCKET_PORT").is_err() {
+        std::env::set_var("ROCKET_PORT", "8080");
+    }
+    if std::env::var("HOME").is_err() {
+        std::env::set_var("HOME", "/home/patchpilot");
+    }
+
     let pool: DbPool = initialize();
 
-    // Load server settings
     let settings = {
         let mut conn = get_conn(&pool);
-        let s = settings::ServerSettings::load(&mut conn);
-        Arc::new(RwLock::new(s))
+        Arc::new(RwLock::new(settings::ServerSettings::load(&mut conn)))
     };
 
-    // Initialize system state
     let system_state = SystemState::new(pool.clone());
 
-    // Initialize app state
     let app_state = Arc::new(AppState {
         db_pool: pool.clone(),
         system: system_state.clone(),
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
         settings: settings.clone(),
         log_audit: Some(Arc::new(move |conn, actor, action, target, details| {
-            if let Err(e) = db::log_audit(conn, actor, action, target, details) {
-                log::error!("Audit logging failed: {:?}", e);
-            }
+            let _ = db::log_audit(conn, actor, action, target, details);
             Ok(())
         })),
     });
 
-    // Log server start audit (best-effort)
     {
         let mut conn = get_conn(&pool);
-        if let Err(e) = app_state.log_audit(
+        let _ = app_state.log_audit(
             &mut conn,
             "system",
             "server_started",
             None,
             Some("PatchPilot server started"),
-        ) {
-            log::error!("Failed to log server start audit: {:?}", e);
-        }
+        );
     }
 
-    // Refresh system metrics
     app_state.system.refresh();
-    log::info!(
-        "System memory: total {} MB, available {} MB",
-        app_state.system.total_memory() / 1024 / 1024,
-        app_state.system.available_memory() / 1024 / 1024
-    );
-    log::info!("PatchPilot server ready");
 
-    // Rocket figment: merge Rocket.toml + env vars
-    let figment = rocket::Config::figment()
-        .merge(Toml::file("Rocket.toml"))
+    let figment = Figment::from(rocket::Config::default())
+        .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("ROCKET_"));
 
     rocket::custom(figment)
-        .manage(pool)
-        .manage(app_state)
         .attach(Template::fairing())
         .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)
+        .manage(pool)
+        .manage(app_state)
         .mount("/api", routes::api_routes())
         .mount("/auth", routes::auth_routes())
         .mount("/users-groups", routes::users_groups::routes())
