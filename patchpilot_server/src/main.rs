@@ -18,7 +18,7 @@ use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use db::{DbPool, initialize, get_conn};
 use state::{SystemState, AppState};
-use rocket::figment::providers::{Env, Toml};
+use rocket::figment::providers::{Env, Toml, Format};
 
 #[launch]
 fn rocket() -> _ {
