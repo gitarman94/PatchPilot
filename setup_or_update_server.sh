@@ -112,8 +112,13 @@ ROCKET_INSECURE_ALLOW_DEV=true
 HOME=/home/patchpilot
 EOF
 
-ROCKET_SECRET_KEY=$(openssl rand -base64 48 | head -c 64)
-echo "ROCKET_SECRET_KEY=${ROCKET_SECRET_KEY}" >> "$APP_ENV_FILE"
+# Ensure valid Rocket secret key (256-bit base64)
+if ! grep -q "^ROCKET_SECRET_KEY=" "$APP_ENV_FILE" || \
+   ! grep -E "^ROCKET_SECRET_KEY=([A-Za-z0-9+/]{43}=|[A-Fa-f0-9]{64})$" "$APP_ENV_FILE"; then
+    echo "Generating valid Rocket secret key"
+    sed -i '/^ROCKET_SECRET_KEY=/d' "$APP_ENV_FILE"
+    echo "ROCKET_SECRET_KEY=$(openssl rand -base64 32)" >> "$APP_ENV_FILE"
+fi
 chmod 600 "$APP_ENV_FILE"
 
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
