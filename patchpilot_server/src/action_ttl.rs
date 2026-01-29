@@ -1,30 +1,11 @@
-use std::sync::Arc;
-use std::time::Duration;
-
-use rocket::{Build, Rocket};
-use rocket::fairing::{Fairing, Info, Kind};
-use rocket::tokio;
-
-use chrono::Utc;
-use diesel::prelude::*;
-
-use crate::state::AppState;
-use crate::schema::{actions, action_targets};
-
-pub struct ActionTtlFairing;
-
 #[rocket::async_trait]
 impl Fairing for ActionTtlFairing {
     fn info(&self) -> Info {
-        Info {
-            name: "Action TTL Cleanup",
-            kind: Kind::Ignite,
-        }
+        Info { name: "Action TTL Cleanup", kind: Kind::Ignite }
     }
 
     async fn on_ignite(&self, rocket: Rocket<Build>) -> rocket::fairing::Result {
-        let state = rocket
-            .state::<Arc<AppState>>()
+        let state = rocket.state::<Arc<AppState>>()
             .expect("AppState not managed")
             .clone();
 
@@ -32,36 +13,27 @@ impl Fairing for ActionTtlFairing {
             loop {
                 let (interval_secs, polling_enabled) = {
                     let settings = state.settings.read().unwrap();
-                    (
-                        settings.auto_refresh_seconds.max(30),
-                        settings.action_polling_enabled,
-                    )
+                    (settings.auto_refresh_seconds.max(30), settings.action_polling_enabled)
                 };
 
                 tokio::time::sleep(Duration::from_secs(interval_secs as u64)).await;
 
-                if !polling_enabled {
-                    continue;
-                }
+                if !polling_enabled { continue; }
 
                 if let Ok(mut conn) = state.db_pool.get() {
                     let now = Utc::now().naive_utc();
 
-                    let expired_action_ids: Vec<i64> = actions::table
+                    let expired_action_ids: Vec<i32> = actions::table
                         .select(actions::id)
                         .filter(actions::expires_at.lt(now))
                         .filter(actions::canceled.eq(false))
-                        .load::<i64>(&mut conn)
+                        .load::<i32>(&mut conn)
                         .unwrap_or_default();
 
                     for action_id in expired_action_ids {
-                        if diesel::update(actions::table.filter(actions::id.eq(action_id)))
+                        let _ = diesel::update(actions::table.filter(actions::id.eq(action_id)))
                             .set(actions::canceled.eq(true))
-                            .execute(&mut conn)
-                            .is_err()
-                        {
-                            continue;
-                        }
+                            .execute(&mut conn);
 
                         let _ = diesel::update(
                             action_targets::table

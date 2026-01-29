@@ -2,7 +2,7 @@
 extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
-use rocket::figment::{Figment, providers::{Env, Toml, Format}};
+use rocket::figment::{Figment, providers::{Env, Toml}};
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
@@ -24,14 +24,9 @@ use state::{SystemState, AppState};
 
 #[launch]
 fn rocket() -> _ {
-    // logging ONCE
     flexi_logger::Logger::try_with_env_or_str(
         std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into())
-    )
-    .unwrap()
-    .log_to_stdout()
-    .start()
-    .unwrap();
+    ).unwrap().log_to_stdout().start().unwrap();
 
     let figment = Figment::from(rocket::Config::default())
         .merge(Toml::file("Rocket.toml").nested())
@@ -46,7 +41,7 @@ fn rocket() -> _ {
 
     let system = SystemState::new(db_pool.clone());
 
-    // AppState MUST be wrapped in Arc
+    // Wrap AppState in Arc
     let app_state = Arc::new(AppState {
         db_pool: db_pool.clone(),
         system: system.clone(),
@@ -69,7 +64,7 @@ fn rocket() -> _ {
 
     rocket::custom(figment)
         .manage(db_pool)
-        .manage(app_state.clone()) // <-- critical
+        .manage(app_state.clone()) // now correctly managed
 
         .attach(Template::fairing())
         .attach(action_ttl::ActionTtlFairing)
