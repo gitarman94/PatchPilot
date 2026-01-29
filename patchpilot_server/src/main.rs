@@ -46,8 +46,8 @@ fn rocket() -> _ {
 
     let system = SystemState::new(db_pool.clone());
 
-    // IMPORTANT: AppState is NOT wrapped in Arc here
-    let app_state = AppState {
+    // AppState MUST be wrapped in Arc
+    let app_state = Arc::new(AppState {
         db_pool: db_pool.clone(),
         system: system.clone(),
         pending_devices: Arc::new(RwLock::new(HashMap::new())),
@@ -58,7 +58,7 @@ fn rocket() -> _ {
             }
             Ok(())
         })),
-    };
+    });
 
     app_state.system.refresh();
     log::info!(
@@ -69,14 +69,14 @@ fn rocket() -> _ {
 
     rocket::custom(figment)
         .manage(db_pool)
-        .manage(app_state) // <-- FIXED
+        .manage(app_state.clone()) // <-- critical
 
         .attach(Template::fairing())
         .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)
 
         .attach(AdHoc::on_liftoff("Startup Audit", |rocket| {
-            let app = rocket.state::<AppState>();
+            let app = rocket.state::<Arc<AppState>>().cloned();
             Box::pin(async move {
                 if let Some(app) = app {
                     let mut conn = get_conn(&app.db_pool);
