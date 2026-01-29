@@ -2,7 +2,7 @@
 extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
-use rocket::figment::{Figment, providers::{Env, Toml}};
+use rocket::figment::{Figment, providers::{Env, Toml, Format}};
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
@@ -24,7 +24,7 @@ use state::{SystemState, AppState};
 
 #[launch]
 fn rocket() -> _ {
-    // Initialize logging
+    // Initialize logging (single global initialization)
     flexi_logger::Logger::try_with_env_or_str(
         std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into())
     )
@@ -33,12 +33,12 @@ fn rocket() -> _ {
     .start()
     .unwrap();
 
-    // Rocket configuration
+    // Rocket Figment config (Toml + ROCKET_* env vars)
     let figment = Figment::from(rocket::Config::default())
-        .merge(Toml::from_path("Rocket.toml").nested())
+        .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("ROCKET_").global());
 
-    // Initialize DB pool
+    // Initialize DB pool (synchronous, before Rocket build so state is available)
     let db_pool = initialize();
 
     // Load server settings from DB
@@ -64,7 +64,7 @@ fn rocket() -> _ {
         })),
     });
 
-    // Refresh system metrics
+    // Refresh system metrics and log
     app_state.system.refresh();
     log::info!(
         "System memory: total {} MB, available {} MB",
@@ -74,16 +74,12 @@ fn rocket() -> _ {
 
     rocket::custom(figment)
         .manage(db_pool)
-        .manage(app_state.clone())   // app_state managed globally now
+        .manage(app_state.clone())
 
-        // Templates
         .attach(Template::fairing())
-
-        // Background fairings
         .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)
 
-        // Startup audit
         .attach(AdHoc::on_liftoff("Startup Audit", |rocket| {
             let app = rocket.state::<Arc<AppState>>().cloned();
             Box::pin(async move {
@@ -100,7 +96,6 @@ fn rocket() -> _ {
             })
         }))
 
-        // Routes
         .mount("/api", routes::api_routes())
         .mount("/auth", routes::auth_routes())
         .mount("/users-groups", routes::users_groups::routes())
