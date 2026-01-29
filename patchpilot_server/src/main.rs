@@ -2,7 +2,7 @@
 extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
-use rocket::figment::{Figment, providers::{Env, Toml, Format}};
+use rocket::figment::{Figment, providers::{Env, Toml}};
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
@@ -19,10 +19,9 @@ mod routes;
 mod action_ttl;
 mod pending_cleanup;
 
-use db::{DbPool, initialize, get_conn};
+use db::{initialize, get_conn};
 use state::{SystemState, AppState};
 
-#[launch]
 #[launch]
 fn rocket() -> _ {
     // Initialize logging
@@ -75,7 +74,7 @@ fn rocket() -> _ {
 
     rocket::custom(figment)
         .manage(db_pool)
-        .manage(app_state.clone())   // <-- app_state managed globally now
+        .manage(app_state.clone())   // app_state managed globally now
 
         // Templates
         .attach(Template::fairing())
