@@ -14,41 +14,26 @@ pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type DbConn = PooledConnection<ConnectionManager<SqliteConnection>>;
 
 pub fn initialize() -> DbPool {
-    init_logger();
+    init_logs_dir();
     init_pool()
 }
 
-fn init_logger() {
-    use flexi_logger::{Logger, FileSpec, Age, Cleanup, Criterion, Naming};
+fn init_logs_dir() {
     use std::path::Path;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-
     let logs_dir = Path::new("/opt/patchpilot_server/logs");
 
-    if !logs_dir.exists() {
-        create_dir_all(logs_dir).expect("Failed to create logs directory");
+    if let Err(e) = create_dir_all(&logs_dir) {
+        eprintln!("init_logs_dir: failed to create logs dir {}: {}", logs_dir.display(), e);
     }
 
     #[cfg(unix)]
-    {
-        let mut perms = metadata(logs_dir)
-            .expect("Failed to get logs directory metadata")
-            .permissions();
+    if let Ok(meta) = metadata(&logs_dir) {
+        let mut perms = meta.permissions();
         perms.set_mode(0o755);
-        set_permissions(logs_dir, perms).expect("Failed to set permissions on logs directory");
+        let _ = set_permissions(&logs_dir, perms);
     }
-
-    Logger::try_with_str("info")
-        .unwrap()
-        .log_to_file(FileSpec::default().directory(logs_dir))
-        .rotate(
-            Criterion::Age(Age::Day),
-            Naming::Numbers,
-            Cleanup::KeepLogFiles(7),
-        )
-        .start()
-        .expect("Failed to start logger");
 }
 
 fn normalize_sqlite_path(raw: &str) -> PathBuf {
@@ -62,7 +47,6 @@ fn ensure_database_file(path: &Path) {
         if !parent.exists() {
             create_dir_all(parent).expect("Failed to create DB parent directories");
         }
-
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -71,7 +55,6 @@ fn ensure_database_file(path: &Path) {
             let _ = set_permissions(parent, perms);
         }
     }
-
     if !path.exists() {
         OpenOptions::new()
             .create(true)
@@ -79,7 +62,6 @@ fn ensure_database_file(path: &Path) {
             .open(path)
             .expect("Failed to create database file");
     }
-
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
