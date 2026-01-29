@@ -23,6 +23,7 @@ use db::{DbPool, initialize, get_conn};
 use state::{SystemState, AppState};
 
 #[launch]
+#[launch]
 fn rocket() -> _ {
     // Initialize logging
     flexi_logger::Logger::try_with_env_or_str(
@@ -33,52 +34,48 @@ fn rocket() -> _ {
     .start()
     .unwrap();
 
-    // Build Rocket configuration
+    // Rocket configuration
     let figment = Figment::from(rocket::Config::default())
         .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("ROCKET_").global());
 
+    // Initialize DB pool
+    let db_pool = initialize();
+
+    // Load server settings from DB
+    let settings = {
+        let mut conn = get_conn(&db_pool);
+        Arc::new(RwLock::new(settings::ServerSettings::load(&mut conn)))
+    };
+
+    // Initialize system state
+    let system = SystemState::new(db_pool.clone());
+
+    // Construct shared application state
+    let app_state = Arc::new(AppState {
+        db_pool: db_pool.clone(),
+        system: system.clone(),
+        pending_devices: Arc::new(RwLock::new(HashMap::new())),
+        settings: settings.clone(),
+        log_audit: Some(Arc::new(move |conn, actor, action, target, details| {
+            if let Err(e) = db::log_audit(conn, actor, action, target, details) {
+                log::error!("Audit logging failed: {:?}", e);
+            }
+            Ok(())
+        })),
+    });
+
+    // Refresh system metrics
+    app_state.system.refresh();
+    log::info!(
+        "System memory: total {} MB, available {} MB",
+        app_state.system.total_memory() / 1024 / 1024,
+        app_state.system.available_memory() / 1024 / 1024
+    );
+
     rocket::custom(figment)
-        // Manage DB pool
-        .manage(initialize())
-
-        // Initialize AppState after Rocket ignition (so logging is active)
-        .attach(AdHoc::on_ignite("Init AppState", |rocket| async move {
-            let pool = rocket.state::<DbPool>().unwrap().clone();
-
-            // Load server settings from DB
-            let settings = {
-                let mut conn = get_conn(&pool);
-                Arc::new(RwLock::new(settings::ServerSettings::load(&mut conn)))
-            };
-
-            // Initialize system state (returns Arc<SystemState>)
-            let system = SystemState::new(pool.clone());
-
-            // Construct shared application state
-            let app_state = Arc::new(AppState {
-                db_pool: pool.clone(),
-                system: system.clone(),
-                pending_devices: Arc::new(RwLock::new(HashMap::new())),
-                settings: settings.clone(),
-                log_audit: Some(Arc::new(move |conn, actor, action, target, details| {
-                    if let Err(e) = db::log_audit(conn, actor, action, target, details) {
-                        log::error!("Audit logging failed: {:?}", e);
-                    }
-                    Ok(())
-                })),
-            });
-
-            // Refresh system metrics and log memory (uses SystemState methods)
-            app_state.system.refresh();
-            log::info!(
-                "System memory: total {} MB, available {} MB",
-                app_state.system.total_memory() / 1024 / 1024,
-                app_state.system.available_memory() / 1024 / 1024
-            );
-
-            rocket.manage(app_state)
-        }))
+        .manage(db_pool)
+        .manage(app_state.clone())   // <-- app_state managed globally now
 
         // Templates
         .attach(Template::fairing())
@@ -87,7 +84,7 @@ fn rocket() -> _ {
         .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)
 
-        // Record server startup after liftoff
+        // Startup audit
         .attach(AdHoc::on_liftoff("Startup Audit", |rocket| {
             let app = rocket.state::<Arc<AppState>>().cloned();
             Box::pin(async move {
