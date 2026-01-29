@@ -35,7 +35,7 @@ fn rocket() -> _ {
 
     // Rocket configuration
     let figment = Figment::from(rocket::Config::default())
-        .merge(Toml::file("Rocket.toml").nested())
+        .merge(Toml::from_path("Rocket.toml").nested())
         .merge(Env::prefixed("ROCKET_").global());
 
     // Initialize DB pool
