@@ -80,7 +80,7 @@ fn rocket() -> _ {
             Box::pin(async move {
                 if let Some(app) = app {
                     let mut conn = get_conn(&app.db_pool);
-                    let _ = (app.log_audit.as_ref().unwrap())(
+                    let _ = app.log_audit(
                         &mut conn,
                         "system",
                         "server_started",
