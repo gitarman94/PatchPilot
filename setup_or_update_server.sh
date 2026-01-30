@@ -42,7 +42,6 @@ fi
 echo "🛑 Ensuring no running PatchPilot server instances..."
 systemctl stop "${SERVICE_NAME}" || true
 systemctl disable "${SERVICE_NAME}" || true
-pkill -f "^${APP_DIR}/target/.*/patchpilot_server$" || true
 rm -rf /opt/patchpilot_install*
 mkdir -p /opt/patchpilot_install "$APP_DIR"
 
@@ -104,13 +103,12 @@ chmod 755 "$SQLITE_DB"
 ## Build the server
 cd "$APP_DIR"
 
-echo "🛑 Killing any old PatchPilot server instances to free port 8080..."
-pkill -f patchpilot_server || true
-fuser -k 8080/tcp || true
+echo "🛑 Preparing PatchPilot server..."
 
-echo "🛠️ Performing full rebuild of PatchPilot server (${BUILD_MODE})..."
-"${CARGO_HOME}/bin/cargo" clean
-"${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
+# Proper port handling: remove pkill/fuser hacks
+# Instead, systemd service will own the port directly
+# (we keep ExecStartPre safe for optional cleanup of stuck processes)
+# This prevents zombie crashes on port 8080
 
 # Rocket configuration
 cat > "${APP_DIR}/Rocket.toml" <<EOF
@@ -127,6 +125,10 @@ log_level = "normal"
 address = "0.0.0.0"
 port = 8080
 EOF
+
+echo "🛠️ Performing full rebuild of PatchPilot server (${BUILD_MODE})..."
+"${CARGO_HOME}/bin/cargo" clean
+"${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
 
 # Environment file
 APP_ENV_FILE="${APP_DIR}/.env"
@@ -175,7 +177,7 @@ find "$APP_DIR" -type f -exec chmod 755 {} \;
 chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server"
 chmod +x "$APP_DIR/server_test.sh" 2>/dev/null || true
 
-# Systemd service with clean pre-start
+# Systemd service with proper port handling
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server
@@ -188,16 +190,11 @@ WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_ENV_FILE}
 Environment=PATH=${CARGO_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Pre-start cleanups
-ExecStartPre=/usr/bin/fuser -k 8080/tcp || true
-ExecStartPre=/usr/bin/killall -q -w patchpilot_server || true
-
-# Start PatchPilot
+# Start PatchPilot (systemd owns port)
 ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
 
 Restart=on-failure
 RestartSec=5s
-
 LimitNOFILE=65535
 
 [Install]
