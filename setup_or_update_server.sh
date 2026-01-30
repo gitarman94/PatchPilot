@@ -38,14 +38,13 @@ else
     echo "❌ Cannot determine OS."; exit 1
 fi
 
-if [[ "$FORCE_REINSTALL" = true ]]; then
-    echo "🧹 Cleaning up old installation..."
-    systemctl stop "${SERVICE_NAME}" || true
-    systemctl disable "${SERVICE_NAME}" || true
-    pkill -f "^${APP_DIR}/target/${BUILD_MODE}/patchpilot_server$" || true
-    rm -rf "${APP_DIR}" /opt/patchpilot_install*
-    mkdir -p /opt/patchpilot_install "$APP_DIR"
-fi
+# Stop and remove any running instances before reinstall
+echo "🛑 Ensuring no running PatchPilot server instances..."
+systemctl stop "${SERVICE_NAME}" || true
+systemctl disable "${SERVICE_NAME}" || true
+pkill -f "^${APP_DIR}/target/.*/patchpilot_server$" || true
+rm -rf /opt/patchpilot_install*
+mkdir -p /opt/patchpilot_install "$APP_DIR"
 
 # Download latest source
 cd /opt/patchpilot_install
@@ -61,12 +60,12 @@ mv /opt/patchpilot_install/PatchPilot-main/static "$APP_DIR"
 chmod +x "$APP_DIR/server_test.sh"
 rm -rf /opt/patchpilot_install
 
-# Install system dependencies
+# System dependencies
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev openssl
 
-# Self-contained Rust installation
+# Rust self-contained installation
 export CARGO_HOME="${APP_DIR}/.cargo"
 export RUSTUP_HOME="${APP_DIR}/.rustup"
 export PATH="${CARGO_HOME}/bin:$PATH"
@@ -79,11 +78,13 @@ if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
       | HOME=/root CARGO_HOME="${CARGO_HOME}" RUSTUP_HOME="${RUSTUP_HOME}" sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
-# Install and set latest stable Rust explicitly
+# Explicitly install and set latest stable Rust
 export PATH="${CARGO_HOME}/bin:$PATH"
 /opt/patchpilot_server/.cargo/bin/rustup install stable
 /opt/patchpilot_server/.cargo/bin/rustup default stable
-echo "🟢 Rust version:"
+
+# Verify Rust installation
+echo " Rust version:" 
 /opt/patchpilot_server/.cargo/bin/rustc --version
 /opt/patchpilot_server/.cargo/bin/cargo --version
 
@@ -104,7 +105,7 @@ address = "0.0.0.0"
 port = 8080
 log_level = "normal"
 
-[production]
+[release]
 log_level = "critical"
 
 [dev]
@@ -141,11 +142,10 @@ if [[ ! -f "$TOKEN_FILE" ]]; then
     chmod 600 "$TOKEN_FILE"
 fi
 
-# Create patchpilot user
+# Ensure patchpilot user exists
 if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -m -d /home/patchpilot -s /usr/sbin/nologin patchpilot
 fi
-
 mkdir -p /home/patchpilot/.cargo /home/patchpilot/.rustup
 chown -R patchpilot:patchpilot /home/patchpilot
 chmod 700 /home/patchpilot
