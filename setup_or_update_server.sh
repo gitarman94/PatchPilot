@@ -101,7 +101,10 @@ chmod 755 "$SQLITE_DB"
 # Build the server
 cd "$APP_DIR"
 echo "🛠️ Building PatchPilot server (${BUILD_MODE})..."
-"${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
+# Ensure self-contained Rust is first in PATH
+export PATH="${CARGO_HOME}/bin:$PATH"
+/opt/patchpilot_server/.cargo/bin/cargo clean
+/opt/patchpilot_server/.cargo/bin/cargo build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
 
 # Rocket configuration
 cat > "${APP_DIR}/Rocket.toml" <<EOF
