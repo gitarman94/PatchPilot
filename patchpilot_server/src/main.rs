@@ -64,7 +64,7 @@ fn rocket() -> _ {
     // Initialize DB pool
     let db_pool = initialize();
 
-    // Load persistent settings into in-memory lock
+    // Load persistent settings
     let settings = {
         let mut conn = get_conn(&db_pool);
         Arc::new(RwLock::new(settings::ServerSettings::load(&mut conn)))
@@ -73,7 +73,7 @@ fn rocket() -> _ {
     // System state
     let system = SystemState::new(db_pool.clone());
 
-    // Shared application state
+    // Shared app state
     let app_state = Arc::new(AppState {
         db_pool: db_pool.clone(),
         system: system.clone(),
@@ -87,7 +87,6 @@ fn rocket() -> _ {
         })),
     });
 
-    // Refresh metrics once at startup
     app_state.system.refresh();
     log::info!(
         "System memory: total {} MB, available {} MB",
@@ -95,23 +94,10 @@ fn rocket() -> _ {
         app_state.system.available_memory() / 1024 / 1024
     );
 
-    // Systemd socket activation
-    let rocket_builder = if let Some(listener) = get_systemd_listener() {
-        log::info!("Launching with systemd socket activation");
-        rocket::custom(figment)
-            .configure(rocket::Config {
-                port: 0, // ignored, socket provided
-                ..rocket::Config::figment().extract::<rocket::Config>().unwrap()
-            })
-            .listen(listener)
-    } else {
-        log::info!("Launching normally on Rocket.toml port");
-        rocket::custom(figment)
-    };
-
-    rocket_builder
+    // Rocket instance (no manual listener)
+    let rocket_instance = rocket::custom(figment)
         .manage(db_pool)
-        .manage(app_state.clone()) // manage Arc<AppState>
+        .manage(app_state.clone())
         .attach(Template::fairing())
         .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)
@@ -136,5 +122,7 @@ fn rocket() -> _ {
         .mount("/roles", routes::roles::routes())
         .mount("/settings", routes::settings::routes())
         .mount("/static", FileServer::from(relative!("static")))
-        .mount("/", routes::page_routes())
+        .mount("/", routes::page_routes());
+
+    rocket_instance
 }

@@ -42,6 +42,19 @@ fi
 
 # Gracefully stop service and socket if they exist
 echo "🛑 Ensuring no running PatchPilot server instances..."
+<<<<<<< HEAD
+for unit in "$SERVICE_NAME" "$SOCKET_NAME"; do
+    if systemctl list-unit-files | grep -q "^$unit"; then
+        echo "Stopping $unit..."
+        systemctl stop "$unit" || echo "⚠️ Failed to stop $unit (ignored)"
+        systemctl disable "$unit" || echo "⚠️ Failed to disable $unit (ignored)"
+    else
+        echo "ℹ️ $unit not found, skipping."
+    fi
+done
+
+# Kill any leftover PatchPilot processes
+=======
 for unit in "$SERVICE_NAME" "$SOCKET_NAME"; do
     if systemctl list-units --all | grep -q "^$unit"; then
         echo "Stopping $unit..."
@@ -53,9 +66,14 @@ for unit in "$SERVICE_NAME" "$SOCKET_NAME"; do
 done
 
 # Kill any leftover processes and free port 8080
+>>>>>>> 17745ad5e8b8c63a6883dd454e6b02dfdad148c5
 pkill -f "^${APP_DIR}/target/.*/patchpilot_server$" || true
+<<<<<<< HEAD
+
+=======
 fuser -k 8080/tcp || true
 
+>>>>>>> 17745ad5e8b8c63a6883dd454e6b02dfdad148c5
 rm -rf /opt/patchpilot_install*
 mkdir -p /opt/patchpilot_install "$APP_DIR"
 
