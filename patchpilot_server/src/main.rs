@@ -2,7 +2,7 @@
 extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
-use rocket::figment::{Figment, providers::{Env, Toml}};
+use rocket::figment::{Figment, providers::{Env, Toml, Format}};
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
@@ -36,8 +36,9 @@ fn probe_port_or_exit() {
         Ok(listener) => {
             // port free, drop listener
             drop(listener);
-            env::set_var("ROCKET_PORT", desired_port.to_string());
-        }
+            unsafe {
+                std::env::set_var("ROCKET_PORT", desired_port.to_string());
+            }        }
         Err(e) => {
             eprintln!("ERROR: Port {} unavailable: {}", desired_port, e);
             eprintln!("Please ensure no other process is using this port.");
