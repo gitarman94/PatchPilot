@@ -1,33 +1,82 @@
-{{#*inline "page"}}
-<div class="container mt-4">
-    <h3>Roles</h3>
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Role Name</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{#each this}}
-            <tr>
-                <td>{{this.1}}</td>
-                <td>
-                    <form method="POST" action="/roles/{{this.0}}" onsubmit="return confirm('Delete this role?');">
-                        <input type="hidden" name="_method" value="DELETE">
-                        <button class="btn btn-sm btn-danger">Delete Role</button>
-                    </form>
-                </td>
-            </tr>
-            {{/each}}
-        </tbody>
-    </table>
+{{!-- templates/roles.hbs --}}
+{{#> layout title="Roles"}}
 
-    <h5 class="mt-3">Add Role</h5>
-    <form method="POST" action="/roles/add">
-        <input type="text" name="name" placeholder="Role Name" required>
-        <button class="btn btn-primary">Add Role</button>
+<main class="container">
+  <h1>Roles</h1>
+
+  <section class="roles-list">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Role Name</th>
+          <th>Description</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each roles}}
+          <tr>
+            <td>{{this.id}}</td>
+            <td>{{this.name}}</td>
+            <td>{{this.description}}</td>
+            <td>
+              <button class="btn-delete-role" data-role-id="{{this.id}}">Delete</button>
+            </td>
+          </tr>
+        {{/each}}
+
+        {{#unless roles}}
+          <tr><td colspan="4">No roles defined.</td></tr>
+        {{/unless}}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="roles-add">
+    <h2>Add Role</h2>
+    <form method="post" action="/roles/add" class="role-add-form">
+      <div class="form-row">
+        <label for="role-name">Name</label>
+        <input id="role-name" name="name" required>
+      </div>
+
+      <div class="form-row">
+        <label for="role-desc">Description</label>
+        <input id="role-desc" name="description">
+      </div>
+
+      <div class="form-actions">
+        <button type="submit">Add Role</button>
+      </div>
     </form>
-</div>
-{{/inline}}
-{{> layout }}
+  </section>
+</main>
+
+<script>
+/* minimal client-side delete implementation — uses your DELETE route: DELETE /roles/<id>
+   If your server expects a different path/method, change accordingly. */
+document.addEventListener('click', function (e) {
+  const btn = e.target.closest('.btn-delete-role');
+  if (!btn) return;
+
+  const id = btn.getAttribute('data-role-id');
+  if (!id) return;
+
+  if (!confirm('Delete role ID ' + id + '?')) return;
+
+  fetch('/roles/' + encodeURIComponent(id), {
+    method: 'DELETE',
+    headers: { 'Accept': 'application/json' }
+  }).then(r => {
+    if (r.ok) {
+      // simple page reload to refresh the list
+      location.reload();
+    } else {
+      r.text().then(t => alert('Delete failed: ' + t));
+    }
+  }).catch(err => alert('Network error: ' + err));
+});
+</script>
+
+{{/layout}}

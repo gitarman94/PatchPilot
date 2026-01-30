@@ -1,47 +1,35 @@
+{{> navbar }}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>History — PatchPilot</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8">
+  <title>History - PatchPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <div id="navbar-container"></div>
-  <div class="container">
-    <h2>History</h2>
-    <div class="table-responsive">
-      <table id="historyTable" class="table table-hover">
-        <thead>
+  <main class="container">
+    <h1>History</h1>
+
+    <table>
+      <thead>
+        <tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th></tr>
+      </thead>
+      <tbody>
+        {{#each history}}
           <tr>
-            <th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th>
+            <td>{{this.timestamp}}</td>
+            <td>{{this.actor}}</td>
+            <td>{{this.action}}</td>
+            <td>{{this.target}}</td>
+            <td>{{this.details}}</td>
           </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
-  <div id="alerts"></div>
-  <script src="/static/app.js"></script>
-  <script>
-    document.getElementById('navbar-container').innerHTML = `<object type="text/html" data="/navbar.html"></object>`;
-    async function loadHistory() {
-      try {
-        const h = await fetchJSON('/api/history');
-        const tbody = document.querySelector('#historyTable tbody');
-        tbody.innerHTML = '';
-        h.forEach(row=>{
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${new Date(row.created_at).toLocaleString()}</td>
-                          <td>${row.actor}</td>
-                          <td>${row.action_type}</td>
-                          <td>${row.target||'—'}</td>
-                          <td>${row.details||'—'}</td>`;
-          tbody.appendChild(tr);
-        });
-      } catch(e) { showAlert('Failed to load history','danger'); console.error(e);}
-    }
-    loadHistory();
-  </script>
+        {{/each}}
+        {{#unless history}}
+          <tr><td colspan="5">No history records.</td></tr>
+        {{/unless}}
+      </tbody>
+    </table>
+  </main>
 </body>
 </html>

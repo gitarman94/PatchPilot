@@ -1,17 +1,31 @@
-{{#*inline "page"}}
-<div class="container mt-5">
-    <h2>Login</h2>
-    <form action="/login" method="POST">
-      <div class="mb-3">
-        <label>Username</label>
-        <input type="text" name="username" class="form-control" required>
-      </div>
-      <div class="mb-3">
-        <label>Password</label>
-        <input type="password" name="password" class="form-control" required>
-      </div>
-      <button class="btn btn-primary">Login</button>
-    </form>
-</div>
-{{/inline}}
-{{> layout }}
+{{!-- templates/login.hbs --}}
+{{#> layout title="Login"}}
+
+<main class="container auth-page">
+  <h1>Login</h1>
+
+  {{#if error}}
+    <div class="alert alert-error">{{error}}</div>
+  {{/if}}
+
+  <form method="post" action="/auth/login" class="auth-form">
+    <div class="form-row">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" required autofocus value="{{username}}">
+    </div>
+
+    <div class="form-row">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" required>
+    </div>
+
+    {{!-- optional redirect param passed through --}}
+    <input type="hidden" name="redirect" value="{{redirect}}">
+
+    <div class="form-actions">
+      <button type="submit">Sign in</button>
+    </div>
+  </form>
+</main>
+
+{{/layout}}

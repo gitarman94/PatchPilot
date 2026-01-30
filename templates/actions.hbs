@@ -1,45 +1,38 @@
+{{> navbar }}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Actions — PatchPilot</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8">
+  <title>Actions - PatchPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <div id="navbar-container"></div>
-  <div class="container">
-    <h2>Actions</h2>
-    <div class="table-responsive">
-      <table id="actionsTable" class="table table-hover">
-        <thead>
+  <main class="container">
+    <h1>Actions</h1>
+
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Type</th><th>Device</th><th>Actor</th><th>Created</th><th>TTL</th><th>Remaining</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {{#each actions}}
           <tr>
-            <th>ID</th><th>Type</th><th>Device</th><th>Actor</th><th>Created</th><th>TTL Remaining</th><th>Status</th>
+            <td>{{this.id}}</td>
+            <td>{{this.action_type}}</td>
+            <td>{{this.device_hostname}}</td>
+            <td>{{this.actor}}</td>
+            <td>{{this.created_at}}</td>
+            <td>{{this.ttl}}</td>
+            <td>{{this.remaining}}</td>
+            <td>{{this.status}}</td>
           </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
-  <div id="alerts"></div>
-  <script src="/static/app.js"></script>
-  <script>
-    document.getElementById('navbar-container').innerHTML = `<object type="text/html" data="/navbar.html"></object>`;
-    async function loadActions() {
-      try {
-        const acts = await fetchJSON('/api/actions');
-        const tbody = document.querySelector('#actionsTable tbody');
-        tbody.innerHTML = '';
-        acts.forEach(a=>{
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${a.id}</td><td>${a.action_type}</td><td>${a.device_name||'—'}</td>
-                          <td>${a.actor||'—'}</td><td>${new Date(a.created_at).toLocaleString()}</td>
-                          <td>${a.ttl_remaining || '—'}</td><td>${a.status || '—'}</td>`;
-          tbody.appendChild(tr);
-        });
-      } catch(e){ showAlert('Failed to load actions','danger'); console.error(e);}
-    }
-    loadActions();
-  </script>
+        {{/each}}
+        {{#unless actions}}
+          <tr><td colspan="8">No actions.</td></tr>
+        {{/unless}}
+      </tbody>
+    </table>
+  </main>
 </body>
 </html>

@@ -1,34 +1,34 @@
+{{> navbar }}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <title>Devices - PatchPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
-  <script defer src="/static/app.js"></script>
 </head>
 <body>
-  {% include "navbar.html" %}
-  <h1>Devices</h1>
+  <main class="container">
+    <h1>Devices</h1>
 
-  <table id="devices-table">
-    <thead>
-      <tr>
-        <th>Hostname</th>
-        <th>IP</th>
-        <th>OS</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for device in devices %}
-        <tr>
-          <td>{{ device.hostname }}</td>
-          <td>{{ device.ip }}</td>
-          <td>{{ device.os }}</td>
-          <td>{{ device.status }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    <table>
+      <thead>
+        <tr><th>Hostname</th><th>IP</th><th>OS</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {{#each devices}}
+          <tr>
+            <td><a href="/device_detail/{{this.id}}">{{this.hostname}}</a></td>
+            <td>{{this.ip}}</td>
+            <td>{{this.os}}</td>
+            <td>{{this.status}}</td>
+          </tr>
+        {{/each}}
+        {{#unless devices}}
+          <tr><td colspan="4">No devices.</td></tr>
+        {{/unless}}
+      </tbody>
+    </table>
+  </main>
 </body>
 </html>

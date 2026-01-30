@@ -1,61 +1,32 @@
+{{> navbar }}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Device Detail — PatchPilot</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8">
+  <title>Device Detail - PatchPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <div id="navbar-container"></div>
-  <div class="container">
-    <h2>Device Detail</h2>
-    <div id="deviceInfo" class="card">
-      <div class="card-body">
-        <p><strong>Hostname:</strong> <span id="hostname">—</span></p>
-        <p><strong>OS:</strong> <span id="os">—</span></p>
-        <p><strong>Type:</strong> <span id="type">—</span></p>
-        <p><strong>CPU:</strong> <span id="cpu">—</span></p>
-        <p><strong>RAM:</strong> <span id="ram">—</span></p>
-        <p><strong>Disk:</strong> <span id="disk">—</span></p>
-        <p><strong>Network:</strong> <span id="network">—</span></p>
-        <p><strong>Last Check-in:</strong> <span id="lastCheckin">—</span></p>
-      </div>
-    </div>
-    <div class="mt-3">
-      <button class="btn" id="backBtn">Back</button>
-    </div>
-  </div>
+  <main class="container">
+    <h1>Device Detail</h1>
 
-  <div id="alerts"></div>
-  <script src="/static/app.js"></script>
-  <script>
-    document.getElementById('navbar-container').innerHTML = `<object type="text/html" data="/navbar.html"></object>`;
+    {{#if device}}
+      <dl>
+        <dt>Hostname</dt><dd>{{device.hostname}}</dd>
+        <dt>OS</dt><dd>{{device.os}}</dd>
+        <dt>Type</dt><dd>{{device.device_type}}</dd>
+        <dt>CPU</dt><dd>{{device.cpu}}</dd>
+        <dt>RAM</dt><dd>{{device.ram}}</dd>
+        <dt>Disk</dt><dd>{{device.disk}}</dd>
+        <dt>Network</dt><dd>{{device.network}}</dd>
+        <dt>Last Check-in</dt><dd>{{device.last_checkin}}</dd>
+      </dl>
+    {{else}}
+      <p>No device selected or device not found.</p>
+    {{/if}}
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const deviceID = urlParams.get('deviceID');
-
-    async function loadDevice() {
-      if(!deviceID) return;
-      try {
-        const d = await fetchJSON(`/api/devices/${deviceID}`);
-        document.getElementById('hostname').textContent = d.hostname || '—';
-        document.getElementById('os').textContent = d.os_name || '—';
-        document.getElementById('type').textContent = d.device_type || '—';
-        document.getElementById('cpu').textContent = d.cpu_usage != null ? d.cpu_usage+'%' : '—';
-        document.getElementById('ram').textContent = d.ram_used != null && d.ram_total ? `${d.ram_used}/${d.ram_total} MB` : '—';
-        document.getElementById('disk').textContent = d.disk_total ? `${d.disk_total - d.disk_free}/${d.disk_total} GB` : '—';
-        document.getElementById('network').textContent = d.network_throughput ? `${d.network_throughput} Mbps` : '—';
-        document.getElementById('lastCheckin').textContent = d.last_checkin ? new Date(d.last_checkin).toLocaleString() : '—';
-      } catch(e) {
-        showAlert('Failed to load device', 'danger');
-        console.error(e);
-      }
-    }
-
-    document.getElementById('backBtn').addEventListener('click', ()=> window.history.back());
-
-    loadDevice();
-  </script>
+    <p><a href="/devices_page">Back to devices</a></p>
+  </main>
 </body>
 </html>

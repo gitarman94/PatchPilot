@@ -1,36 +1,42 @@
+{{> navbar }}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <title>Dashboard - PatchPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
   <script defer src="/static/app.js"></script>
 </head>
 <body>
-  {{> navbar }}
+  <main class="container">
+    <h1>Dashboard</h1>
 
-  <h1>Dashboard</h1>
-  <p>Total Devices: {{devices.length}}</p>
+    <p>Total Devices: {{devices.length}}</p>
 
-  <table id="dashboard-table">
-    <thead>
-      <tr>
-        <th>Hostname</th>
-        <th>IP</th>
-        <th>OS</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      {{#each devices}}
+    <table id="dashboard-table">
+      <thead>
         <tr>
-          <td>{{hostname}}</td>
-          <td>{{ip}}</td>
-          <td>{{os}}</td>
-          <td>{{status}}</td>
+          <th>Hostname</th>
+          <th>IP</th>
+          <th>OS</th>
+          <th>Status</th>
         </tr>
-      {{/each}}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {{#each devices}}
+          <tr>
+            <td>{{this.hostname}}</td>
+            <td>{{this.ip}}</td>
+            <td>{{this.os}}</td>
+            <td>{{this.status}}</td>
+          </tr>
+        {{/each}}
+        {{#unless devices}}
+          <tr><td colspan="4">No devices found.</td></tr>
+        {{/unless}}
+      </tbody>
+    </table>
+  </main>
 </body>
 </html>

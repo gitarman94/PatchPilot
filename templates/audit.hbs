@@ -1,38 +1,36 @@
+{{> navbar }}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <title>Audit - PatchPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
-  <script defer src="/static/app.js"></script>
 </head>
 <body>
-  {% include "navbar.html" %}
-  <h1>Audit Logs</h1>
+  <main class="container">
+    <h1>Audit Logs</h1>
 
-  <table id="audit-table">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>User</th>
-        <th>Action</th>
-        <th>Target</th>
-        <th>Details</th>
-        <th>Timestamp</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for entry in audit %}
-        <tr>
-          <td>{{ entry.id }}</td>
-          <td>{{ entry.user }}</td>
-          <td>{{ entry.action }}</td>
-          <td>{{ entry.target }}</td>
-          <td>{{ entry.details }}</td>
-          <td>{{ entry.timestamp }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    <table>
+      <thead>
+        <tr><th>ID</th><th>User</th><th>Action</th><th>Target</th><th>Details</th><th>Timestamp</th></tr>
+      </thead>
+      <tbody>
+        {{#each audit}}
+          <tr>
+            <td>{{this.id}}</td>
+            <td>{{this.user}}</td>
+            <td>{{this.action}}</td>
+            <td>{{this.target}}</td>
+            <td>{{this.details}}</td>
+            <td>{{this.timestamp}}</td>
+          </tr>
+        {{/each}}
+        {{#unless audit}}
+          <tr><td colspan="6">No audit entries.</td></tr>
+        {{/unless}}
+      </tbody>
+    </table>
+  </main>
 </body>
 </html>
