@@ -1,4 +1,3 @@
-cat > /opt/patchpilot_server/templates/navbar.hbs <<'HBS'
 <nav class="top-nav">
   <div class="nav-inner">
     <a class="brand" href="/">PatchPilot</a>
@@ -15,7 +14,7 @@ cat > /opt/patchpilot_server/templates/navbar.hbs <<'HBS'
   </div>
 </nav>
 <style>
-/* small inline styling to ensure nav appears even if styles.css not loaded */
+/* inline minimal styling to ensure nav appears even if CSS not loaded */
 .top-nav{background:#fff;border-bottom:1px solid #eee;padding:10px 16px}
 .top-nav .nav-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:18px}
 .top-nav .brand{font-weight:700;text-decoration:none;color:#111}
@@ -24,4 +23,3 @@ cat > /opt/patchpilot_server/templates/navbar.hbs <<'HBS'
 .top-nav .nav-right{margin-left:auto}
 .top-nav .nav-right a{color:#374151;text-decoration:none;font-size:14px}
 </style>
-HBS

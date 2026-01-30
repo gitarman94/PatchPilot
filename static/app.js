@@ -13,8 +13,6 @@ async function initDashboard() {
 
   const devices = Array.isArray(devicesRes) ? devicesRes : [];
   const actions = Array.isArray(actionsRes) ? actionsRes : [];
-  const history = Array.isArray(historyRes) ? historyRes : [];
-  const audit = Array.isArray(auditRes) ? auditRes : [];
 
   const totalDevices = devices.length;
   const approvedDevices = safeCount(devices, d => truthy(getField(d, ['approved', 'is_approved'])));
