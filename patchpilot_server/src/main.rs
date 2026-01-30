@@ -2,15 +2,13 @@
 extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
-use rocket::figment::{Figment, providers::{Env, Toml, Format}};
+use rocket::figment::{Figment, providers::{Env, Toml}};
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::env;
-use std::net::TcpListener;
-use std::os::fd::FromRawFd;
 
 mod schema;
 mod db;
@@ -24,26 +22,6 @@ mod pending_cleanup;
 
 use db::{initialize, get_conn};
 use state::{SystemState, AppState};
-
-/// Attempt systemd socket activation, otherwise None
-fn get_systemd_listener() -> Option<TcpListener> {
-    // systemd sets LISTEN_FDS and LISTEN_PID
-    if let Ok(listen_fds) = env::var("LISTEN_FDS") {
-        if let Ok(pid) = env::var("LISTEN_PID") {
-            if pid.parse::<u32>().ok() == Some(std::process::id()) {
-                if let Ok(nfds) = listen_fds.parse::<i32>() {
-                    if nfds > 0 {
-                        // systemd passes fd 3 as the first socket
-                        unsafe {
-                            return Some(TcpListener::from_raw_fd(3));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
-}
 
 #[launch]
 fn rocket() -> _ {
@@ -61,10 +39,23 @@ fn rocket() -> _ {
         .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("ROCKET_").global());
 
+    // Detect systemd socket activation presence purely for logging
+    let systemd_socket_active = std::env::var("LISTEN_FDS")
+        .ok()
+        .and_then(|s| s.parse::<i32>().ok())
+        .map(|n| n > 0)
+        .unwrap_or(false);
+
+    if systemd_socket_active {
+        log::info!("Systemd socket activation detected (LISTEN_FDS > 0). Rocket will inherit fd 3.");
+    } else {
+        log::info!("No systemd socket detected; Rocket will bind port from Rocket.toml or ROCKET_PORT.");
+    }
+
     // Initialize DB pool
     let db_pool = initialize();
 
-    // Load persistent settings
+    // Load persistent settings into in-memory lock
     let settings = {
         let mut conn = get_conn(&db_pool);
         Arc::new(RwLock::new(settings::ServerSettings::load(&mut conn)))
@@ -73,7 +64,7 @@ fn rocket() -> _ {
     // System state
     let system = SystemState::new(db_pool.clone());
 
-    // Shared app state
+    // Shared application state
     let app_state = Arc::new(AppState {
         db_pool: db_pool.clone(),
         system: system.clone(),
@@ -87,6 +78,7 @@ fn rocket() -> _ {
         })),
     });
 
+    // Refresh metrics once at startup
     app_state.system.refresh();
     log::info!(
         "System memory: total {} MB, available {} MB",
@@ -94,10 +86,11 @@ fn rocket() -> _ {
         app_state.system.available_memory() / 1024 / 1024
     );
 
-    // Rocket instance (no manual listener)
-    let rocket_instance = rocket::custom(figment)
+    // Build Rocket normally. If systemd has passed the socket (fd 3), Rocket
+    // will automatically use it — do not call .listen(...) or bind manually.
+    rocket::custom(figment)
         .manage(db_pool)
-        .manage(app_state.clone())
+        .manage(app_state.clone()) // manage Arc<AppState>
         .attach(Template::fairing())
         .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)
@@ -122,7 +115,5 @@ fn rocket() -> _ {
         .mount("/roles", routes::roles::routes())
         .mount("/settings", routes::settings::routes())
         .mount("/static", FileServer::from(relative!("static")))
-        .mount("/", routes::page_routes());
-
-    rocket_instance
+        .mount("/", routes::page_routes())
 }

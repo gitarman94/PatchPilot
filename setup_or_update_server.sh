@@ -40,40 +40,14 @@ else
     echo "❌ Cannot determine OS."; exit 1
 fi
 
-# Gracefully stop service and socket if they exist
+# Stop and remove any running instances before reinstall
 echo "🛑 Ensuring no running PatchPilot server instances..."
-<<<<<<< HEAD
-for unit in "$SERVICE_NAME" "$SOCKET_NAME"; do
-    if systemctl list-unit-files | grep -q "^$unit"; then
-        echo "Stopping $unit..."
-        systemctl stop "$unit" || echo "⚠️ Failed to stop $unit (ignored)"
-        systemctl disable "$unit" || echo "⚠️ Failed to disable $unit (ignored)"
-    else
-        echo "ℹ️ $unit not found, skipping."
-    fi
-done
+# Be tolerant if units don't exist; don't call tools that may be absent
+systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
+systemctl stop "${SOCKET_NAME}" 2>/dev/null || true
+systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
+systemctl disable "${SOCKET_NAME}" 2>/dev/null || true
 
-# Kill any leftover PatchPilot processes
-=======
-for unit in "$SERVICE_NAME" "$SOCKET_NAME"; do
-    if systemctl list-units --all | grep -q "^$unit"; then
-        echo "Stopping $unit..."
-        systemctl stop "$unit" || echo "⚠️ Failed to stop $unit (ignored)"
-        systemctl disable "$unit" || echo "⚠️ Failed to disable $unit (ignored)"
-    else
-        echo "$unit not found, skipping."
-    fi
-done
-
-# Kill any leftover processes and free port 8080
->>>>>>> 17745ad5e8b8c63a6883dd454e6b02dfdad148c5
-pkill -f "^${APP_DIR}/target/.*/patchpilot_server$" || true
-<<<<<<< HEAD
-
-=======
-fuser -k 8080/tcp || true
-
->>>>>>> 17745ad5e8b8c63a6883dd454e6b02dfdad148c5
 rm -rf /opt/patchpilot_install*
 mkdir -p /opt/patchpilot_install "$APP_DIR"
 
@@ -129,6 +103,7 @@ chmod 755 "$SQLITE_DB"
 
 ## Build the server
 cd "$APP_DIR"
+
 echo "🛠️ Performing full rebuild of PatchPilot server (${BUILD_MODE})..."
 "${CARGO_HOME}/bin/cargo" clean
 "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
@@ -199,15 +174,21 @@ chmod +x "$APP_DIR/server_test.sh" 2>/dev/null || true
 cat > "${SYSTEMD_DIR}/${SOCKET_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server Socket
+After=network.target
+
+[Socket]
 ListenStream=8080
 Accept=no
+
+[Install]
+WantedBy=sockets.target
 EOF
 
-# Systemd service unit (Rocket no longer binds port directly)
+# Systemd service unit (Rocket will use fd 3 provided by systemd if present)
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server
-After=network.target
+After=network.target ${SOCKET_NAME}
 Requires=${SOCKET_NAME}
 
 [Service]
@@ -216,19 +197,24 @@ Group=patchpilot
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_ENV_FILE}
 Environment=PATH=${CARGO_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server --systemd-socket
+ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
 Restart=on-failure
 RestartSec=5s
 LimitNOFILE=65535
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Enable socket and service
+# Enable socket and service (be tolerant of failures)
 systemctl daemon-reload
-systemctl enable --now "$SOCKET_NAME"
-systemctl enable --now "$SERVICE_NAME"
+systemctl enable "${SOCKET_NAME}" 2>/dev/null || true
+systemctl enable "${SERVICE_NAME}" 2>/dev/null || true
+# Start socket then service — if starting fails, output a non-fatal message
+systemctl start "${SOCKET_NAME}" 2>/dev/null || echo "⚠️ Could not start ${SOCKET_NAME} (it may already exist or require manual start)"
+systemctl start "${SERVICE_NAME}" 2>/dev/null || echo "⚠️ Could not start ${SERVICE_NAME} (check journalctl -u ${SERVICE_NAME})"
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete!"
