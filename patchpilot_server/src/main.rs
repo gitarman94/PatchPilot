@@ -61,7 +61,7 @@ fn rocket() -> _ {
         Figment::from(rocket::Config::default())
             .merge(Toml::file("Rocket.toml").nested())
             .merge(Env::prefixed("ROCKET_").global())
-            .merge(rocket::figment::providers::Serialized::from(override_map))
+            .merge(rocket::figment::providers::Serialized::from(override_map, "default"))
     };
 
     // Initialize DB pool
