@@ -130,7 +130,7 @@ No route changes are required — Rocket resolves templates by name, not extensi
 ```bash
 apt-get update
 apt-get install -y curl git
-curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh | bash -- --debug --force
+curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh | bash -s -- --debug --force
 ````
 
 This will:
@@ -144,7 +144,7 @@ This will:
 **Force reinstall:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh | bash -- --debug --force
+curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh | bash -s -- --debug --force
 ```
 
 ---
