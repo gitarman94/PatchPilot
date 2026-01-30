@@ -4,7 +4,7 @@ extern crate rocket;
 use rocket::fs::{FileServer, relative};
 use rocket::figment::{
     Figment,
-    providers::{Env, Toml},
+    providers::{Env, Toml, Serialized, Format}, // <-- Format imported for Toml::file
 };
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
@@ -39,7 +39,7 @@ fn rocket() -> _ {
 
     // Base Figment configuration
     let figment = Figment::from(rocket::Config::default())
-        .merge(Toml::file("Rocket.toml").nested())
+        .merge(Toml::file("Rocket.toml").nested()) // works now
         .merge(Env::prefixed("ROCKET_").global());
 
     // Detect systemd socket activation purely for logging
@@ -55,7 +55,7 @@ fn rocket() -> _ {
         log::info!("[*] No systemd socket detected; Rocket will bind port from Rocket.toml or ROCKET_PORT.");
     }
 
-    // Initialize DB pool (synchronous, but fast with r2d2)
+    // Initialize DB pool
     let db_pool = initialize();
 
     // Load persistent settings into in-memory lock
