@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::env;
 use std::net::TcpListener;
+use std::os::fd::FromRawFd;
 
 mod schema;
 mod db;
@@ -24,35 +25,29 @@ mod pending_cleanup;
 use db::{initialize, get_conn};
 use state::{SystemState, AppState};
 
-/// Ensure ROCKET_PORT is available, exit gracefully if in use
-fn probe_port_or_exit() {
-    let desired_port = env::var("ROCKET_PORT")
-        .ok()
-        .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(8080);
-
-    let bind_addr = format!("0.0.0.0:{}", desired_port);
-    match TcpListener::bind(&bind_addr) {
-        Ok(listener) => {
-            // port free, drop listener
-            drop(listener);
-            unsafe {
-                std::env::set_var("ROCKET_PORT", desired_port.to_string());
-            }        }
-        Err(e) => {
-            eprintln!("ERROR: Port {} unavailable: {}", desired_port, e);
-            eprintln!("Please ensure no other process is using this port.");
-            std::process::exit(1);
+/// Attempt systemd socket activation, otherwise None
+fn get_systemd_listener() -> Option<TcpListener> {
+    // systemd sets LISTEN_FDS and LISTEN_PID
+    if let Ok(listen_fds) = env::var("LISTEN_FDS") {
+        if let Ok(pid) = env::var("LISTEN_PID") {
+            if pid.parse::<u32>().ok() == Some(std::process::id()) {
+                if let Ok(nfds) = listen_fds.parse::<i32>() {
+                    if nfds > 0 {
+                        // systemd passes fd 3 as the first socket
+                        unsafe {
+                            return Some(TcpListener::from_raw_fd(3));
+                        }
+                    }
+                }
+            }
         }
     }
+    None
 }
 
 #[launch]
 fn rocket() -> _ {
-    // First, probe port availability
-    probe_port_or_exit();
-
-    // Initialize logging once
+    // Initialize logging
     flexi_logger::Logger::try_with_env_or_str(
         std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into())
     )
@@ -61,7 +56,7 @@ fn rocket() -> _ {
     .start()
     .unwrap();
 
-    // Figment configuration (Rocket.toml + ROCKET_ env)
+    // Figment configuration
     let figment = Figment::from(rocket::Config::default())
         .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("ROCKET_").global());
@@ -100,7 +95,21 @@ fn rocket() -> _ {
         app_state.system.available_memory() / 1024 / 1024
     );
 
-    rocket::custom(figment)
+    // Systemd socket activation
+    let rocket_builder = if let Some(listener) = get_systemd_listener() {
+        log::info!("Launching with systemd socket activation");
+        rocket::custom(figment)
+            .configure(rocket::Config {
+                port: 0, // ignored, socket provided
+                ..rocket::Config::figment().extract::<rocket::Config>().unwrap()
+            })
+            .listen(listener)
+    } else {
+        log::info!("Launching normally on Rocket.toml port");
+        rocket::custom(figment)
+    };
+
+    rocket_builder
         .manage(db_pool)
         .manage(app_state.clone()) // manage Arc<AppState>
         .attach(Template::fairing())
