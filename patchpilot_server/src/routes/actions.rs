@@ -1,4 +1,3 @@
-// File: patchpilot_server/src/routes/actions.rs
 use rocket::{get, post, routes, State};
 use rocket::http::Status;
 use rocket::serde::json::Json;
@@ -40,13 +39,10 @@ pub async fn submit_action(
     let action_id_res = rocket::tokio::task::spawn_blocking(move || -> Result<i64, Status> {
         let mut conn = pool_for_db.get().map_err(|_| Status::InternalServerError)?;
         let now = Utc::now().naive_utc();
+
         let settings_row = load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
-
-        let ttl_to_use = form
-            .ttl_seconds
-            .map(|t| if t < settings_row.default_action_ttl_seconds { t } else { settings_row.default_action_ttl_seconds })
-            .unwrap_or(settings_row.default_action_ttl_seconds);
-
+        let ttl_to_use = form.ttl_seconds.unwrap_or(settings_row.default_action_ttl_seconds);
+        let ttl_to_use = std::cmp::min(ttl_to_use, settings_row.default_action_ttl_seconds);
         let expiry_time = now + Duration::seconds(ttl_to_use);
 
         let new_action = NewAction {
@@ -66,6 +62,7 @@ pub async fn submit_action(
                 Status::InternalServerError
             })?;
 
+        // Fetch last inserted id (SQLite fallback)
         let last_id: i64 = actions_dsl::actions
             .select(actions_dsl::id)
             .order(actions_dsl::id.desc())
@@ -116,8 +113,7 @@ pub async fn list_actions(pool: &State<DbPool>) -> Result<Json<Vec<ActionModel>>
     let pool = pool.inner().clone();
     let actions = rocket::tokio::task::spawn_blocking(move || -> Result<Vec<ActionModel>, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let rows = actions_dsl::actions.load::<ActionModel>(&mut conn)
-            .map_err(|_| Status::InternalServerError)?;
+        let rows = actions_dsl::actions.load::<ActionModel>(&mut conn).map_err(|_| Status::InternalServerError)?;
         Ok(rows)
     })
     .await
@@ -178,9 +174,6 @@ pub async fn get_action_ttl(pool: &State<DbPool>, action_id: i64) -> Result<Json
 }
 
 use rocket::Route;
-
 pub fn routes() -> Vec<Route> {
-    routes![submit_action, list_actions, extend_action_ttl, get_action_ttl]
-        .into_iter()
-        .collect()
+    routes![submit_action, list_actions, extend_action_ttl, get_action_ttl].into_iter().collect()
 }

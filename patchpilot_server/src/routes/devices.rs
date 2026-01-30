@@ -1,4 +1,3 @@
-// File: patchpilot_server/src/routes/devices.rs
 use rocket::{get, post, routes, State};
 use rocket::http::Status;
 use rocket::serde::json::Json;
@@ -34,13 +33,13 @@ pub async fn heartbeat() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "alive" }))
 }
 
-/// GET /device/<id> - return details for a device
-#[get("/device/<id>")]
-pub async fn get_device_details(pool: &State<DbPool>, id: i64) -> Result<Json<Device>, Status> {
+/// GET /device/<device_id_param> - return details for a device
+#[get("/device/<device_id_param>")]
+pub async fn get_device_details(pool: &State<DbPool>, device_id_param: i64) -> Result<Json<Device>, Status> {
     let pool = pool.inner().clone();
     let device = rocket::tokio::task::spawn_blocking(move || -> Result<Device, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let found = devices.filter(device_id.eq(id)).first::<Device>(&mut conn).map_err(|_| Status::NotFound)?;
+        let found = devices.filter(device_id.eq(device_id_param)).first::<Device>(&mut conn).map_err(|_| Status::NotFound)?;
         Ok(found)
     })
     .await
@@ -49,9 +48,9 @@ pub async fn get_device_details(pool: &State<DbPool>, id: i64) -> Result<Json<De
     Ok(Json(device))
 }
 
-/// POST /approve/<device_id> - approve a device (admin only)
-#[post("/approve/<device_id>")]
-pub async fn approve_device(pool: &State<DbPool>, device_id: i64, user: AuthUser) -> Result<Status, Status> {
+/// POST /approve/<device_id_param> - approve a device (admin only)
+#[post("/approve/<device_id_param>")]
+pub async fn approve_device(pool: &State<DbPool>, device_id_param: i64, user: AuthUser) -> Result<Status, Status> {
     if !user.has_role(RoleName::Admin) {
         return Err(Status::Unauthorized);
     }
@@ -61,7 +60,7 @@ pub async fn approve_device(pool: &State<DbPool>, device_id: i64, user: AuthUser
 
     rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        diesel::update(devices.filter(device_id.eq(device_id)))
+        diesel::update(devices.filter(device_id.eq(device_id_param)))
             .set(approved.eq(true))
             .execute(&mut conn)
             .map_err(|_| Status::InternalServerError)?;
@@ -69,7 +68,7 @@ pub async fn approve_device(pool: &State<DbPool>, device_id: i64, user: AuthUser
             &mut conn,
             &username,
             "approve_device",
-            Some(&device_id.to_string()),
+            Some(&device_id_param.to_string()),
             Some("Device approved"),
         );
         Ok(())
@@ -174,7 +173,7 @@ pub async fn register_or_update_device(
             Some("Device registered or updated"),
         );
 
-        // notify app_state about pending device (method on AppState)
+        // Notify AppState about pending device
         app_state.update_pending_device(&updated.device_id.to_string());
 
         Ok(serde_json::json!({
