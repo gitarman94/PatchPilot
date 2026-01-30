@@ -12,8 +12,7 @@ pub async fn index() -> Redirect {
 
 /// Dashboard page — provides aggregates used by the dashboard.hbs template
 #[get("/dashboard")]
-pub async fn dashboard_page(pool: &State<DbPool>) -> Template {
-    // try get connection from pool; on error render an empty dashboard context
+pub fn dashboard_page(pool: &State<DbPool>) -> Template {
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => {
@@ -30,14 +29,11 @@ pub async fn dashboard_page(pool: &State<DbPool>) -> Template {
         }
     };
 
-    // load devices
     let devices = Device::all(&mut conn).unwrap_or_default();
     let total_devices = devices.len();
-    // devices.approved is a bool in the model; count defensively
     let approved_devices = devices.iter().filter(|d| d.approved).count();
     let pending_devices = total_devices.saturating_sub(approved_devices);
 
-    // load actions (safe fallback)
     let actions = ActionModel::all(&mut conn).unwrap_or_default();
     let total_actions = actions.len();
 
