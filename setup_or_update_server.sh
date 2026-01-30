@@ -189,8 +189,8 @@ EnvironmentFile=${APP_ENV_FILE}
 Environment=PATH=${CARGO_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Kill any old PatchPilot processes before starting
-ExecStartPre=/usr/bin/pkill -f "^${APP_DIR}/target/.*/patchpilot_server\$" || true
-ExecStartPre=/usr/bin/fuser -k 8080/tcp || true
+ExecStartPre=/usr/bin/fuser -k 8080/tcp
+ExecStartPre=/usr/bin/pkill -f patchpilot_server
 
 # Start PatchPilot server
 ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
