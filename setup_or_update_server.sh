@@ -175,7 +175,7 @@ find "$APP_DIR" -type f -exec chmod 755 {} \;
 chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server"
 chmod +x "$APP_DIR/server_test.sh" 2>/dev/null || true
 
-# Systemd service with explicit PATH
+# Systemd service with clean pre-start
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server
@@ -188,21 +188,20 @@ WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_ENV_FILE}
 Environment=PATH=${CARGO_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Pre-start: kill only old PatchPilot processes and free port 8080
-ExecStartPre=/bin/sh -c '/usr/bin/fuser -k 8080/tcp 2>/dev/null || true'
-ExecStartPre=/bin/sh -c '/usr/bin/pkill -f "^${APP_DIR}/target/.*/patchpilot_server\$" 2>/dev/null || true'
-ExecStartPre=/bin/sleep 1
+# Kill any old PatchPilot processes before starting
+ExecStartPre=/usr/bin/pkill -f "^${APP_DIR}/target/.*/patchpilot_server\$" || true
+ExecStartPre=/usr/bin/fuser -k 8080/tcp || true
 
-# Start PatchPilot
+# Start PatchPilot server
 ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
 
-# Restart on crash/failure, with sane limits
+# Restart on failure with sane limits
 Restart=on-failure
 RestartSec=5s
 StartLimitBurst=3
 StartLimitIntervalSec=60
 
-# Optional: increase file descriptors
+# Increase open file descriptor limit
 LimitNOFILE=65535
 
 [Install]
