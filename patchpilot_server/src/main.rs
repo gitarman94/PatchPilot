@@ -4,8 +4,7 @@ extern crate rocket;
 use rocket::fs::{FileServer, relative};
 use rocket::figment::{
     Figment,
-    providers::{Env, Toml, Format},
-    value::{Map, Value},
+    providers::{Env, Toml, Serialized},
 };
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
@@ -38,12 +37,12 @@ fn rocket() -> _ {
     .start()
     .unwrap();
 
-    // Figment configuration
+    // Base Figment configuration
     let mut figment = Figment::from(rocket::Config::default())
         .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("ROCKET_").global());
 
-    // Detect systemd socket activation and override port/address if active
+    // Detect systemd socket activation
     let systemd_socket_active = env::var("LISTEN_FDS")
         .ok()
         .and_then(|s| s.parse::<i32>().ok())
@@ -52,11 +51,13 @@ fn rocket() -> _ {
 
     if systemd_socket_active {
         log::info!("[*] Systemd socket activation detected (LISTEN_FDS > 0). Rocket will inherit fd 3.");
-        // Override figment to bind to 127.0.0.1:0 so Rocket does not try to bind manually
-        let mut map = Map::new();
-        map.insert("address".into(), Value::from("127.0.0.1"));
-        map.insert("port".into(), Value::from(0)); // dummy port
-        figment = figment.merge((rocket::Config::try_from(&map).unwrap()));
+
+        // Override address/port with dummy values using Serialized provider
+        let override_map = serde_json::json!({
+            "address": "127.0.0.1",
+            "port": 0
+        });
+        figment = figment.merge(Serialized::from(override_map));
     } else {
         log::info!("[*] No systemd socket detected; Rocket will bind port from Rocket.toml or ROCKET_PORT.");
     }
@@ -64,7 +65,7 @@ fn rocket() -> _ {
     // Initialize DB pool
     let db_pool = initialize();
 
-    // Load persistent settings
+    // Load persistent settings into in-memory lock
     let settings = {
         let mut conn = get_conn(&db_pool);
         Arc::new(RwLock::new(settings::ServerSettings::load(&mut conn)))
@@ -73,7 +74,7 @@ fn rocket() -> _ {
     // System state
     let system = SystemState::new(db_pool.clone());
 
-    // Shared app state
+    // Shared application state
     let app_state = Arc::new(AppState {
         db_pool: db_pool.clone(),
         system: system.clone(),
@@ -95,7 +96,7 @@ fn rocket() -> _ {
         app_state.system.available_memory() / 1024 / 1024
     );
 
-    // Build Rocket
+    // Build Rocket with managed state, fairings, routes
     rocket::custom(figment)
         .manage(db_pool)
         .manage(app_state.clone())
