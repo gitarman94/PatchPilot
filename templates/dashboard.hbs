@@ -1,42 +1,105 @@
 {{> navbar }}
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Dashboard - PatchPilot</title>
-  <link rel="stylesheet" href="/static/styles.css">
-  <script defer src="/static/app.js"></script>
-</head>
-<body>
-  <main class="container">
+<link rel="stylesheet" href="/static/styles.css">
+<!-- Chart.js CDN (required for charts) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- App script (deferred) -->
+<script src="/static/app.js" defer></script>
+
+<main class="dashboard-container">
+  <header class="dashboard-header">
     <h1>Dashboard</h1>
+    <p class="muted">System-wide overview and recent activity</p>
+  </header>
 
-    <p>Total Devices: {{devices.length}}</p>
+  <!-- Top stats cards: server may provide these; JS will fill if absent -->
+  <section class="stats-grid">
+    <div class="card stat-card">
+      <div class="stat-title">Total Devices</div>
+      <div class="stat-value" id="total-devices">{{total_devices}}</div>
+    </div>
 
-    <table id="dashboard-table">
-      <thead>
-        <tr>
-          <th>Hostname</th>
-          <th>IP</th>
-          <th>OS</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {{#each devices}}
-          <tr>
-            <td>{{this.hostname}}</td>
-            <td>{{this.ip}}</td>
-            <td>{{this.os}}</td>
-            <td>{{this.status}}</td>
-          </tr>
-        {{/each}}
-        {{#unless devices}}
-          <tr><td colspan="4">No devices found.</td></tr>
-        {{/unless}}
-      </tbody>
-    </table>
-  </main>
-</body>
-</html>
+    <div class="card stat-card">
+      <div class="stat-title">Approved</div>
+      <div class="stat-value" id="approved-devices">{{approved_devices}}</div>
+    </div>
+
+    <div class="card stat-card">
+      <div class="stat-title">Pending Approval</div>
+      <div class="stat-value" id="pending-devices">{{pending_devices}}</div>
+    </div>
+
+    <div class="card stat-card">
+      <div class="stat-title">Total Actions</div>
+      <div class="stat-value" id="total-actions">{{total_actions}}</div>
+    </div>
+  </section>
+
+  <!-- Charts & Aggregates -->
+  <section class="charts-grid">
+    <div class="card chart-card">
+      <div class="card-header">
+        <h2>Actions Over Time</h2>
+        <div class="card-sub">Recent 30 days</div>
+      </div>
+      <canvas id="actions-over-time-chart" aria-label="Actions over time"></canvas>
+    </div>
+
+    <div class="card chart-card">
+      <div class="card-header">
+        <h2>Device OS Distribution</h2>
+        <div class="card-sub">All registered devices</div>
+      </div>
+      <canvas id="os-distribution-chart" aria-label="OS distribution"></canvas>
+    </div>
+
+    <div class="card small-card">
+      <div class="card-header">
+        <h2>Devices with Expiring TTL</h2>
+        <div class="card-sub">TTL &lt; 24h</div>
+      </div>
+      <ul id="ttl-expiring-list" class="compact-list">
+        <!-- populated by JS -->
+      </ul>
+    </div>
+  </section>
+
+  <!-- Recent activity tables -->
+  <section class="tables-grid">
+    <div class="card">
+      <div class="card-header">
+        <h2>Recent Actions</h2>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr><th>Action</th><th>Device</th><th>Submitted</th><th>Status</th></tr>
+          </thead>
+          <tbody id="recent-actions-body">
+            <!-- populated by JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2>Recent Devices</h2>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr><th>Name</th><th>Hostname</th><th>IP</th><th>Last Seen</th><th>Approved</th></tr>
+          </thead>
+          <tbody id="recent-devices-body">
+            <!-- populated by JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <footer class="dashboard-footer muted">
+    <small>Data refreshed from server APIs. If you need automatic refresh, enable it in settings.</small>
+  </footer>
+</main>
