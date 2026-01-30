@@ -4,8 +4,7 @@ extern crate rocket;
 use rocket::fs::{FileServer, relative};
 use rocket::figment::{
     Figment,
-    providers::{Env, Toml, Serialized, Format}, // <-- Format added
-    Profile, // <-- Profile added for Serialized
+    providers::{Env, Toml, Serialized, Format},
 };
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
@@ -52,15 +51,12 @@ fn rocket() -> _ {
 
     if systemd_socket_active {
         log::info!("[*] Systemd socket activation detected (LISTEN_FDS > 0). Rocket will inherit fd 3.");
-
-        // Override address/port with dummy values using Serialized provider
+        // Override address/port to dummy values for systemd socket
         let override_map = serde_json::json!({
             "address": "127.0.0.1",
             "port": 0
         });
-
-        // Provide Profile::Default to fix the error
-        figment = figment.merge(Serialized::from(override_map, Profile::Default));
+        figment = figment.merge(Serialized::from(override_map, "default"));
     } else {
         log::info!("[*] No systemd socket detected; Rocket will bind port from Rocket.toml or ROCKET_PORT.");
     }
@@ -99,25 +95,28 @@ fn rocket() -> _ {
         app_state.system.available_memory() / 1024 / 1024
     );
 
-    // Build Rocket with managed state, fairings, routes
+    // Build Rocket with managed state, fairings, and routes
     rocket::custom(figment)
         .manage(db_pool)
         .manage(app_state.clone())
         .attach(Template::fairing())
-        .attach(action_ttl::ActionTtlFairing)
-        .attach(pending_cleanup::PendingCleanupFairing)
+        // Spawn all blocking fairings on OS threads
+        .attach(action_ttl::ActionTtlFairing::ignite_nonblocking())
+        .attach(pending_cleanup::PendingCleanupFairing::ignite_nonblocking())
         .attach(AdHoc::on_liftoff("Startup Audit", |rocket| {
             let app = rocket.state::<Arc<AppState>>().cloned();
             Box::pin(async move {
                 if let Some(app) = app {
-                    let mut conn = get_conn(&app.db_pool);
-                    let _ = app.log_audit(
-                        &mut conn,
-                        "system",
-                        "server_started",
-                        None,
-                        Some("PatchPilot server started"),
-                    );
+                    std::thread::spawn(move || {
+                        let mut conn = get_conn(&app.db_pool);
+                        let _ = app.log_audit(
+                            &mut conn,
+                            "system",
+                            "server_started",
+                            None,
+                            Some("PatchPilot server started"),
+                        );
+                    });
                 }
             })
         }))
