@@ -19,19 +19,23 @@ impl Fairing for PendingCleanupFairing {
     }
 
     async fn on_ignite(&self, rocket: Rocket<Build>) -> rocket::fairing::Result {
+        // Expect the managed AppState to be an Arc<AppState>
         let state = rocket
             .state::<Arc<AppState>>()
             .expect("AppState not managed")
             .clone();
 
+        // Spawn background task to cleanup stale pending devices
         tokio::spawn(async move {
             loop {
+                // derive max_age from settings
                 let max_age = state
                     .settings
                     .read()
                     .map(|s| s.auto_refresh_seconds.max(30))
                     .unwrap_or(60) as u64;
 
+                // perform cleanup (method implemented on AppState)
                 state.cleanup_stale_devices(max_age);
 
                 tokio::time::sleep(Duration::from_secs(60)).await;

@@ -1,17 +1,19 @@
 use rocket::{get, post, State, form::{Form, FromForm}, http::Status};
 use rocket_dyn_templates::Template;
 use serde::Serialize;
+use std::sync::Arc;
 
 use crate::state::AppState;
 use crate::auth::AuthUser;
-use crate::db::{self, ServerSettingsRow}; // import ServerSettingsRow from db
+use crate::db::{self, ServerSettingsRow};
+use crate::db::DbPool;
 
 #[derive(FromForm)]
 pub struct ServerSettingsForm {
     pub auto_approve_devices: Option<bool>,
     pub auto_refresh_enabled: Option<bool>,
-    pub auto_refresh_seconds: Option<i64>,       // fixed type
-    pub default_action_ttl_seconds: Option<i64>, // fixed type
+    pub auto_refresh_seconds: Option<i64>,
+    pub default_action_ttl_seconds: Option<i64>,
     pub action_polling_enabled: Option<bool>,
     pub ping_target_ip: Option<String>,
     pub force_https: Option<bool>,
@@ -19,19 +21,23 @@ pub struct ServerSettingsForm {
 
 #[derive(Serialize)]
 struct SettingsContext {
-    settings: crate::settings::ServerSettings, // in-memory server settings
+    settings: crate::settings::ServerSettings,
 }
 
+/// GET /settings - render the settings page
 #[get("/settings")]
 pub async fn view_settings(
-    state: &State<AppState>,
+    state: &State<Arc<AppState>>,
     _user: AuthUser,
 ) -> Result<Template, Status> {
-    let pool = state.db_pool.clone();
+    // grab AppState
+    let app = state.inner().clone();
+    let pool: DbPool = app.db_pool.clone();
+
+    // Load server settings from DB in blocking thread
     let settings_model: crate::settings::ServerSettings = rocket::tokio::task::spawn_blocking(move || -> Result<_, Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let row: ServerSettingsRow = db::load_settings(&mut conn)
-            .map_err(|_| Status::InternalServerError)?;
+        let row: ServerSettingsRow = db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
         Ok(crate::settings::ServerSettings {
             id: row.id,
             auto_approve_devices: row.auto_approve_devices,
@@ -46,25 +52,30 @@ pub async fn view_settings(
     .await
     .map_err(|_| Status::InternalServerError)??;
 
-    let context = SettingsContext { settings: settings_model };
+    let context = SettingsContext {
+        settings: settings_model,
+    };
+
     Ok(Template::render("settings", &context))
 }
 
+/// POST /settings/update - update server settings
 #[post("/settings/update", data = "<form>")]
 pub async fn update_settings(
-    state: &State<AppState>,
+    state: &State<Arc<AppState>>,
     form: Form<ServerSettingsForm>,
     user: AuthUser,
 ) -> Status {
     let username = user.username.clone();
     let form = form.into_inner();
-    let pool = state.db_pool.clone();
-    let shared_settings = state.settings.clone();
+
+    let app = state.inner().clone();
+    let pool = app.db_pool.clone();
+    let shared_settings = app.settings.clone();
 
     let result = rocket::tokio::task::spawn_blocking(move || -> Result<(), Status> {
         let mut conn = pool.get().map_err(|_| Status::InternalServerError)?;
-        let mut row: ServerSettingsRow = db::load_settings(&mut conn)
-            .map_err(|_| Status::InternalServerError)?;
+        let mut row: ServerSettingsRow = db::load_settings(&mut conn).map_err(|_| Status::InternalServerError)?;
 
         if let Some(v) = form.auto_approve_devices { row.auto_approve_devices = v; }
         if let Some(v) = form.auto_refresh_enabled { row.auto_refresh_enabled = v; }
