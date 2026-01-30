@@ -23,6 +23,7 @@ pub fn api_routes() -> Vec<Route> {
 /// Return page (HTML) routes mounted under /
 pub fn page_routes() -> Vec<Route> {
     routes![
+        pages::index,
         pages::dashboard_page,
         pages::devices_page,
         pages::device_detail_page,
@@ -36,11 +37,7 @@ pub fn page_routes() -> Vec<Route> {
 
 /// Authentication endpoints (mounted under /auth)
 pub fn auth_routes() -> Vec<Route> {
-    routes![
-        crate::auth::login_page,
-        crate::auth::login,
-        crate::auth::logout
-    ]
-    .into_iter()
-    .collect()
+    routes![crate::auth::login_page, crate::auth::login, crate::auth::logout]
+        .into_iter()
+        .collect()
 }

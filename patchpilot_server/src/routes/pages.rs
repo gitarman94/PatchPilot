@@ -1,26 +1,51 @@
-// Pages handlers (UI)
+// Page routes (HTML)
+
 use rocket::{get, State};
+use rocket::response::Redirect;
 use rocket_dyn_templates::{Template, context};
+
 use crate::db::DbPool;
 use crate::models::{Device, Action as ActionModel, HistoryEntry, User};
 
+/// Root -> redirect to dashboard
+#[get("/")]
+pub async fn index() -> Redirect {
+    Redirect::to(uri!(dashboard_page))
+}
+
+/// Dashboard page
 #[get("/dashboard")]
 pub async fn dashboard_page(pool: &State<DbPool>) -> Template {
-    let mut conn = match pool.inner().get() {
+    // get a DB connection from the pool (blocking part is handled by r2d2)
+    let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => {
-            return Template::render("dashboard", context! { devices: Vec::<Device>::new(), total_devices: 0 });
+            return Template::render(
+                "dashboard",
+                context! {
+                    devices: Vec::<Device>::new(),
+                    total_devices: 0
+                },
+            );
         }
     };
 
     let devices = Device::all(&mut conn).unwrap_or_default();
     let total_devices = devices.len();
-    Template::render("dashboard", context! { devices: devices, total_devices: total_devices })
+
+    Template::render(
+        "dashboard",
+        context! {
+            devices: devices,
+            total_devices: total_devices,
+        },
+    )
 }
 
+/// Devices list page
 #[get("/devices_page")]
 pub async fn devices_page(pool: &State<DbPool>) -> Template {
-    let mut conn = match pool.inner().get() {
+    let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => return Template::render("devices", context! { devices: Vec::<Device>::new() }),
     };
@@ -29,9 +54,10 @@ pub async fn devices_page(pool: &State<DbPool>) -> Template {
     Template::render("devices", context! { devices: devices })
 }
 
+/// Device detail page — accepts an `id` path parameter
 #[get("/device_detail/<id>")]
 pub async fn device_detail_page(pool: &State<DbPool>, id: i64) -> Template {
-    let mut conn = match pool.inner().get() {
+    let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => return Template::render("device_detail", context! { device: Option::<Device>::None }),
     };
@@ -40,9 +66,10 @@ pub async fn device_detail_page(pool: &State<DbPool>, id: i64) -> Template {
     Template::render("device_detail", context! { device: device })
 }
 
+/// Actions page
 #[get("/actions_page")]
 pub async fn actions_page(pool: &State<DbPool>) -> Template {
-    let mut conn = match pool.inner().get() {
+    let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => return Template::render("actions", context! { actions: Vec::<ActionModel>::new() }),
     };
@@ -51,9 +78,10 @@ pub async fn actions_page(pool: &State<DbPool>) -> Template {
     Template::render("actions", context! { actions: actions })
 }
 
+/// History page
 #[get("/history_page")]
 pub async fn history_page(pool: &State<DbPool>) -> Template {
-    let mut conn = match pool.inner().get() {
+    let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => return Template::render("history", context! { history: Vec::<HistoryEntry>::new() }),
     };
@@ -62,9 +90,10 @@ pub async fn history_page(pool: &State<DbPool>) -> Template {
     Template::render("history", context! { history: history })
 }
 
+/// Settings page
 #[get("/settings_page")]
 pub async fn settings_page(pool: &State<DbPool>) -> Template {
-    let mut conn = match pool.inner().get() {
+    let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => return Template::render("settings", context! { users: Vec::<User>::new() }),
     };
