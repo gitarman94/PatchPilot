@@ -16,12 +16,14 @@ PatchPilot is a **cross-platform patch management client** designed to monitor, 
 * ⚙️ Configurable patch server address per client
 * 🛡 Role-based access control (RBAC) and authentication for server
 * 📜 Audit logging and history tracking
+* 🌐 Rocket-served web UI
 
 ---
 
 ## Project Structure
 
 ```
+
 PatchPilot/
 │
 ├── patchpilot_server/                 # Rust-based backend server
@@ -33,9 +35,9 @@ PatchPilot/
 │       ├── settings.rs                # ServerSettings load/save
 │       ├── models.rs                  # Diesel models (Device, Action, AuditLog, User, Role, etc.)
 │       ├── schema.rs                  # Diesel schema for database tables
-│       ├── db.rs                       # Database pool & initialization
-│       ├── action_ttl.rs           # Expire old actions
-│       └── pending_cleanup.rs      # Cleanup pending devices
+│       ├── db.rs                      # Database pool & initialization
+│       ├── action_ttl.rs              # Expire old actions
+│       ├── pending_cleanup.rs         # Cleanup pending devices
 │       │
 │       ├── routes/                    # HTTP routes (API + pages)
 │       │   ├── mod.rs                 # api_routes() + page_routes()
@@ -62,22 +64,56 @@ PatchPilot/
 │       ├── self_update.rs             # Client self-update logic
 │       └── patchpilot_updater.rs      # Apply updates + restart
 │
-├── templates/                         # Rocket HTML templates
-│   ├── navbar.html                    # Sidebar navigation
-│   ├── dashboard.html                 # Main dashboard
-│   ├── device_detail.html             # Single device view
-│   ├── settings.html                  # Server and client policy settings
-│   ├── devices.html                   # Table of all devices
-│   ├── history.html                   # Audit/history page
-│   ├── actions.html                   # List and manage actions
-│   └── audit.html                     # Detailed audit log view
+├── templates/                         # Rocket Handlebars templates
+│   ├── navbar.hbs                     # Sidebar navigation
+│   ├── dashboard.hbs                  # Main dashboard
+│   ├── device_detail.hbs              # Single device view
+│   ├── settings.hbs                   # Server and client policy settings
+│   ├── devices.hbs                    # Table of all devices
+│   ├── history.hbs                    # Audit/history page
+│   ├── actions.hbs                    # List and manage actions
+│   └── audit.hbs                      # Detailed audit log view
 │
 └── static/                            # Static web assets
-    ├── bootstrap.min.css
-    ├── bootstrap.bundle.min.js
-    ├── navbar.css
-    └── favicon.ico
+├── bootstrap.min.css
+├── bootstrap.bundle.min.js
+├── navbar.css
+└── favicon.ico
+
 ```
+
+---
+
+## ⚠️ Template Naming (IMPORTANT)
+
+The PatchPilot server uses **Rocket + `rocket_dyn_templates`** with the **Handlebars engine**.
+
+**All templates must use the `.hbs` extension.**
+
+`.html` templates will **not be discovered** by Rocket and will cause runtime errors such as:
+
+```
+
+Template 'dashboard' does not exist
+
+```
+
+Rename the following files **before committing**:
+
+```
+
+templates/navbar.html        → navbar.hbs
+templates/dashboard.html     → dashboard.hbs
+templates/device_detail.html → device_detail.hbs
+templates/settings.html      → settings.hbs
+templates/devices.html       → devices.hbs
+templates/history.html       → history.hbs
+templates/actions.html       → actions.hbs
+templates/audit.html         → audit.hbs
+
+````
+
+No route changes are required — Rocket resolves templates by name, not extension.
 
 ---
 
@@ -95,13 +131,14 @@ PatchPilot/
 sudo apt-get update
 sudo apt-get install -y curl git
 sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh)"
-```
+````
 
 This will:
 
 * Install dependencies
-* Download/Update the server
-* Set up systemd service
+* Download or update the server
+* Initialize the database
+* Set up a systemd service
 * Start and enable it on boot
 
 **Force reinstall:**
@@ -184,7 +221,7 @@ sudo nano /opt/patchpilot_client/server_url.txt
 notepad "C:\ProgramData\RustPatchClient\server_url.txt"
 ```
 
-Restart service after edits.
+Restart the client service after edits.
 
 ---
 
@@ -211,7 +248,8 @@ Get-Service RustPatchClientService
 * Self-updates from GitHub Releases using version/tag logic
 * Platform-specific system info collected via PowerShell or Rust crates
 * Communication via REST API to Rust-based server
-* Server includes authentication, roles, and audit logging
+* Server includes authentication, roles, RBAC, and audit logging
+* Web UI rendered by Rocket using Handlebars templates
 
 ---
 
@@ -230,11 +268,4 @@ See full license terms in the `LICENSE` file.
 
 Questions or bugs? Open an issue on GitHub.
 
----
-
-This version:
-
-* Adds missing **auth/users/roles** in server routes
-* Adds new templates: **actions.html** and **audit.html**
-* Updates project structure to match current files
-* Clarifies Linux & Windows install/update commands
+```
