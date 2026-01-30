@@ -5,7 +5,7 @@ use rocket::fs::{FileServer, relative};
 use rocket::figment::{
     Figment,
     providers::{Env, Toml, Format},
-}
+};
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
