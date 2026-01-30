@@ -52,9 +52,7 @@ curl -L "$ZIP_URL" -o latest.zip
 unzip -o latest.zip
 
 # Remove existing folders to allow mv to succeed
-rm -rf "$APP_DIR/src"
-rm -rf "$APP_DIR/templates"
-rm -rf "$APP_DIR/static"
+rm -rf "$APP_DIR/src" "$APP_DIR/templates" "$APP_DIR/static"
 
 # Move new files into place
 cd "$APP_DIR"
@@ -70,6 +68,12 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev openssl
 
+# Remove any old system Rust/Cargo
+if command -v rustc >/dev/null 2>&1; then
+    echo "🛠️ Removing old system Rust..."
+    apt-get remove -y rustc cargo || true
+fi
+
 # Rust self-contained installation
 export CARGO_HOME="${APP_DIR}/.cargo"
 export RUSTUP_HOME="${APP_DIR}/.rustup"
@@ -84,14 +88,13 @@ if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
 fi
 
 # Explicitly install and set latest stable Rust
-export PATH="${CARGO_HOME}/bin:$PATH"
-/opt/patchpilot_server/.cargo/bin/rustup install stable
-/opt/patchpilot_server/.cargo/bin/rustup default stable
+"${CARGO_HOME}/bin/rustup" install stable
+"${CARGO_HOME}/bin/rustup" default stable
 
 # Verify Rust installation
 echo " Rust version:" 
-/opt/patchpilot_server/.cargo/bin/rustc --version
-/opt/patchpilot_server/.cargo/bin/cargo --version
+"${CARGO_HOME}/bin/rustc" --version
+"${CARGO_HOME}/bin/cargo" --version
 
 # Ensure database exists
 SQLITE_DB="${APP_DIR}/patchpilot.db"
@@ -105,15 +108,9 @@ echo "🛑 Killing any old PatchPilot server instances to free port 8080..."
 pkill -f patchpilot_server || true
 fuser -k 8080/tcp || true
 
-echo "🛠️ Ensuring self-contained Rust is first in PATH..."
-export PATH="${CARGO_HOME}/bin:$PATH"
-which rustc
-rustc --version
-
 echo "🛠️ Performing full rebuild of PatchPilot server (${BUILD_MODE})..."
 "${CARGO_HOME}/bin/cargo" clean
 "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
-
 
 # Rocket configuration
 cat > "${APP_DIR}/Rocket.toml" <<EOF
@@ -178,7 +175,7 @@ find "$APP_DIR" -type f -exec chmod 755 {} \;
 chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server"
 chmod +x "$APP_DIR/server_test.sh" 2>/dev/null || true
 
-# Systemd service
+# Systemd service with explicit PATH
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server
@@ -189,6 +186,7 @@ User=patchpilot
 Group=patchpilot
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_ENV_FILE}
+Environment=PATH=${CARGO_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
 Restart=always
 RestartSec=10
