@@ -47,10 +47,12 @@ if [[ "$FORCE_REINSTALL" = true ]]; then
     mkdir -p /opt/patchpilot_install "$APP_DIR"
 fi
 
+# Download latest source
 cd /opt/patchpilot_install
 curl -L "$ZIP_URL" -o latest.zip
 unzip -o latest.zip
 
+# Move files to app directory
 cd "$APP_DIR"
 mv /opt/patchpilot_install/PatchPilot-main/patchpilot_server/* "$APP_DIR"
 mv /opt/patchpilot_install/PatchPilot-main/templates "$APP_DIR"
@@ -59,10 +61,12 @@ mv /opt/patchpilot_install/PatchPilot-main/static "$APP_DIR"
 chmod +x "$APP_DIR/server_test.sh"
 rm -rf /opt/patchpilot_install
 
+# Install system dependencies
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev openssl
 
+# Self-contained Rust installation
 export CARGO_HOME="${APP_DIR}/.cargo"
 export RUSTUP_HOME="${APP_DIR}/.rustup"
 export PATH="${CARGO_HOME}/bin:$PATH"
@@ -75,17 +79,24 @@ if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
       | HOME=/root CARGO_HOME="${CARGO_HOME}" RUSTUP_HOME="${RUSTUP_HOME}" sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
+# Ensure latest stable Rust is installed and set as default
 export PATH="${CARGO_HOME}/bin:$PATH"
-"${CARGO_HOME}/bin/rustup" default stable || true
+/opt/patchpilot_server/.cargo/bin/rustup install stable
+/opt/patchpilot_server/.cargo/bin/rustup default stable
+/opt/patchpilot_server/.cargo/bin/rustc --version
+/opt/patchpilot_server/.cargo/bin/cargo --version
 
+# Ensure database exists
 SQLITE_DB="${APP_DIR}/patchpilot.db"
 touch "$SQLITE_DB"
 chmod 755 "$SQLITE_DB"
 
+# Build the server
 cd "$APP_DIR"
 echo "🛠️ Building PatchPilot server (${BUILD_MODE})..."
 "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
 
+# Write Rocket configuration
 cat > "${APP_DIR}/Rocket.toml" <<EOF
 [default]
 address = "0.0.0.0"
@@ -101,6 +112,7 @@ address = "0.0.0.0"
 port = 8080
 EOF
 
+# Environment file
 APP_ENV_FILE="${APP_DIR}/.env"
 cat > "${APP_ENV_FILE}" <<EOF
 DATABASE_URL=sqlite:///${APP_DIR}/patchpilot.db
@@ -112,7 +124,7 @@ ROCKET_INSECURE_ALLOW_DEV=true
 HOME=/home/patchpilot
 EOF
 
-# Ensure valid Rocket secret key (256-bit base64)
+# Generate Rocket secret key
 if ! grep -q "^ROCKET_SECRET_KEY=" "$APP_ENV_FILE" || \
    ! grep -E "^ROCKET_SECRET_KEY=([A-Za-z0-9+/]{43}=|[A-Fa-f0-9]{64})$" "$APP_ENV_FILE"; then
     echo "Generating valid Rocket secret key"
@@ -121,12 +133,14 @@ if ! grep -q "^ROCKET_SECRET_KEY=" "$APP_ENV_FILE" || \
 fi
 chmod 600 "$APP_ENV_FILE"
 
+# Admin token
 TOKEN_FILE="${APP_DIR}/admin_token.txt"
 if [[ ! -f "$TOKEN_FILE" ]]; then
     openssl rand -base64 32 | head -c 44 > "$TOKEN_FILE"
     chmod 600 "$TOKEN_FILE"
 fi
 
+# Create patchpilot user
 if ! id -u patchpilot >/dev/null 2>&1; then
     useradd -r -m -d /home/patchpilot -s /usr/sbin/nologin patchpilot
 fi
@@ -146,6 +160,7 @@ find "$APP_DIR" -type f -exec chmod 755 {} \;
 chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server"
 chmod +x "$APP_DIR/server_test.sh" 2>/dev/null || true
 
+# Systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server
