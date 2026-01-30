@@ -51,7 +51,12 @@ cd /opt/patchpilot_install
 curl -L "$ZIP_URL" -o latest.zip
 unzip -o latest.zip
 
-# Move files to app directory
+# Remove existing folders to allow mv to succeed
+rm -rf "$APP_DIR/src"
+rm -rf "$APP_DIR/templates"
+rm -rf "$APP_DIR/static"
+
+# Move new files into place
 cd "$APP_DIR"
 mv /opt/patchpilot_install/PatchPilot-main/patchpilot_server/* "$APP_DIR"
 mv /opt/patchpilot_install/PatchPilot-main/templates "$APP_DIR"
