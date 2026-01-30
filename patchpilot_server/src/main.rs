@@ -4,7 +4,7 @@ extern crate rocket;
 use rocket::fs::{FileServer, relative};
 use rocket::figment::{
     Figment,
-    providers::{Env, Toml, Serialized, Format},
+    providers::{Env, Toml},
 };
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
@@ -38,11 +38,11 @@ fn rocket() -> _ {
     .unwrap();
 
     // Base Figment configuration
-    let mut figment = Figment::from(rocket::Config::default())
+    let figment = Figment::from(rocket::Config::default())
         .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("ROCKET_").global());
 
-    // Detect systemd socket activation
+    // Detect systemd socket activation purely for logging
     let systemd_socket_active = env::var("LISTEN_FDS")
         .ok()
         .and_then(|s| s.parse::<i32>().ok())
@@ -51,17 +51,11 @@ fn rocket() -> _ {
 
     if systemd_socket_active {
         log::info!("[*] Systemd socket activation detected (LISTEN_FDS > 0). Rocket will inherit fd 3.");
-        // Override address/port to dummy values for systemd socket
-        let override_map = serde_json::json!({
-            "address": "127.0.0.1",
-            "port": 0
-        });
-        figment = figment.merge(Serialized::from(override_map, "default"));
     } else {
         log::info!("[*] No systemd socket detected; Rocket will bind port from Rocket.toml or ROCKET_PORT.");
     }
 
-    // Initialize DB pool
+    // Initialize DB pool (synchronous, but fast with r2d2)
     let db_pool = initialize();
 
     // Load persistent settings into in-memory lock
@@ -87,36 +81,36 @@ fn rocket() -> _ {
         })),
     });
 
-    // Refresh metrics once at startup
-    app_state.system.refresh();
-    log::info!(
-        "System memory: total {} MB, available {} MB",
-        app_state.system.total_memory() / 1024 / 1024,
-        app_state.system.available_memory() / 1024 / 1024
-    );
+    // Spawn system refresh in background to avoid blocking Rocket startup
+    let app_state_clone = app_state.clone();
+    rocket::tokio::spawn(async move {
+        app_state_clone.system.refresh();
+        log::info!(
+            "System memory: total {} MB, available {} MB",
+            app_state_clone.system.total_memory() / 1024 / 1024,
+            app_state_clone.system.available_memory() / 1024 / 1024
+        );
+    });
 
     // Build Rocket with managed state, fairings, and routes
     rocket::custom(figment)
         .manage(db_pool)
         .manage(app_state.clone())
         .attach(Template::fairing())
-        // Spawn all blocking fairings on OS threads
-        .attach(action_ttl::ActionTtlFairing::ignite_nonblocking())
-        .attach(pending_cleanup::PendingCleanupFairing::ignite_nonblocking())
+        .attach(action_ttl::ActionTtlFairing)
+        .attach(pending_cleanup::PendingCleanupFairing)
         .attach(AdHoc::on_liftoff("Startup Audit", |rocket| {
             let app = rocket.state::<Arc<AppState>>().cloned();
             Box::pin(async move {
                 if let Some(app) = app {
-                    std::thread::spawn(move || {
-                        let mut conn = get_conn(&app.db_pool);
-                        let _ = app.log_audit(
-                            &mut conn,
-                            "system",
-                            "server_started",
-                            None,
-                            Some("PatchPilot server started"),
-                        );
-                    });
+                    let mut conn = get_conn(&app.db_pool);
+                    let _ = app.log_audit(
+                        &mut conn,
+                        "system",
+                        "server_started",
+                        None,
+                        Some("PatchPilot server started"),
+                    );
                 }
             })
         }))
