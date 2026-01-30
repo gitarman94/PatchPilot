@@ -2,7 +2,10 @@
 extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
-use rocket::figment::{Figment, providers::{Env, Toml}};
+use rocket::figment::{
+    Figment,
+    providers::{Env, Toml, Format} // <-- add Format here
+};
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
@@ -36,7 +39,7 @@ fn rocket() -> _ {
 
     // Figment configuration
     let figment = Figment::from(rocket::Config::default())
-        .merge(Toml::file("Rocket.toml").nested())
+        .merge(Toml::file("Rocket.toml").nested())  // now works
         .merge(Env::prefixed("ROCKET_").global());
 
     // Detect systemd socket activation presence purely for logging
