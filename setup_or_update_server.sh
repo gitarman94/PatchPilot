@@ -96,17 +96,23 @@ echo " Rust version:"
 /opt/patchpilot_server/.cargo/bin/rustc --version
 /opt/patchpilot_server/.cargo/bin/cargo --version
 
-# Ensure database exists
+# Ensure database exists and secure permissions
 SQLITE_DB="${APP_DIR}/patchpilot.db"
-touch "$SQLITE_DB"
-chmod 755 "$SQLITE_DB"
+if [[ ! -f "$SQLITE_DB" ]]; then
+    touch "$SQLITE_DB"
+fi
+chown patchpilot:patchpilot "$SQLITE_DB"
+chmod 600 "$SQLITE_DB"
 
 ## Build the server
 cd "$APP_DIR"
 
 echo "🛠️ Performing full rebuild of PatchPilot server (${BUILD_MODE})..."
 "${CARGO_HOME}/bin/cargo" clean
-"${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
+if ! "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release"); then
+    echo "❌ Cargo build failed! Check the output above."
+    exit 1
+fi
 
 # Rocket configuration
 cat > "${APP_DIR}/Rocket.toml" <<EOF
@@ -124,8 +130,9 @@ address = "0.0.0.0"
 port = 8080
 EOF
 
-# Environment file
+# Environment file — preserve existing, otherwise create minimal default
 APP_ENV_FILE="${APP_DIR}/.env"
+if [[ ! -f "$APP_ENV_FILE" ]]; then
 cat > "${APP_ENV_FILE}" <<EOF
 DATABASE_URL=sqlite:///${APP_DIR}/patchpilot.db
 RUST_LOG=info
@@ -135,6 +142,8 @@ ROCKET_PROFILE=dev
 ROCKET_INSECURE_ALLOW_DEV=true
 HOME=/home/patchpilot
 EOF
+chmod 600 "$APP_ENV_FILE"
+fi
 
 # Generate Rocket secret key
 if ! grep -q "^ROCKET_SECRET_KEY=" "$APP_ENV_FILE" || \
@@ -208,13 +217,10 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-# Enable socket and service (be tolerant of failures)
+# Enable and start socket + service robustly
 systemctl daemon-reload
-systemctl enable "${SOCKET_NAME}" 2>/dev/null || true
-systemctl enable "${SERVICE_NAME}" 2>/dev/null || true
-# Start socket then service — if starting fails, output a non-fatal message
-systemctl start "${SOCKET_NAME}" 2>/dev/null || echo "⚠️ Could not start ${SOCKET_NAME} (it may already exist or require manual start)"
-systemctl start "${SERVICE_NAME}" 2>/dev/null || echo "⚠️ Could not start ${SERVICE_NAME} (check journalctl -u ${SERVICE_NAME})"
+systemctl enable "${SOCKET_NAME}" --now 2>/dev/null || true
+systemctl enable "${SERVICE_NAME}" --now 2>/dev/null || true
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete!"
