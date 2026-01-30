@@ -189,8 +189,8 @@ EnvironmentFile=${APP_ENV_FILE}
 Environment=PATH=${CARGO_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Ensure port 8080 is free and no previous instance is running
-ExecStartPre=/usr/bin/fuser -k 8080/tcp || true
-ExecStartPre=/usr/bin/pkill -f patchpilot_server || true
+ExecStartPre=/bin/sh -c '/usr/bin/fuser -k 8080/tcp 2>/dev/null || true'
+ExecStartPre=/bin/sh -c '/usr/bin/pkill -f patchpilot_server 2>/dev/null || true'
 
 ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
 Restart=always
