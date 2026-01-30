@@ -98,13 +98,22 @@ SQLITE_DB="${APP_DIR}/patchpilot.db"
 touch "$SQLITE_DB"
 chmod 755 "$SQLITE_DB"
 
-# Build the server
+## Build the server
 cd "$APP_DIR"
-echo "🛠️ Building PatchPilot server (${BUILD_MODE})..."
-# Ensure self-contained Rust is first in PATH
+
+echo "🛑 Killing any old PatchPilot server instances to free port 8080..."
+pkill -f patchpilot_server || true
+fuser -k 8080/tcp || true
+
+echo "🛠️ Ensuring self-contained Rust is first in PATH..."
 export PATH="${CARGO_HOME}/bin:$PATH"
-/opt/patchpilot_server/.cargo/bin/cargo clean
-/opt/patchpilot_server/.cargo/bin/cargo build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
+which rustc
+rustc --version
+
+echo "🛠️ Performing full rebuild of PatchPilot server (${BUILD_MODE})..."
+"${CARGO_HOME}/bin/cargo" clean
+"${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
+
 
 # Rocket configuration
 cat > "${APP_DIR}/Rocket.toml" <<EOF
