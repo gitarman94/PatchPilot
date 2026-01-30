@@ -1,26 +1,27 @@
-<nav class="navbar">
-  <div class="navbar-left">
-    <a class="brand" href="/">
-      <img src="/static/logo.png" alt="PatchPilot Logo" style="height:24px; vertical-align:middle;">
-      <span style="margin-left:8px;">PatchPilot</span>
-    </a>
-  </div>
-
-  <div class="navbar-center">
-    <a href="/dashboard">Dashboard</a>
-    <a href="/devices_page">Devices</a>
-    <a href="/actions_page">Actions</a>
-    <a href="/history_page">History</a>
-    <a href="/settings_page">Settings</a>
-    <a href="/audit">Audit</a>
-  </div>
-
-  <div class="navbar-right">
-    {{#if user}}
-      <span class="user-info">Signed in as {{user.username}}</span>
+cat > /opt/patchpilot_server/templates/navbar.hbs <<'HBS'
+<nav class="top-nav">
+  <div class="nav-inner">
+    <a class="brand" href="/">PatchPilot</a>
+    <ul class="nav-links">
+      <li><a href="/dashboard">Dashboard</a></li>
+      <li><a href="/devices_page">Devices</a></li>
+      <li><a href="/actions_page">Actions</a></li>
+      <li><a href="/history_page">History</a></li>
+      <li><a href="/settings_page">Settings</a></li>
+    </ul>
+    <div class="nav-right">
       <a href="/auth/logout">Logout</a>
-    {{else}}
-      <a href="/auth/login">Login</a>
-    {{/if}}
+    </div>
   </div>
 </nav>
+<style>
+/* small inline styling to ensure nav appears even if styles.css not loaded */
+.top-nav{background:#fff;border-bottom:1px solid #eee;padding:10px 16px}
+.top-nav .nav-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:18px}
+.top-nav .brand{font-weight:700;text-decoration:none;color:#111}
+.top-nav .nav-links{list-style:none;margin:0;padding:0;display:flex;gap:12px}
+.top-nav .nav-links li a{color:#374151;text-decoration:none;font-size:14px}
+.top-nav .nav-right{margin-left:auto}
+.top-nav .nav-right a{color:#374151;text-decoration:none;font-size:14px}
+</style>
+HBS
