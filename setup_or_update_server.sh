@@ -79,10 +79,11 @@ if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
       | HOME=/root CARGO_HOME="${CARGO_HOME}" RUSTUP_HOME="${RUSTUP_HOME}" sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
-# Ensure latest stable Rust is installed and set as default
+# Install and set latest stable Rust explicitly
 export PATH="${CARGO_HOME}/bin:$PATH"
 /opt/patchpilot_server/.cargo/bin/rustup install stable
 /opt/patchpilot_server/.cargo/bin/rustup default stable
+echo "🟢 Rust version:"
 /opt/patchpilot_server/.cargo/bin/rustc --version
 /opt/patchpilot_server/.cargo/bin/cargo --version
 
@@ -96,7 +97,7 @@ cd "$APP_DIR"
 echo "🛠️ Building PatchPilot server (${BUILD_MODE})..."
 "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
 
-# Write Rocket configuration
+# Rocket configuration
 cat > "${APP_DIR}/Rocket.toml" <<EOF
 [default]
 address = "0.0.0.0"
