@@ -4,6 +4,7 @@ set -euo pipefail
 APP_DIR="/opt/patchpilot_server"
 INSTALL_LOG="${APP_DIR}/install.log"
 SERVICE_NAME="patchpilot_server.service"
+SOCKET_NAME="patchpilot_server.socket"
 SYSTEMD_DIR="/etc/systemd/system"
 
 mkdir -p "$APP_DIR" /opt/patchpilot_install
@@ -28,6 +29,7 @@ for arg in "$@"; do
     esac
 done
 
+# Only Debian-based systems supported
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
@@ -40,9 +42,10 @@ fi
 
 # Stop and remove any running instances before reinstall
 echo "🛑 Ensuring no running PatchPilot server instances..."
-systemctl stop "${SERVICE_NAME}" || true
-systemctl disable "${SERVICE_NAME}" || true
+systemctl stop "$SERVICE_NAME" "$SOCKET_NAME" || true
+systemctl disable "$SERVICE_NAME" "$SOCKET_NAME" || true
 pkill -f "^${APP_DIR}/target/.*/patchpilot_server$" || true
+fuser -k 8080/tcp || true
 rm -rf /opt/patchpilot_install*
 mkdir -p /opt/patchpilot_install "$APP_DIR"
 
@@ -87,7 +90,7 @@ export PATH="${CARGO_HOME}/bin:$PATH"
 /opt/patchpilot_server/.cargo/bin/rustup default stable
 
 # Verify Rust installation
-echo " Rust version:" 
+echo " Rust version:"
 /opt/patchpilot_server/.cargo/bin/rustc --version
 /opt/patchpilot_server/.cargo/bin/cargo --version
 
@@ -98,9 +101,6 @@ chmod 755 "$SQLITE_DB"
 
 ## Build the server
 cd "$APP_DIR"
-echo "🛑 Killing any old PatchPilot server instances to free port 8080..."
-pkill -f patchpilot_server || true
-fuser -k 8080/tcp || true
 
 echo "🛠️ Performing full rebuild of PatchPilot server (${BUILD_MODE})..."
 "${CARGO_HOME}/bin/cargo" clean
@@ -161,7 +161,6 @@ chmod 700 /home/patchpilot/.cargo /home/patchpilot/.rustup
 
 mkdir -p /opt/patchpilot_server/migrations
 chown -R patchpilot:patchpilot /opt/patchpilot_server/migrations
-
 chown -R patchpilot:patchpilot "$APP_DIR"
 find "$APP_DIR" -type d -exec chmod 755 {} \;
 find "$APP_DIR" -type f -exec chmod 755 {} \;
@@ -169,11 +168,20 @@ find "$APP_DIR" -type f -exec chmod 755 {} \;
 chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server"
 chmod +x "$APP_DIR/server_test.sh" 2>/dev/null || true
 
-# Systemd service with proper port handling
+# Systemd socket unit (8080)
+cat > "${SYSTEMD_DIR}/${SOCKET_NAME}" <<EOF
+[Unit]
+Description=PatchPilot Server Socket
+ListenStream=8080
+Accept=no
+EOF
+
+# Systemd service unit (Rocket no longer binds port directly)
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server
 After=network.target
+Requires=${SOCKET_NAME}
 
 [Service]
 User=patchpilot
@@ -181,9 +189,7 @@ Group=patchpilot
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_ENV_FILE}
 Environment=PATH=${CARGO_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-
-ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
-
+ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server --systemd-socket
 Restart=on-failure
 RestartSec=5s
 LimitNOFILE=65535
@@ -192,7 +198,9 @@ LimitNOFILE=65535
 WantedBy=multi-user.target
 EOF
 
+# Enable socket and service
 systemctl daemon-reload
+systemctl enable --now "$SOCKET_NAME"
 systemctl enable --now "$SERVICE_NAME"
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
