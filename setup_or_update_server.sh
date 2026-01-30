@@ -42,6 +42,7 @@ fi
 echo "🛑 Ensuring no running PatchPilot server instances..."
 systemctl stop "${SERVICE_NAME}" || true
 systemctl disable "${SERVICE_NAME}" || true
+pkill -f "^${APP_DIR}/target/.*/patchpilot_server$" || true
 rm -rf /opt/patchpilot_install*
 mkdir -p /opt/patchpilot_install "$APP_DIR"
 
@@ -67,12 +68,6 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev openssl
 
-# Remove any old system Rust/Cargo
-if command -v rustc >/dev/null 2>&1; then
-    echo "🛠️ Removing old system Rust..."
-    apt-get remove -y rustc cargo || true
-fi
-
 # Rust self-contained installation
 export CARGO_HOME="${APP_DIR}/.cargo"
 export RUSTUP_HOME="${APP_DIR}/.rustup"
@@ -87,13 +82,14 @@ if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
 fi
 
 # Explicitly install and set latest stable Rust
-"${CARGO_HOME}/bin/rustup" install stable
-"${CARGO_HOME}/bin/rustup" default stable
+export PATH="${CARGO_HOME}/bin:$PATH"
+/opt/patchpilot_server/.cargo/bin/rustup install stable
+/opt/patchpilot_server/.cargo/bin/rustup default stable
 
 # Verify Rust installation
 echo " Rust version:" 
-"${CARGO_HOME}/bin/rustc" --version
-"${CARGO_HOME}/bin/cargo" --version
+/opt/patchpilot_server/.cargo/bin/rustc --version
+/opt/patchpilot_server/.cargo/bin/cargo --version
 
 # Ensure database exists
 SQLITE_DB="${APP_DIR}/patchpilot.db"
@@ -102,13 +98,13 @@ chmod 755 "$SQLITE_DB"
 
 ## Build the server
 cd "$APP_DIR"
+echo "🛑 Killing any old PatchPilot server instances to free port 8080..."
+pkill -f patchpilot_server || true
+fuser -k 8080/tcp || true
 
-echo "🛑 Preparing PatchPilot server..."
-
-# Proper port handling: remove pkill/fuser hacks
-# Instead, systemd service will own the port directly
-# (we keep ExecStartPre safe for optional cleanup of stuck processes)
-# This prevents zombie crashes on port 8080
+echo "🛠️ Performing full rebuild of PatchPilot server (${BUILD_MODE})..."
+"${CARGO_HOME}/bin/cargo" clean
+"${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
 
 # Rocket configuration
 cat > "${APP_DIR}/Rocket.toml" <<EOF
@@ -125,10 +121,6 @@ log_level = "normal"
 address = "0.0.0.0"
 port = 8080
 EOF
-
-echo "🛠️ Performing full rebuild of PatchPilot server (${BUILD_MODE})..."
-"${CARGO_HOME}/bin/cargo" clean
-"${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
 
 # Environment file
 APP_ENV_FILE="${APP_DIR}/.env"
@@ -190,7 +182,6 @@ WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_ENV_FILE}
 Environment=PATH=${CARGO_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Start PatchPilot (systemd owns port)
 ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
 
 Restart=on-failure
