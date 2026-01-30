@@ -40,12 +40,22 @@ else
     echo "❌ Cannot determine OS."; exit 1
 fi
 
-# Stop and remove any running instances before reinstall
+# Gracefully stop service and socket if they exist
 echo "🛑 Ensuring no running PatchPilot server instances..."
-systemctl stop "$SERVICE_NAME" "$SOCKET_NAME" || true
-systemctl disable "$SERVICE_NAME" "$SOCKET_NAME" || true
+for unit in "$SERVICE_NAME" "$SOCKET_NAME"; do
+    if systemctl list-units --all | grep -q "^$unit"; then
+        echo "Stopping $unit..."
+        systemctl stop "$unit" || echo "⚠️ Failed to stop $unit (ignored)"
+        systemctl disable "$unit" || echo "⚠️ Failed to disable $unit (ignored)"
+    else
+        echo "$unit not found, skipping."
+    fi
+done
+
+# Kill any leftover processes and free port 8080
 pkill -f "^${APP_DIR}/target/.*/patchpilot_server$" || true
 fuser -k 8080/tcp || true
+
 rm -rf /opt/patchpilot_install*
 mkdir -p /opt/patchpilot_install "$APP_DIR"
 
@@ -101,7 +111,6 @@ chmod 755 "$SQLITE_DB"
 
 ## Build the server
 cd "$APP_DIR"
-
 echo "🛠️ Performing full rebuild of PatchPilot server (${BUILD_MODE})..."
 "${CARGO_HOME}/bin/cargo" clean
 "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release")
