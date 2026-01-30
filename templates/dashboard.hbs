@@ -1,9 +1,7 @@
 {{> navbar }}
 
 <link rel="stylesheet" href="/static/styles.css">
-<!-- Chart.js CDN (required for charts) -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<!-- App script (deferred) -->
 <script src="/static/app.js" defer></script>
 
 <main class="dashboard-container">
@@ -12,7 +10,6 @@
     <p class="muted">System-wide overview and recent activity</p>
   </header>
 
-  <!-- Top stats cards: server may provide these; JS will fill if absent -->
   <section class="stats-grid">
     <div class="card stat-card">
       <div class="stat-title">Total Devices</div>
@@ -35,7 +32,6 @@
     </div>
   </section>
 
-  <!-- Charts & Aggregates -->
   <section class="charts-grid">
     <div class="card chart-card">
       <div class="card-header">
@@ -59,12 +55,10 @@
         <div class="card-sub">TTL &lt; 24h</div>
       </div>
       <ul id="ttl-expiring-list" class="compact-list">
-        <!-- populated by JS -->
       </ul>
     </div>
   </section>
 
-  <!-- Recent activity tables -->
   <section class="tables-grid">
     <div class="card">
       <div class="card-header">
@@ -76,7 +70,6 @@
             <tr><th>Action</th><th>Device</th><th>Submitted</th><th>Status</th></tr>
           </thead>
           <tbody id="recent-actions-body">
-            <!-- populated by JS -->
           </tbody>
         </table>
       </div>
@@ -92,7 +85,6 @@
             <tr><th>Name</th><th>Hostname</th><th>IP</th><th>Last Seen</th><th>Approved</th></tr>
           </thead>
           <tbody id="recent-devices-body">
-            <!-- populated by JS -->
           </tbody>
         </table>
       </div>
@@ -100,6 +92,6 @@
   </section>
 
   <footer class="dashboard-footer muted">
-    <small>Data refreshed from server APIs. If you need automatic refresh, enable it in settings.</small>
+    <small>Data refreshed from server APIs.</small>
   </footer>
 </main>
