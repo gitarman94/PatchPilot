@@ -3,6 +3,7 @@ extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
 use rocket::figment::{Figment, providers::{Env, Toml}};
+use rocket::figment::providers::Format; // trait bringing `Toml::file()` into scope
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
@@ -24,24 +25,33 @@ use state::{SystemState, AppState};
 
 #[launch]
 fn rocket() -> _ {
+    // Initialize logging once
     flexi_logger::Logger::try_with_env_or_str(
         std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into())
-    ).unwrap().log_to_stdout().start().unwrap();
+    )
+    .unwrap()
+    .log_to_stdout()
+    .start()
+    .unwrap();
 
+    // Figment configuration (Rocket.toml + ROCKET_ env)
     let figment = Figment::from(rocket::Config::default())
         .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("ROCKET_").global());
 
+    // Initialize DB pool
     let db_pool = initialize();
 
+    // Load persistent settings into in-memory lock
     let settings = {
         let mut conn = get_conn(&db_pool);
         Arc::new(RwLock::new(settings::ServerSettings::load(&mut conn)))
     };
 
+    // System state
     let system = SystemState::new(db_pool.clone());
 
-    // Wrap AppState in Arc
+    // Shared application state must be Arc<AppState>
     let app_state = Arc::new(AppState {
         db_pool: db_pool.clone(),
         system: system.clone(),
@@ -55,6 +65,7 @@ fn rocket() -> _ {
         })),
     });
 
+    // Refresh metrics once at startup
     app_state.system.refresh();
     log::info!(
         "System memory: total {} MB, available {} MB",
@@ -64,7 +75,7 @@ fn rocket() -> _ {
 
     rocket::custom(figment)
         .manage(db_pool)
-        .manage(app_state.clone()) // now correctly managed
+        .manage(app_state.clone()) // manage Arc<AppState>
 
         .attach(Template::fairing())
         .attach(action_ttl::ActionTtlFairing)
