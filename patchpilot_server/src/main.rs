@@ -4,7 +4,8 @@ extern crate rocket;
 use rocket::fs::{FileServer, relative};
 use rocket::figment::{
     Figment,
-    providers::{Env, Toml, Format} // <-- add Format here
+    providers::{Env, Toml, Format},
+    value::{Map, Value},
 };
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
@@ -30,7 +31,7 @@ use state::{SystemState, AppState};
 fn rocket() -> _ {
     // Initialize logging
     flexi_logger::Logger::try_with_env_or_str(
-        std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into())
+        env::var("RUST_LOG").unwrap_or_else(|_| "info".into())
     )
     .unwrap()
     .log_to_stdout()
@@ -38,27 +39,32 @@ fn rocket() -> _ {
     .unwrap();
 
     // Figment configuration
-    let figment = Figment::from(rocket::Config::default())
-        .merge(Toml::file("Rocket.toml").nested())  // now works
+    let mut figment = Figment::from(rocket::Config::default())
+        .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("ROCKET_").global());
 
-    // Detect systemd socket activation presence purely for logging
-    let systemd_socket_active = std::env::var("LISTEN_FDS")
+    // Detect systemd socket activation and override port/address if active
+    let systemd_socket_active = env::var("LISTEN_FDS")
         .ok()
         .and_then(|s| s.parse::<i32>().ok())
         .map(|n| n > 0)
         .unwrap_or(false);
 
     if systemd_socket_active {
-        log::info!("Systemd socket activation detected (LISTEN_FDS > 0). Rocket will inherit fd 3.");
+        log::info!("[*] Systemd socket activation detected (LISTEN_FDS > 0). Rocket will inherit fd 3.");
+        // Override figment to bind to 127.0.0.1:0 so Rocket does not try to bind manually
+        let mut map = Map::new();
+        map.insert("address".into(), Value::from("127.0.0.1"));
+        map.insert("port".into(), Value::from(0)); // dummy port
+        figment = figment.merge((rocket::Config::try_from(&map).unwrap()));
     } else {
-        log::info!("No systemd socket detected; Rocket will bind port from Rocket.toml or ROCKET_PORT.");
+        log::info!("[*] No systemd socket detected; Rocket will bind port from Rocket.toml or ROCKET_PORT.");
     }
 
     // Initialize DB pool
     let db_pool = initialize();
 
-    // Load persistent settings into in-memory lock
+    // Load persistent settings
     let settings = {
         let mut conn = get_conn(&db_pool);
         Arc::new(RwLock::new(settings::ServerSettings::load(&mut conn)))
@@ -67,7 +73,7 @@ fn rocket() -> _ {
     // System state
     let system = SystemState::new(db_pool.clone());
 
-    // Shared application state
+    // Shared app state
     let app_state = Arc::new(AppState {
         db_pool: db_pool.clone(),
         system: system.clone(),
@@ -89,11 +95,10 @@ fn rocket() -> _ {
         app_state.system.available_memory() / 1024 / 1024
     );
 
-    // Build Rocket normally. If systemd has passed the socket (fd 3), Rocket
-    // will automatically use it — do not call .listen(...) or bind manually.
+    // Build Rocket
     rocket::custom(figment)
         .manage(db_pool)
-        .manage(app_state.clone()) // manage Arc<AppState>
+        .manage(app_state.clone())
         .attach(Template::fairing())
         .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)
