@@ -2,10 +2,7 @@
 extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
-use rocket::figment::{
-    Figment,
-    providers::{Env, Toml, Format},
-};
+use rocket::figment::{Figment, providers::{Env, Toml, Format}};
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
@@ -37,12 +34,7 @@ fn rocket() -> _ {
     .start()
     .unwrap();
 
-    // Base Figment configuration
-    let figment = Figment::from(rocket::Config::default())
-        .merge(Toml::file("Rocket.toml").nested()) // works now
-        .merge(Env::prefixed("ROCKET_").global());
-
-    // Detect systemd socket activation purely for logging
+    // Detect systemd socket activation
     let systemd_socket_active = env::var("LISTEN_FDS")
         .ok()
         .and_then(|s| s.parse::<i32>().ok())
@@ -50,10 +42,27 @@ fn rocket() -> _ {
         .unwrap_or(false);
 
     if systemd_socket_active {
-        log::info!("[*] Systemd socket activation detected (LISTEN_FDS > 0). Rocket will inherit fd 3.");
+        log::info!("[*] Systemd socket detected; Rocket will inherit fd 3. No port override needed.");
     } else {
         log::info!("[*] No systemd socket detected; Rocket will bind port from Rocket.toml or ROCKET_PORT.");
     }
+
+    // Figment configuration: only override if no systemd socket
+    let figment = if systemd_socket_active {
+        Figment::from(rocket::Config::default())
+            .merge(Toml::file("Rocket.toml").nested())
+            .merge(Env::prefixed("ROCKET_").global())
+    } else {
+        let override_map = serde_json::json!({
+            "address": "0.0.0.0",
+            "port": env::var("ROCKET_PORT").unwrap_or("8080".into()).parse::<u16>().unwrap_or(8080)
+        });
+
+        Figment::from(rocket::Config::default())
+            .merge(Toml::file("Rocket.toml").nested())
+            .merge(Env::prefixed("ROCKET_").global())
+            .merge(rocket::figment::providers::Serialized::from(override_map))
+    };
 
     // Initialize DB pool
     let db_pool = initialize();
@@ -81,18 +90,15 @@ fn rocket() -> _ {
         })),
     });
 
-    // Spawn system refresh in background to avoid blocking Rocket startup
-    let app_state_clone = app_state.clone();
-    rocket::tokio::spawn(async move {
-        app_state_clone.system.refresh();
-        log::info!(
-            "System memory: total {} MB, available {} MB",
-            app_state_clone.system.total_memory() / 1024 / 1024,
-            app_state_clone.system.available_memory() / 1024 / 1024
-        );
-    });
+    // Refresh metrics once at startup
+    app_state.system.refresh();
+    log::info!(
+        "System memory: total {} MB, available {} MB",
+        app_state.system.total_memory() / 1024 / 1024,
+        app_state.system.available_memory() / 1024 / 1024
+    );
 
-    // Build Rocket with managed state, fairings, and routes
+    // Build Rocket with managed state, fairings, routes
     rocket::custom(figment)
         .manage(db_pool)
         .manage(app_state.clone())
