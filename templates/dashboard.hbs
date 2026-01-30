@@ -7,10 +7,10 @@
   <script defer src="/static/app.js"></script>
 </head>
 <body>
-  {% include "navbar.html" %}
+  {{> navbar }}
 
   <h1>Dashboard</h1>
-  <p>Total Devices: {{ total_devices }}</p>
+  <p>Total Devices: {{devices.length}}</p>
 
   <table id="dashboard-table">
     <thead>
@@ -22,14 +22,14 @@
       </tr>
     </thead>
     <tbody>
-      {% for device in devices %}
+      {{#each devices}}
         <tr>
-          <td>{{ device.hostname }}</td>
-          <td>{{ device.ip }}</td>
-          <td>{{ device.os }}</td>
-          <td>{{ device.status }}</td>
+          <td>{{hostname}}</td>
+          <td>{{ip}}</td>
+          <td>{{os}}</td>
+          <td>{{status}}</td>
         </tr>
-      {% endfor %}
+      {{/each}}
     </tbody>
   </table>
 </body>
