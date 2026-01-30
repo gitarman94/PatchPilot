@@ -4,7 +4,8 @@ extern crate rocket;
 use rocket::fs::{FileServer, relative};
 use rocket::figment::{
     Figment,
-    providers::{Env, Toml, Serialized},
+    providers::{Env, Toml, Serialized, Format}, // <-- Format added
+    Profile, // <-- Profile added for Serialized
 };
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
@@ -57,7 +58,9 @@ fn rocket() -> _ {
             "address": "127.0.0.1",
             "port": 0
         });
-        figment = figment.merge(Serialized::from(override_map));
+
+        // Provide Profile::Default to fix the error
+        figment = figment.merge(Serialized::from(override_map, Profile::Default));
     } else {
         log::info!("[*] No systemd socket detected; Rocket will bind port from Rocket.toml or ROCKET_PORT.");
     }
