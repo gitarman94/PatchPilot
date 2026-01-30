@@ -4,8 +4,8 @@ extern crate rocket;
 use rocket::fs::{FileServer, relative};
 use rocket::figment::{
     Figment,
-    providers::{Env, Toml, Serialized, Format}, // <-- Format imported for Toml::file
-};
+    providers::{Env, Toml, Format},
+}
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
