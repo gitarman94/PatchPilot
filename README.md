@@ -128,9 +128,9 @@ No route changes are required — Rocket resolves templates by name, not extensi
 ### Install/Update in One Command
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y curl git
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh)"
+apt-get update
+apt-get install -y curl git
+curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh | bash -- --debug --force
 ````
 
 This will:
@@ -144,7 +144,7 @@ This will:
 **Force reinstall:**
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh)" -- --force
+curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh | bash -- --debug --force
 ```
 
 ---
@@ -160,9 +160,9 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPil
 ### Install/Update in One Command
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y curl git
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.sh)"
+apt-get update
+apt-get install -y curl git
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.sh)"
 ```
 
 * Installs Rust if missing
