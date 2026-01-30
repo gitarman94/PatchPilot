@@ -188,13 +188,22 @@ WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_ENV_FILE}
 Environment=PATH=${CARGO_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Ensure port 8080 is free and no previous instance is running
+# Pre-start: kill only old PatchPilot processes and free port 8080
 ExecStartPre=/bin/sh -c '/usr/bin/fuser -k 8080/tcp 2>/dev/null || true'
-ExecStartPre=/bin/sh -c '/usr/bin/pkill -f patchpilot_server 2>/dev/null || true'
+ExecStartPre=/bin/sh -c '/usr/bin/pkill -f "^${APP_DIR}/target/.*/patchpilot_server\$" 2>/dev/null || true'
+ExecStartPre=/bin/sleep 1
 
+# Start PatchPilot
 ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
-Restart=always
-RestartSec=10
+
+# Restart on crash/failure, with sane limits
+Restart=on-failure
+RestartSec=5s
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
+# Optional: increase file descriptors
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
