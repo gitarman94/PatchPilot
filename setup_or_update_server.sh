@@ -188,20 +188,18 @@ WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_ENV_FILE}
 Environment=PATH=${CARGO_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Kill any old PatchPilot processes before starting
-ExecStartPre=/usr/bin/fuser -k 8080/tcp
-ExecStartPre=/usr/bin/pkill -f patchpilot_server
+# Pre-start cleanup (MUST use shell)
+ExecStartPre=/bin/sh -c '/usr/bin/fuser -k 8080/tcp 2>/dev/null || true'
+ExecStartPre=/bin/sh -c '/usr/bin/pkill -f "${APP_DIR}/target/.*/patchpilot_server" 2>/dev/null || true'
+ExecStartPre=/bin/sleep 1
 
-# Start PatchPilot server
 ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
 
-# Restart on failure with sane limits
 Restart=on-failure
-RestartSec=5s
+RestartSec=5
 StartLimitBurst=3
 StartLimitIntervalSec=60
 
-# Increase open file descriptor limit
 LimitNOFILE=65535
 
 [Install]
