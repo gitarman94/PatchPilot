@@ -59,7 +59,7 @@ if [ -z "$EXTRACT_DIR" ]; then
   exit 1
 fi
 
-# If repo contains a patchpilot_server subdir use it, otherwise assume top-level
+# Use patchpilot_server subdir if it exists
 if [ -d "${EXTRACT_DIR}/patchpilot_server" ]; then
   SRC_DIR="${EXTRACT_DIR}/patchpilot_server"
 else
@@ -69,23 +69,26 @@ fi
 # Remove old directories safely
 rm -rf "$APP_DIR/src" "$APP_DIR/templates" "$APP_DIR/static"
 
-# Move files individually
+# Copy directories (safer than mv)
 for dir in src templates static; do
   if [ -d "${SRC_DIR}/${dir}" ]; then
-    mv "${SRC_DIR}/${dir}" "$APP_DIR/"
+    cp -a "${SRC_DIR}/${dir}" "$APP_DIR/"
+  else
+    echo "⚠ Warning: ${dir} not found in source, skipping."
   fi
 done
 
+# Copy server_test.sh if present
 if [ -f "${SRC_DIR}/server_test.sh" ]; then
-  mv "${SRC_DIR}/server_test.sh" "$APP_DIR/"
+  cp "${SRC_DIR}/server_test.sh" "$APP_DIR/"
   chmod +x "$APP_DIR/server_test.sh"
 fi
 
-# Move other top-level files (Cargo.toml, Cargo.lock, Rocket.toml, etc.)
+# Copy other top-level files
 for file in "${SRC_DIR}"/*; do
   basename=$(basename "$file")
   if [[ ! "$basename" =~ ^(src|templates|static|server_test.sh)$ ]]; then
-    mv "$file" "$APP_DIR/"
+    cp -a "$file" "$APP_DIR/"
   fi
 done
 
