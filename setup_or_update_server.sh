@@ -69,7 +69,7 @@ fi
 # Remove old directories safely
 rm -rf "$APP_DIR/src" "$APP_DIR/templates" "$APP_DIR/static"
 
-# Move files individually (no rsync)
+# Move files individually
 for dir in src templates static; do
   if [ -d "${SRC_DIR}/${dir}" ]; then
     mv "${SRC_DIR}/${dir}" "$APP_DIR/"
