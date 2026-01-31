@@ -2,116 +2,129 @@
 set -euo pipefail
 
 APP_DIR="/opt/patchpilot_server"
+INSTALL_LOG="${APP_DIR}/install.log"
 SERVICE_NAME="patchpilot_server.service"
 SOCKET_NAME="patchpilot_server.socket"
 SYSTEMD_DIR="/etc/systemd/system"
 
-mkdir -p "$APP_DIR"
-echo "Starting PatchPilot server setup at $(date)..." >&2
+mkdir -p "$APP_DIR" /opt/patchpilot_install
+
+echo "🛠️ Starting PatchPilot server setup at $(date)..."
 
 GITHUB_USER="gitarman94"
 GITHUB_REPO="PatchPilot"
 BRANCH="main"
 ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.zip"
 
+FORCE_REINSTALL=false
+UPGRADE=false
 BUILD_MODE="debug"
+
 for arg in "$@"; do
-  case "$arg" in
-    --debug) BUILD_MODE="debug" ;;
-    --release) BUILD_MODE="release" ;;
-  esac
+    case "$arg" in
+        --force) FORCE_REINSTALL=true ;;
+        --upgrade) UPGRADE=true ;;
+        --debug) BUILD_MODE="debug" ;;
+        --release) BUILD_MODE="release" ;;
+    esac
 done
 
-# Ensure minimal tools present
+# Only Debian-based systems supported
+if [[ -f /etc/os-release ]]; then
+    . /etc/os-release
+    case "$ID" in
+        debian|ubuntu|linuxmint|pop|raspbian) ;;
+        *) echo "❌ Only Debian-based systems supported."; exit 1 ;;
+    esac
+else
+    echo "❌ Cannot determine OS."; exit 1
+fi
+
+# Stop and disable any running PatchPilot instances to avoid port conflicts
+echo "🛑 Stopping any existing PatchPilot server instances..."
+systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
+systemctl stop "${SOCKET_NAME}" 2>/dev/null || true
+systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
+systemctl disable "${SOCKET_NAME}" 2>/dev/null || true
+
+# Kill any process currently listening on port 8080
+fuser -k 8080/tcp 2>/dev/null || true
+
+# Clean install directories
+rm -rf /opt/patchpilot_install*
+mkdir -p /opt/patchpilot_install "$APP_DIR"
+
+# Download latest source
+cd /opt/patchpilot_install
+curl -L "$ZIP_URL" -o latest.zip
+unzip -o latest.zip
+
+# Remove old server files
+rm -rf "$APP_DIR/src" "$APP_DIR/templates" "$APP_DIR/static"
+
+# Move new files into place
+cd "$APP_DIR"
+mv /opt/patchpilot_install/PatchPilot-main/patchpilot_server/* "$APP_DIR"
+mv /opt/patchpilot_install/PatchPilot-main/templates "$APP_DIR"
+mv /opt/patchpilot_install/PatchPilot-main/static "$APP_DIR"
+mv /opt/patchpilot_install/PatchPilot-main/server_test.sh "$APP_DIR"
+chmod +x "$APP_DIR/server_test.sh"
+rm -rf /opt/patchpilot_install
+
+# Install system dependencies
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev openssl
+apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev openssl fuser
 
-# Ensure patchpilot user exists early
-if ! id -u patchpilot >/dev/null 2>&1; then
-  useradd -r -m -d /home/patchpilot -s /usr/sbin/nologin patchpilot
-fi
-mkdir -p /home/patchpilot/.cargo /home/patchpilot/.rustup
-chown -R patchpilot:patchpilot /home/patchpilot
-chmod 700 /home/patchpilot /home/patchpilot/.cargo /home/patchpilot/.rustup
+# Rust self-contained installation
+export CARGO_HOME="${APP_DIR}/.cargo"
+export RUSTUP_HOME="${APP_DIR}/.rustup"
+export PATH="${CARGO_HOME}/bin:$PATH"
+mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
 
-# Stop/disable previous units (safe)
-systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-systemctl stop "$SOCKET_NAME" 2>/dev/null || true
-systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-systemctl disable "$SOCKET_NAME" 2>/dev/null || true
-
-# Prepare temp dir and download
-TMPDIR="$(mktemp -d /tmp/patchpilot_install.XXXXXX)"
-trap 'rm -rf "$TMPDIR"' EXIT
-cd "$TMPDIR"
-curl -sL "$ZIP_URL" -o latest.zip
-unzip -q latest.zip -d "$TMPDIR"
-
-EXTRACT_DIR=$(find "$TMPDIR" -maxdepth 1 -type d -name "${GITHUB_REPO}-*" -print -quit)
-if [ -z "$EXTRACT_DIR" ]; then
-  echo "Extraction failed: could not find ${GITHUB_REPO}-* directory" >&2
-  exit 1
+if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
+    echo "🛠️ Installing Rust (self-contained)..."
+    export RUSTUP_INIT_SKIP_PATH_CHECK=yes
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | HOME=/root CARGO_HOME="${CARGO_HOME}" RUSTUP_HOME="${RUSTUP_HOME}" sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
-REPO_ROOT="${EXTRACT_DIR}"
-# server sources may be under repo_root/patchpilot_server or at repo_root
-if [ -d "${REPO_ROOT}/patchpilot_server" ]; then
-  SRC_DIR="${REPO_ROOT}/patchpilot_server"
-else
-  SRC_DIR="${REPO_ROOT}"
+# Ensure Cargo & Rust binaries are executable
+chmod +x "${CARGO_HOME}/bin/cargo" 2>/dev/null || true
+chmod +x "${CARGO_HOME}/bin/rustc" 2>/dev/null || true
+
+# Explicitly install and set latest stable Rust
+"${CARGO_HOME}/bin/rustup" install stable
+"${CARGO_HOME}/bin/rustup" default stable
+
+# Verify Rust installation
+echo " Rust version:"
+"${CARGO_HOME}/bin/rustc" --version
+"${CARGO_HOME}/bin/cargo" --version
+
+# Database setup
+SQLITE_DB="${APP_DIR}/patchpilot.db"
+if [[ ! -f "$SQLITE_DB" ]]; then
+    touch "$SQLITE_DB"
+fi
+chown patchpilot:patchpilot "$SQLITE_DB"
+chmod 600 "$SQLITE_DB"
+
+# Build the server
+cd "$APP_DIR"
+echo "🛠️ Performing full rebuild of PatchPilot server (${BUILD_MODE})..."
+# Source Cargo env in case PATH is not inherited
+if [ -f "${CARGO_HOME}/env" ]; then
+    . "${CARGO_HOME}/env"
+fi
+"${CARGO_HOME}/bin/cargo" clean
+if ! "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release"); then
+    echo "❌ Cargo build failed! Check the output above."
+    exit 1
 fi
 
-# Ensure APP_DIR exists and is writable
-mkdir -p "$APP_DIR"
-# copy rather than move to avoid leaving repo in inconsistent state
-rm -rf "$APP_DIR/src" "$APP_DIR/static" "$APP_DIR/templates"
-
-# Copy server source dir contents
-# - copy any src dir from SRC_DIR (server code)
-if [ -d "${SRC_DIR}/src" ]; then
-  cp -a "${SRC_DIR}/src" "$APP_DIR/"
-fi
-
-# Copy templates: look in both repo root and src dir
-if [ -d "${REPO_ROOT}/templates" ]; then
-  cp -a "${REPO_ROOT}/templates" "$APP_DIR/"
-fi
-if [ -d "${SRC_DIR}/templates" ]; then
-  cp -a "${SRC_DIR}/templates" "$APP_DIR/"
-fi
-
-# Copy static: look in both repo root and src dir
-if [ -d "${REPO_ROOT}/static" ]; then
-  cp -a "${REPO_ROOT}/static" "$APP_DIR/"
-fi
-if [ -d "${SRC_DIR}/static" ]; then
-  cp -a "${SRC_DIR}/static" "$APP_DIR/"
-fi
-
-# Copy other top-level files from SRC_DIR (Cargo.toml, Rocket.toml, server_test.sh, etc.)
-for file in "${SRC_DIR}"/*; do
-  bn=$(basename "$file")
-  case "$bn" in
-    src|templates|static) continue ;;
-    *) cp -a "$file" "$APP_DIR/" ;;
-  esac
-done
-
-# Also copy top-level files from REPO_ROOT (if different)
-if [ "$REPO_ROOT" != "$SRC_DIR" ]; then
-  for file in "${REPO_ROOT}"/*; do
-    bn=$(basename "$file")
-    case "$bn" in
-      patchpilot_server|src|templates|static) continue ;;
-      *) cp -a "$file" "$APP_DIR/" ;;
-    esac
-  done
-fi
-
-# Ensure Rocket.toml present
-if [ ! -f "${APP_DIR}/Rocket.toml" ]; then
-  cat > "${APP_DIR}/Rocket.toml" <<'EOF'
+# Rocket configuration
+cat > "${APP_DIR}/Rocket.toml" <<EOF
 [default]
 address = "0.0.0.0"
 port = 8080
@@ -120,80 +133,67 @@ log_level = "normal"
 [release]
 log_level = "critical"
 
-[debug]
+[dev]
+log_level = "normal"
 address = "0.0.0.0"
 port = 8080
-log_level = "normal"
 EOF
-  chmod 600 "${APP_DIR}/Rocket.toml"
+
+# Environment file
+APP_ENV_FILE="${APP_DIR}/.env"
+if [[ ! -f "$APP_ENV_FILE" ]]; then
+cat > "${APP_ENV_FILE}" <<EOF
+DATABASE_URL=sqlite:///${APP_DIR}/patchpilot.db
+RUST_LOG=info
+ROCKET_ADDRESS=0.0.0.0
+ROCKET_PORT=8080
+ROCKET_PROFILE=dev
+ROCKET_INSECURE_ALLOW_DEV=true
+HOME=/home/patchpilot
+EOF
+chmod 600 "$APP_ENV_FILE"
 fi
 
-# Ensure admin token
-if [ ! -f "${APP_DIR}/admin_token.txt" ]; then
-  openssl rand -base64 32 | head -c 44 > "${APP_DIR}/admin_token.txt"
-  chmod 600 "${APP_DIR}/admin_token.txt"
+# Generate Rocket secret key if missing
+if ! grep -q "^ROCKET_SECRET_KEY=" "$APP_ENV_FILE" || \
+   ! grep -E "^ROCKET_SECRET_KEY=([A-Za-z0-9+/]{43}=|[A-Fa-f0-9]{64})$" "$APP_ENV_FILE"; then
+    echo "Generating valid Rocket secret key"
+    sed -i '/^ROCKET_SECRET_KEY=/d' "$APP_ENV_FILE"
+    echo "ROCKET_SECRET_KEY=$(openssl rand -base64 32)" >> "$APP_ENV_FILE"
+fi
+chmod 600 "$APP_ENV_FILE"
+
+# Admin token
+TOKEN_FILE="${APP_DIR}/admin_token.txt"
+if [[ ! -f "$TOKEN_FILE" ]]; then
+    openssl rand -base64 32 | head -c 44 > "$TOKEN_FILE"
+    chmod 600 "$TOKEN_FILE"
 fi
 
-# Ensure DB present
-touch "${APP_DIR}/patchpilot.db"
-chown patchpilot:patchpilot "${APP_DIR}/patchpilot.db"
-chmod 600 "${APP_DIR}/patchpilot.db"
+# Ensure patchpilot user exists
+if ! id -u patchpilot >/dev/null 2>&1; then
+    useradd -r -m -d /home/patchpilot -s /usr/sbin/nologin patchpilot
+fi
+mkdir -p /home/patchpilot/.cargo /home/patchpilot/.rustup
+chown -R patchpilot:patchpilot /home/patchpilot
+chmod 700 /home/patchpilot
+chmod 700 /home/patchpilot/.cargo /home/patchpilot/.rustup
 
-# Ensure ownership and permissions for app dir (readable by root and patchpilot)
+# Permissions
+mkdir -p /opt/patchpilot_server/migrations
+chown -R patchpilot:patchpilot /opt/patchpilot_server/migrations
 chown -R patchpilot:patchpilot "$APP_DIR"
 find "$APP_DIR" -type d -exec chmod 755 {} \;
-find "$APP_DIR" -type f -exec chmod 644 {} \;
-chmod +x "${APP_DIR}/server_test.sh" 2>/dev/null || true
+find "$APP_DIR" -type f -exec chmod 755 {} \;
 
-# Install rustup/cargo into CARGO_HOME under APP_DIR (non-invasive)
-export CARGO_HOME="${APP_DIR}/.cargo"
-export RUSTUP_HOME="${APP_DIR}/.rustup"
-export PATH="${CARGO_HOME}/bin:${PATH}"
-mkdir -p "${CARGO_HOME}" "${RUSTUP_HOME}"
+chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server"
+chmod +x "$APP_DIR/server_test.sh" 2>/dev/null || true
 
-if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
-  # install rustup as root but target CARGO_HOME
-  curl -sSf https://sh.rustup.rs | HOME=/root CARGO_HOME="${CARGO_HOME}" RUSTUP_HOME="${RUSTUP_HOME}" sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
-fi
-
-# Ensure the cargo env is loaded for this script
-if [ -f "${CARGO_HOME}/env" ]; then
-  # shellcheck disable=SC1090
-  . "${CARGO_HOME}/env"
-fi
-
-# Make sure executables exist and are executable
-if [ -d "${CARGO_HOME}/bin" ]; then
-  chmod -R a+rx "${CARGO_HOME}/bin" || true
-fi
-chmod -R a+rx "${RUSTUP_HOME}" || true
-
-# Ensure stable toolchain exists
-"${CARGO_HOME}/bin/rustup" install stable || true
-"${CARGO_HOME}/bin/rustup" default stable || true
-
-# Build the server
-cd "$APP_DIR"
-echo "Building PatchPilot server (${BUILD_MODE})..." >&2
-
-if [ "$BUILD_MODE" = "release" ]; then
-  "${CARGO_HOME}/bin/cargo" build --release
-  EXE_PATH="${APP_DIR}/target/release/patchpilot_server"
-else
-  "${CARGO_HOME}/bin/cargo" build
-  EXE_PATH="${APP_DIR}/target/debug/patchpilot_server"
-fi
-
-# Ensure binary exists and is executable
-if [ ! -x "${EXE_PATH}" ]; then
-  chmod +x "${EXE_PATH}" || true
-fi
-chown patchpilot:patchpilot "${EXE_PATH}" 2>/dev/null || true
-
-# Create systemd socket and service (socket activation)
+# Systemd socket
 cat > "${SYSTEMD_DIR}/${SOCKET_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server Socket
+After=network.target
 
 [Socket]
 ListenStream=8080
@@ -203,6 +203,7 @@ Accept=no
 WantedBy=sockets.target
 EOF
 
+# Systemd service
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server
@@ -213,9 +214,9 @@ Requires=${SOCKET_NAME}
 User=patchpilot
 Group=patchpilot
 WorkingDirectory=${APP_DIR}
-EnvironmentFile=${APP_DIR}/.env
+EnvironmentFile=${APP_ENV_FILE}
 Environment=PATH=${CARGO_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=${EXE_PATH}
+ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
 Restart=on-failure
 RestartSec=5s
 LimitNOFILE=65535
@@ -226,10 +227,12 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
+# Enable and start
 systemctl daemon-reload
-systemctl enable --now "${SOCKET_NAME}" "${SERVICE_NAME}"
+systemctl enable "${SOCKET_NAME}" --now 2>/dev/null || true
+systemctl enable "${SERVICE_NAME}" --now 2>/dev/null || true
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "Installation complete"
-echo "Dashboard: http://${SERVER_IP}:8080"
-echo "Admin token: ${APP_DIR}/admin_token.txt"
+echo "✅ Installation complete!"
+echo "🌐 Dashboard: http://${SERVER_IP}:8080"
+echo "🔑 Admin token stored at ${TOKEN_FILE}"
