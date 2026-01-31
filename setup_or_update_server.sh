@@ -41,14 +41,15 @@ else
     echo "❌ Cannot determine OS."; exit 1
 fi
 
-# Stop and disable any running PatchPilot services
-echo "🛑 Stopping any existing PatchPilot server instances..."
+# Stop and disable any running PatchPilot services to prevent multiple port binding
+echo "🛑 Ensuring no running PatchPilot server instances..."
 systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
 systemctl stop "${SOCKET_NAME}" 2>/dev/null || true
 systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 systemctl disable "${SOCKET_NAME}" 2>/dev/null || true
 
-# Kill any process bound to 8080 (pure Bash fallback)
+# Prevent manual runs of patchpilot_server that might conflict on PORT
+# Only kill if process is running on port 8080
 if command -v lsof >/dev/null 2>&1; then
     PIDS=$(lsof -ti tcp:$PORT || true)
 elif command -v netstat >/dev/null 2>&1; then
@@ -62,7 +63,6 @@ if [[ -n "$PIDS" ]]; then
     kill -9 $PIDS || true
 fi
 
-# Clean install directories
 rm -rf /opt/patchpilot_install*
 mkdir -p /opt/patchpilot_install "$APP_DIR"
 
@@ -71,24 +71,24 @@ cd /opt/patchpilot_install
 curl -L "$ZIP_URL" -o latest.zip
 unzip -o latest.zip
 
-# Remove old server files
+# Remove existing folders to allow mv to succeed
 rm -rf "$APP_DIR/src" "$APP_DIR/templates" "$APP_DIR/static"
 
 # Move new files into place
 cd "$APP_DIR"
 mv /opt/patchpilot_install/PatchPilot-main/patchpilot_server/* "$APP_DIR"
 mv /opt/patchpilot_install/PatchPilot-main/templates "$APP_DIR"
-mv /opt/patchpilot_install/PatchPilot-main/static "$APP_DIR"
 mv /opt/patchpilot_install/PatchPilot-main/server_test.sh "$APP_DIR"
+mv /opt/patchpilot_install/PatchPilot-main/static "$APP_DIR"
 chmod +x "$APP_DIR/server_test.sh"
 rm -rf /opt/patchpilot_install
 
-# Install system dependencies
+# System dependencies
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev openssl
 
-# Rust self-contained installation
+# Rust self-contained installation (unchanged from your working script)
 export CARGO_HOME="${APP_DIR}/.cargo"
 export RUSTUP_HOME="${APP_DIR}/.rustup"
 export PATH="${CARGO_HOME}/bin:$PATH"
@@ -101,34 +101,28 @@ if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
       | HOME=/root CARGO_HOME="${CARGO_HOME}" RUSTUP_HOME="${RUSTUP_HOME}" sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
-# Ensure Cargo & Rust binaries are executable
-chmod +x "${CARGO_HOME}/bin/cargo" 2>/dev/null || true
-chmod +x "${CARGO_HOME}/bin/rustc" 2>/dev/null || true
-
-# Explicitly install and set latest stable Rust
-"${CARGO_HOME}/bin/rustup" install stable
-"${CARGO_HOME}/bin/rustup" default stable
+# Explicitly install and set latest stable Rust (unchanged)
+export PATH="${CARGO_HOME}/bin:$PATH"
+/opt/patchpilot_server/.cargo/bin/rustup install stable
+/opt/patchpilot_server/.cargo/bin/rustup default stable
 
 # Verify Rust installation
 echo " Rust version:"
-"${CARGO_HOME}/bin/rustc" --version
-"${CARGO_HOME}/bin/cargo" --version
+/opt/patchpilot_server/.cargo/bin/rustc --version
+/opt/patchpilot_server/.cargo/bin/cargo --version
 
-# Database setup
+# Ensure database exists and secure permissions
 SQLITE_DB="${APP_DIR}/patchpilot.db"
 if [[ ! -f "$SQLITE_DB" ]]; then
     touch "$SQLITE_DB"
 fi
-chown patchpilot:patchpilot "$SQLITE_DB" || true
+chown patchpilot:patchpilot "$SQLITE_DB"
 chmod 600 "$SQLITE_DB"
 
-# Build the server
+## Build the server
 cd "$APP_DIR"
+
 echo "🛠️ Performing full rebuild of PatchPilot server (${BUILD_MODE})..."
-# Source Cargo env in case PATH is not inherited
-if [ -f "${CARGO_HOME}/env" ]; then
-    . "${CARGO_HOME}/env"
-fi
 "${CARGO_HOME}/bin/cargo" clean
 if ! "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release"); then
     echo "❌ Cargo build failed! Check the output above."
@@ -151,7 +145,7 @@ address = "0.0.0.0"
 port = 8080
 EOF
 
-# Environment file
+# Environment file — preserve existing, otherwise create minimal default
 APP_ENV_FILE="${APP_DIR}/.env"
 if [[ ! -f "$APP_ENV_FILE" ]]; then
 cat > "${APP_ENV_FILE}" <<EOF
@@ -166,7 +160,7 @@ EOF
 chmod 600 "$APP_ENV_FILE"
 fi
 
-# Generate Rocket secret key if missing
+# Generate Rocket secret key
 if ! grep -q "^ROCKET_SECRET_KEY=" "$APP_ENV_FILE" || \
    ! grep -E "^ROCKET_SECRET_KEY=([A-Za-z0-9+/]{43}=|[A-Fa-f0-9]{64})$" "$APP_ENV_FILE"; then
     echo "Generating valid Rocket secret key"
@@ -191,7 +185,6 @@ chown -R patchpilot:patchpilot /home/patchpilot
 chmod 700 /home/patchpilot
 chmod 700 /home/patchpilot/.cargo /home/patchpilot/.rustup
 
-# Permissions
 mkdir -p /opt/patchpilot_server/migrations
 chown -R patchpilot:patchpilot /opt/patchpilot_server/migrations
 chown -R patchpilot:patchpilot "$APP_DIR"
@@ -201,21 +194,21 @@ find "$APP_DIR" -type f -exec chmod 755 {} \;
 chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server"
 chmod +x "$APP_DIR/server_test.sh" 2>/dev/null || true
 
-# Systemd socket
+# Systemd socket unit (8080)
 cat > "${SYSTEMD_DIR}/${SOCKET_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server Socket
 After=network.target
 
 [Socket]
-ListenStream=${PORT}
+ListenStream=8080
 Accept=no
 
 [Install]
 WantedBy=sockets.target
 EOF
 
-# Systemd service
+# Systemd service unit (Rocket will use fd 3 provided by systemd if present)
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server
@@ -239,12 +232,12 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-# Enable and start
+# Enable and start socket + service robustly
 systemctl daemon-reload
 systemctl enable "${SOCKET_NAME}" --now 2>/dev/null || true
 systemctl enable "${SERVICE_NAME}" --now 2>/dev/null || true
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete!"
-echo "🌐 Dashboard: http://${SERVER_IP}:${PORT}"
+echo "🌐 Dashboard: http://${SERVER_IP}:8080"
 echo "🔑 Admin token stored at ${TOKEN_FILE}"
