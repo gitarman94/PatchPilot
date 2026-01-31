@@ -6,7 +6,6 @@ INSTALL_LOG="${APP_DIR}/install.log"
 SERVICE_NAME="patchpilot_server.service"
 SOCKET_NAME="patchpilot_server.socket"
 SYSTEMD_DIR="/etc/systemd/system"
-PORT=8080
 
 mkdir -p "$APP_DIR" /opt/patchpilot_install
 
@@ -41,27 +40,13 @@ else
     echo "❌ Cannot determine OS."; exit 1
 fi
 
-# Stop and disable any running PatchPilot services to prevent multiple port binding
+# Stop and remove any running instances before reinstall
 echo "🛑 Ensuring no running PatchPilot server instances..."
+# Be tolerant if units don't exist; don't call tools that may be absent
 systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
 systemctl stop "${SOCKET_NAME}" 2>/dev/null || true
 systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 systemctl disable "${SOCKET_NAME}" 2>/dev/null || true
-
-# Prevent manual runs of patchpilot_server that might conflict on PORT
-# Only kill if process is running on port 8080
-if command -v lsof >/dev/null 2>&1; then
-    PIDS=$(lsof -ti tcp:$PORT || true)
-elif command -v netstat >/dev/null 2>&1; then
-    PIDS=$(netstat -tlnp 2>/dev/null | awk -v p=":$PORT" '$4 ~ p {split($7,a,"/"); print a[1]}')
-else
-    PIDS=""
-fi
-
-if [[ -n "$PIDS" ]]; then
-    echo "🛑 Killing processes on port $PORT: $PIDS"
-    kill -9 $PIDS || true
-fi
 
 rm -rf /opt/patchpilot_install*
 mkdir -p /opt/patchpilot_install "$APP_DIR"
@@ -88,7 +73,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev openssl
 
-# Rust self-contained installation (unchanged from your working script)
+# Rust self-contained installation
 export CARGO_HOME="${APP_DIR}/.cargo"
 export RUSTUP_HOME="${APP_DIR}/.rustup"
 export PATH="${CARGO_HOME}/bin:$PATH"
@@ -101,7 +86,7 @@ if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
       | HOME=/root CARGO_HOME="${CARGO_HOME}" RUSTUP_HOME="${RUSTUP_HOME}" sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
-# Explicitly install and set latest stable Rust (unchanged)
+# Explicitly install and set latest stable Rust
 export PATH="${CARGO_HOME}/bin:$PATH"
 /opt/patchpilot_server/.cargo/bin/rustup install stable
 /opt/patchpilot_server/.cargo/bin/rustup default stable
