@@ -47,11 +47,13 @@ fn rocket() -> _ {
         log::info!("[*] No systemd socket detected; Rocket will bind port from Rocket.toml or ROCKET_PORT.");
     }
 
-    // Figment configuration: only override if no systemd socket
+    // Figment configuration
     let figment = if systemd_socket_active {
         Figment::from(rocket::Config::default())
             .merge(Toml::file("Rocket.toml").nested())
             .merge(Env::prefixed("ROCKET_").global())
+            // FIX: hard-set template directory (systemd-safe)
+            .merge(("template_dir", "/opt/patchpilot_server/templates"))
     } else {
         let override_map = serde_json::json!({
             "address": "0.0.0.0",
@@ -62,6 +64,8 @@ fn rocket() -> _ {
             .merge(Toml::file("Rocket.toml").nested())
             .merge(Env::prefixed("ROCKET_").global())
             .merge(rocket::figment::providers::Serialized::from(override_map, "default"))
+            // FIX: hard-set template directory (non-socket path too)
+            .merge(("template_dir", "/opt/patchpilot_server/templates"))
     };
 
     // Initialize DB pool
