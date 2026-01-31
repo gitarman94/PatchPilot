@@ -115,14 +115,24 @@ fn rocket() -> _ {
             let app = rocket.state::<Arc<AppState>>().cloned();
             Box::pin(async move {
                 if let Some(app) = app {
-                    let mut conn = get_conn(&app.db_pool);
-                    let _ = app.log_audit(
-                        &mut conn,
-                        "system",
-                        "server_started",
-                        None,
-                        Some("PatchPilot server started"),
-                    );
+                    let app = app.clone();
+                    tokio::spawn(async move {
+                        let app = app;
+                        let res = tokio::task::spawn_blocking(move || {
+                            let mut conn = get_conn(&app.db_pool);
+                            let _ = app.log_audit(
+                                &mut conn,
+                                "system",
+                                "server_started",
+                                None,
+                                Some("PatchPilot server started"),
+                            );
+                        })
+                        .await;
+                        if let Err(e) = res {
+                            log::error!("Startup audit spawn_blocking failed: {:?}", e);
+                        }
+                    });
                 }
             })
         }))
