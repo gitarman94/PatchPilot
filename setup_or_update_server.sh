@@ -6,6 +6,7 @@ INSTALL_LOG="${APP_DIR}/install.log"
 SERVICE_NAME="patchpilot_server.service"
 SOCKET_NAME="patchpilot_server.socket"
 SYSTEMD_DIR="/etc/systemd/system"
+PORT=8080
 
 mkdir -p "$APP_DIR" /opt/patchpilot_install
 
@@ -40,15 +41,26 @@ else
     echo "❌ Cannot determine OS."; exit 1
 fi
 
-# Stop and disable any running PatchPilot instances to avoid port conflicts
+# Stop and disable any running PatchPilot services
 echo "🛑 Stopping any existing PatchPilot server instances..."
 systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
 systemctl stop "${SOCKET_NAME}" 2>/dev/null || true
 systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 systemctl disable "${SOCKET_NAME}" 2>/dev/null || true
 
-# Kill any process currently listening on port 8080
-fuser -k 8080/tcp 2>/dev/null || true
+# Kill any process bound to 8080 (pure Bash fallback)
+if command -v lsof >/dev/null 2>&1; then
+    PIDS=$(lsof -ti tcp:$PORT || true)
+elif command -v netstat >/dev/null 2>&1; then
+    PIDS=$(netstat -tlnp 2>/dev/null | awk -v p=":$PORT" '$4 ~ p {split($7,a,"/"); print a[1]}')
+else
+    PIDS=""
+fi
+
+if [[ -n "$PIDS" ]]; then
+    echo "🛑 Killing processes on port $PORT: $PIDS"
+    kill -9 $PIDS || true
+fi
 
 # Clean install directories
 rm -rf /opt/patchpilot_install*
@@ -74,7 +86,7 @@ rm -rf /opt/patchpilot_install
 # Install system dependencies
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev openssl fuser
+apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev openssl
 
 # Rust self-contained installation
 export CARGO_HOME="${APP_DIR}/.cargo"
@@ -107,7 +119,7 @@ SQLITE_DB="${APP_DIR}/patchpilot.db"
 if [[ ! -f "$SQLITE_DB" ]]; then
     touch "$SQLITE_DB"
 fi
-chown patchpilot:patchpilot "$SQLITE_DB"
+chown patchpilot:patchpilot "$SQLITE_DB" || true
 chmod 600 "$SQLITE_DB"
 
 # Build the server
@@ -196,7 +208,7 @@ Description=PatchPilot Server Socket
 After=network.target
 
 [Socket]
-ListenStream=8080
+ListenStream=${PORT}
 Accept=no
 
 [Install]
@@ -234,5 +246,5 @@ systemctl enable "${SERVICE_NAME}" --now 2>/dev/null || true
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete!"
-echo "🌐 Dashboard: http://${SERVER_IP}:8080"
+echo "🌐 Dashboard: http://${SERVER_IP}:${PORT}"
 echo "🔑 Admin token stored at ${TOKEN_FILE}"
