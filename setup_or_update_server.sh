@@ -66,13 +66,28 @@ else
   SRC_DIR="${EXTRACT_DIR}"
 fi
 
+# Remove old directories safely
 rm -rf "$APP_DIR/src" "$APP_DIR/templates" "$APP_DIR/static"
-rsync -a --delete "$SRC_DIR/" "$APP_DIR/"
 
-# make sure server_test.sh exists and is executable if present
-if [ -f "$APP_DIR/server_test.sh" ]; then
+# Move files individually (no rsync)
+for dir in src templates static; do
+  if [ -d "${SRC_DIR}/${dir}" ]; then
+    mv "${SRC_DIR}/${dir}" "$APP_DIR/"
+  fi
+done
+
+if [ -f "${SRC_DIR}/server_test.sh" ]; then
+  mv "${SRC_DIR}/server_test.sh" "$APP_DIR/"
   chmod +x "$APP_DIR/server_test.sh"
 fi
+
+# Move other top-level files (Cargo.toml, Cargo.lock, Rocket.toml, etc.)
+for file in "${SRC_DIR}"/*; do
+  basename=$(basename "$file")
+  if [[ ! "$basename" =~ ^(src|templates|static|server_test.sh)$ ]]; then
+    mv "$file" "$APP_DIR/"
+  fi
+done
 
 rm -rf /opt/patchpilot_install
 
