@@ -45,7 +45,7 @@ systemctl stop "$SOCKET_NAME" 2>/dev/null || true
 systemctl disable "$SERVICE_NAME" 2>/dev/null || true
 systemctl disable "$SOCKET_NAME" 2>/dev/null || true
 
-rm -rf /opt/patchpilot_install*
+rm -rf /opt/patchpilot_install
 mkdir -p /opt/patchpilot_install "$APP_DIR"
 
 # Download latest source
@@ -53,13 +53,27 @@ cd /opt/patchpilot_install
 curl -L "$ZIP_URL" -o latest.zip
 unzip -o latest.zip
 
-# Move new files into place
+EXTRACT_DIR=$(find . -maxdepth 1 -type d -name "${GITHUB_REPO}-*" -print -quit)
+if [ -z "$EXTRACT_DIR" ]; then
+  echo "Extraction failed: could not find ${GITHUB_REPO}-* directory" >&2
+  exit 1
+fi
+
+# If repo contains a patchpilot_server subdir use it, otherwise assume top-level
+if [ -d "${EXTRACT_DIR}/patchpilot_server" ]; then
+  SRC_DIR="${EXTRACT_DIR}/patchpilot_server"
+else
+  SRC_DIR="${EXTRACT_DIR}"
+fi
+
 rm -rf "$APP_DIR/src" "$APP_DIR/templates" "$APP_DIR/static"
-mv /opt/patchpilot_install/PatchPilot-main/patchpilot_server/* "$APP_DIR"
-mv /opt/patchpilot_install/PatchPilot-main/templates "$APP_DIR"
-mv /opt/patchpilot_install/PatchPilot-main/server_test.sh "$APP_DIR"
-mv /opt/patchpilot_install/PatchPilot-main/static "$APP_DIR"
-chmod +x "$APP_DIR/server_test.sh"
+rsync -a --delete "$SRC_DIR/" "$APP_DIR/"
+
+# make sure server_test.sh exists and is executable if present
+if [ -f "$APP_DIR/server_test.sh" ]; then
+  chmod +x "$APP_DIR/server_test.sh"
+fi
+
 rm -rf /opt/patchpilot_install
 
 # Install system dependencies
