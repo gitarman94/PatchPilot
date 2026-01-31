@@ -9,6 +9,8 @@ use rocket_dyn_templates::Template;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::env;
+use std::net::TcpListener;
+use std::process;
 
 mod schema;
 mod db;
@@ -25,7 +27,23 @@ use state::{SystemState, AppState};
 
 #[launch]
 fn rocket() -> _ {
-    // Initialize logging
+    let systemd_socket_active = env::var("LISTEN_FDS")
+        .ok()
+        .and_then(|s| s.parse::<i32>().ok())
+        .map(|n| n > 0)
+        .unwrap_or(false);
+
+    if !systemd_socket_active {
+        let port = env::var("ROCKET_PORT")
+            .unwrap_or_else(|_| "8080".into())
+            .parse::<u16>()
+            .unwrap_or(8080);
+
+        if TcpListener::bind(("0.0.0.0", port)).is_err() {
+            process::exit(1);
+        }
+    }
+
     flexi_logger::Logger::try_with_env_or_str(
         env::var("RUST_LOG").unwrap_or_else(|_| "info".into())
     )
@@ -34,20 +52,12 @@ fn rocket() -> _ {
     .start()
     .unwrap();
 
-    // Detect systemd socket activation
-    let systemd_socket_active = env::var("LISTEN_FDS")
-        .ok()
-        .and_then(|s| s.parse::<i32>().ok())
-        .map(|n| n > 0)
-        .unwrap_or(false);
-
     if systemd_socket_active {
         log::info!("[*] Systemd socket detected; Rocket will inherit fd 3. No port override needed.");
     } else {
         log::info!("[*] No systemd socket detected; Rocket will bind port from Rocket.toml or ROCKET_PORT.");
     }
 
-    // ✅ FIX: start from Rocket’s own figment
     let figment = if systemd_socket_active {
         rocket::Config::figment()
             .merge(Toml::file("Rocket.toml"))
@@ -56,10 +66,7 @@ fn rocket() -> _ {
     } else {
         let override_map = serde_json::json!({
             "address": "0.0.0.0",
-            "port": env::var("ROCKET_PORT")
-                .unwrap_or("8080".into())
-                .parse::<u16>()
-                .unwrap_or(8080)
+            "port": env::var("ROCKET_PORT").unwrap_or("8080".into()).parse::<u16>().unwrap_or(8080)
         });
 
         rocket::Config::figment()
@@ -69,19 +76,15 @@ fn rocket() -> _ {
             .merge(("template_dir", "/opt/patchpilot_server/templates"))
     };
 
-    // Initialize DB pool
     let db_pool = initialize();
 
-    // Load persistent settings into in-memory lock
     let settings = {
         let mut conn = get_conn(&db_pool);
         Arc::new(RwLock::new(settings::ServerSettings::load(&mut conn)))
     };
 
-    // System state
     let system = SystemState::new(db_pool.clone());
 
-    // Shared application state
     let app_state = Arc::new(AppState {
         db_pool: db_pool.clone(),
         system: system.clone(),
@@ -95,7 +98,6 @@ fn rocket() -> _ {
         })),
     });
 
-    // Refresh metrics once at startup
     app_state.system.refresh();
     log::info!(
         "System memory: total {} MB, available {} MB",
