@@ -47,24 +47,25 @@ fn rocket() -> _ {
         log::info!("[*] No systemd socket detected; Rocket will bind port from Rocket.toml or ROCKET_PORT.");
     }
 
-    // Figment configuration
+    // ✅ FIX: start from Rocket’s own figment
     let figment = if systemd_socket_active {
-        Figment::from(rocket::Config::default())
-            .merge(Toml::file("Rocket.toml").nested())
+        rocket::Config::figment()
+            .merge(Toml::file("Rocket.toml"))
             .merge(Env::prefixed("ROCKET_").global())
-            // FIX: hard-set template directory (systemd-safe)
             .merge(("template_dir", "/opt/patchpilot_server/templates"))
     } else {
         let override_map = serde_json::json!({
             "address": "0.0.0.0",
-            "port": env::var("ROCKET_PORT").unwrap_or("8080".into()).parse::<u16>().unwrap_or(8080)
+            "port": env::var("ROCKET_PORT")
+                .unwrap_or("8080".into())
+                .parse::<u16>()
+                .unwrap_or(8080)
         });
 
-        Figment::from(rocket::Config::default())
-            .merge(Toml::file("Rocket.toml").nested())
+        rocket::Config::figment()
+            .merge(Toml::file("Rocket.toml"))
             .merge(Env::prefixed("ROCKET_").global())
             .merge(rocket::figment::providers::Serialized::from(override_map, "default"))
-            // FIX: hard-set template directory (non-socket path too)
             .merge(("template_dir", "/opt/patchpilot_server/templates"))
     };
 
@@ -102,7 +103,6 @@ fn rocket() -> _ {
         app_state.system.available_memory() / 1024 / 1024
     );
 
-    // Build Rocket with managed state, fairings, routes
     rocket::custom(figment)
         .manage(db_pool)
         .manage(app_state.clone())
