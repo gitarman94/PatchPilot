@@ -2,7 +2,6 @@
 extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
-use rocket::figment::providers::{Env, Toml, Format};
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
@@ -25,6 +24,7 @@ use state::{SystemState, AppState};
 
 #[launch]
 fn rocket() -> _ {
+    // Require systemd socket activation. If not present, exit.
     let systemd_socket_active = env::var("LISTEN_FDS")
         .ok()
         .and_then(|s| s.parse::<i32>().ok())
@@ -38,11 +38,11 @@ fn rocket() -> _ {
         log::info!("[*] Systemd socket detected; Rocket will inherit fd 3 for connections.");
     }
 
+    // Build minimal figment so Rocket does not receive any address/port overrides.
     let figment = rocket::Config::figment()
-        .merge(Toml::file("Rocket.toml"))
-        .merge(Env::prefixed("ROCKET_").global())
         .merge(("template_dir", "/opt/patchpilot_server/templates"));
 
+    // Initialize DB and app state (unchanged)
     let db_pool = initialize();
 
     let settings = {
@@ -72,6 +72,16 @@ fn rocket() -> _ {
         app_state.system.available_memory() / 1024 / 1024
     );
 
+    // Initialize logger from environment (keeps original behavior)
+    flexi_logger::Logger::try_with_env_or_str(
+        env::var("RUST_LOG").unwrap_or_else(|_| "info".into())
+    )
+    .unwrap()
+    .log_to_stdout()
+    .start()
+    .unwrap();
+
+    // Build Rocket without any address/port overrides so systemd's fd is used.
     rocket::custom(figment)
         .manage(db_pool)
         .manage(app_state.clone())
