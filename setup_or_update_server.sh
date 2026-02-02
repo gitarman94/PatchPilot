@@ -192,7 +192,7 @@ Accept=no
 WantedBy=sockets.target
 EOF
 
-# Systemd service unit (Rocket will use fd 3 provided by systemd if present)
+# Systemd service unit (Rocket will use fd 3 provided by systemd)
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server
