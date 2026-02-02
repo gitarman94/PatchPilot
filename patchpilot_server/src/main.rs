@@ -2,14 +2,13 @@
 extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
-use rocket::figment::providers::{Env, Toml, Format};
+use rocket::figment::providers::{Env, Toml};
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::env;
-use std::os::unix::io::FromRawFd;
 
 mod schema;
 mod db;
@@ -32,18 +31,11 @@ fn rocket() -> _ {
         .map(|n| n > 0)
         .unwrap_or(false);
 
-    flexi_logger::Logger::try_with_env_or_str(
-        env::var("RUST_LOG").unwrap_or_else(|_| "info".into())
-    )
-    .unwrap()
-    .log_to_stdout()
-    .start()
-    .unwrap();
-
-    if systemd_socket_active {
-        log::info!("[*] Systemd socket detected; Rocket will inherit fd 3.");
+    if !systemd_socket_active {
+        eprintln!("[!] No systemd socket detected. Exiting; systemd must own the port.");
+        std::process::exit(1);
     } else {
-        log::info!("[*] No systemd socket detected; Rocket will not bind a port. Service must provide one.");
+        log::info!("[*] Systemd socket detected; Rocket will inherit fd 3 for connections.");
     }
 
     let figment = rocket::Config::figment()
@@ -80,7 +72,7 @@ fn rocket() -> _ {
         app_state.system.available_memory() / 1024 / 1024
     );
 
-    let rocket_instance = rocket::custom(figment)
+    rocket::custom(figment)
         .manage(db_pool)
         .manage(app_state.clone())
         .attach(Template::fairing())
@@ -101,7 +93,8 @@ fn rocket() -> _ {
                                 None,
                                 Some("PatchPilot server started"),
                             );
-                        }).await;
+                        })
+                        .await;
                         if let Err(e) = res {
                             log::error!("Startup audit spawn_blocking failed: {:?}", e);
                         }
@@ -115,12 +108,5 @@ fn rocket() -> _ {
         .mount("/roles", routes::roles::routes())
         .mount("/settings", routes::settings::routes())
         .mount("/static", FileServer::from(relative!("static")))
-        .mount("/", routes::page_routes());
-
-    if systemd_socket_active {
-        let listener = unsafe { std::net::TcpListener::from_raw_fd(3) };
-        rocket_instance.listen(listener)
-    } else {
-        rocket_instance
-    }
+        .mount("/", routes::page_routes())
 }
