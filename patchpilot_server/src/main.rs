@@ -2,7 +2,7 @@
 extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
-use rocket::figment::providers::{Env, Toml};
+use rocket::figment::providers::{Env, Toml, Format};
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
