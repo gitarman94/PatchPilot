@@ -2,15 +2,14 @@
 extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
-use rocket::figment::providers::{Env, Toml, Format};
+use rocket::figment::providers::{Env, Toml};
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::env;
-use std::net::TcpListener;
-use std::process;
+use std::os::unix::io::FromRawFd;
 
 mod schema;
 mod db;
@@ -27,23 +26,14 @@ use state::{SystemState, AppState};
 
 #[launch]
 fn rocket() -> _ {
+    // Detect presence of systemd socket activation
     let systemd_socket_active = env::var("LISTEN_FDS")
         .ok()
         .and_then(|s| s.parse::<i32>().ok())
         .map(|n| n > 0)
         .unwrap_or(false);
 
-    if !systemd_socket_active {
-        let port = env::var("ROCKET_PORT")
-            .unwrap_or_else(|_| "8080".into())
-            .parse::<u16>()
-            .unwrap_or(8080);
-
-        if TcpListener::bind(("0.0.0.0", port)).is_err() {
-            process::exit(1);
-        }
-    }
-
+    // Initialize logging
     flexi_logger::Logger::try_with_env_or_str(
         env::var("RUST_LOG").unwrap_or_else(|_| "info".into())
     )
@@ -55,27 +45,16 @@ fn rocket() -> _ {
     if systemd_socket_active {
         log::info!("[*] Systemd socket detected; Rocket will inherit fd 3. No port override needed.");
     } else {
-        log::info!("[*] No systemd socket detected; Rocket will bind port from Rocket.toml or ROCKET_PORT.");
+        log::error!("[*] No systemd socket detected; Rocket will not bind its own port. Exiting.");
     }
 
-    let figment = if systemd_socket_active {
-        rocket::Config::figment()
-            .merge(Toml::file("Rocket.toml"))
-            .merge(Env::prefixed("ROCKET_").global())
-            .merge(("template_dir", "/opt/patchpilot_server/templates"))
-    } else {
-        let override_map = serde_json::json!({
-            "address": "0.0.0.0",
-            "port": env::var("ROCKET_PORT").unwrap_or("8080".into()).parse::<u16>().unwrap_or(8080)
-        });
+    // Merge Rocket configuration (templates dir preserved)
+    let figment = rocket::Config::figment()
+        .merge(Toml::file("Rocket.toml"))
+        .merge(Env::prefixed("ROCKET_").global())
+        .merge(("template_dir", "/opt/patchpilot_server/templates"));
 
-        rocket::Config::figment()
-            .merge(Toml::file("Rocket.toml"))
-            .merge(Env::prefixed("ROCKET_").global())
-            .merge(rocket::figment::providers::Serialized::from(override_map, "default"))
-            .merge(("template_dir", "/opt/patchpilot_server/templates"))
-    };
-
+    // Initialize DB and app state (unchanged)
     let db_pool = initialize();
 
     let settings = {
@@ -105,6 +84,20 @@ fn rocket() -> _ {
         app_state.system.available_memory() / 1024 / 1024
     );
 
+    // Enforce that systemd socket activation must be present.
+    // If not present, exit immediately (we do not want Rocket to bind on its own).
+    if !systemd_socket_active {
+        // Exit with non-zero so systemd reports a failure in the journal.
+        std::process::exit(1);
+    }
+
+    // Convert systemd-passed fd 3 into a Tokio listener and use Rocket's `.listen(...)`.
+    // Safety: systemd hands us ownership of the fd; using from_raw_fd is appropriate here.
+    let std_listener = unsafe { std::net::TcpListener::from_raw_fd(3) };
+    let listener = rocket::tokio::net::TcpListener::from_std(std_listener)
+        .expect("Failed to convert systemd fd to Tokio listener");
+
+    // Build Rocket and use the provided listener.
     rocket::custom(figment)
         .manage(db_pool)
         .manage(app_state.clone())
@@ -143,4 +136,5 @@ fn rocket() -> _ {
         .mount("/settings", routes::settings::routes())
         .mount("/static", FileServer::from(relative!("static")))
         .mount("/", routes::page_routes())
+        .listen(listener)
 }

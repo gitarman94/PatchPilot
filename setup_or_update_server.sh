@@ -42,7 +42,6 @@ fi
 
 # Stop and remove any running instances before reinstall
 echo "🛑 Ensuring no running PatchPilot server instances..."
-# Be tolerant if units don't exist; don't call tools that may be absent
 systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
 systemctl stop "${SOCKET_NAME}" 2>/dev/null || true
 systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
@@ -134,7 +133,7 @@ EOF
 APP_ENV_FILE="${APP_DIR}/.env"
 if [[ ! -f "$APP_ENV_FILE" ]]; then
 cat > "${APP_ENV_FILE}" <<EOF
-DATABASE_URL=sqlite:///${APP_DIR}/patchpilot.db
+DATABASE_URL=sqlite:////${APP_DIR}/patchpilot.db
 RUST_LOG=info
 ROCKET_ADDRESS=0.0.0.0
 ROCKET_PORT=8080
@@ -217,10 +216,16 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-# Enable and start socket + service robustly
+# Enable and start socket + service in the correct order (socket first)
 systemctl daemon-reload
-systemctl enable "${SOCKET_NAME}" --now 2>/dev/null || true
-systemctl enable "${SERVICE_NAME}" --now 2>/dev/null || true
+systemctl enable --now "${SOCKET_NAME}"
+systemctl enable --now "${SERVICE_NAME}"
+
+# If the service failed to come up, print recent journal lines for troubleshooting
+if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
+    echo "❌ ${SERVICE_NAME} failed to start — recent journal output:"
+    journalctl -u "${SERVICE_NAME}" -n 50 --no-pager
+fi
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "✅ Installation complete!"
