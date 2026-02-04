@@ -1,3 +1,4 @@
+// src/db.rs
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 use diesel::sqlite::SqliteConnection;
@@ -22,8 +23,8 @@ fn init_logs_dir() {
     use std::path::Path;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-    let logs_dir = Path::new("/opt/patchpilot_server/logs");
 
+    let logs_dir = Path::new("/opt/patchpilot_server/logs");
     if let Err(e) = create_dir_all(&logs_dir) {
         eprintln!("init_logs_dir: failed to create logs dir {}: {}", logs_dir.display(), e);
     }
@@ -47,14 +48,14 @@ fn ensure_database_file(path: &Path) {
         if !parent.exists() {
             create_dir_all(parent).expect("Failed to create DB parent directories");
         }
-        #[cfg(unix)]
-        {
+        #[cfg(unix)] {
             use std::os::unix::fs::PermissionsExt;
             let mut perms = metadata(parent).unwrap().permissions();
             perms.set_mode(0o755);
             let _ = set_permissions(parent, perms);
         }
     }
+
     if !path.exists() {
         OpenOptions::new()
             .create(true)
@@ -62,8 +63,8 @@ fn ensure_database_file(path: &Path) {
             .open(path)
             .expect("Failed to create database file");
     }
-    #[cfg(unix)]
-    {
+
+    #[cfg(unix)] {
         use std::os::unix::fs::PermissionsExt;
         let mut perms = metadata(path).unwrap().permissions();
         perms.set_mode(0o755);
@@ -83,15 +84,31 @@ fn init_pool() -> DbPool {
         .expect("Invalid DB path")
         .to_string();
 
-    let manager = ConnectionManager::<SqliteConnection>::new(db_path_str);
+    let manager = ConnectionManager::<SqliteConnection>::new(db_path_str.clone());
+
+    // Tune the pool: max_size = 10 (conservative default for SQLite)
     let pool = Pool::builder()
+        .max_size(10)
         .build(manager)
         .expect("Failed to create DB pool");
 
     {
+        // Configure DB pragmas on a fresh connection.
         let mut conn = pool.get().expect("Failed to get DB connection");
+
+        // enable foreign keys
         let _ = sql_query("PRAGMA foreign_keys = ON;").execute(&mut conn);
+
+        // Use WAL for concurrency
         let _ = sql_query("PRAGMA journal_mode = WAL;").execute(&mut conn);
+
+        // Add busy_timeout so concurrent writers block briefly instead of hard-failing.
+        let _ = sql_query("PRAGMA busy_timeout = 5000;").execute(&mut conn);
+
+        // Balanced synchronous setting for production
+        let _ = sql_query("PRAGMA synchronous = NORMAL;").execute(&mut conn);
+
+        // Initialize schema if necessary
         initialize_database(&mut conn).expect("DB initialization failed");
     }
 
@@ -102,7 +119,7 @@ pub fn get_conn(pool: &DbPool) -> DbConn {
     pool.get().expect("Failed to get DB connection")
 }
 
-fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
+fn initialize_database(conn: &mut SqliteConnection) -> diesel::result::QueryResult<()> {
     sql_query(
         r#"
         CREATE TABLE IF NOT EXISTS devices (
@@ -266,8 +283,7 @@ fn initialize_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     sql_query(
         r#"
         INSERT OR IGNORE INTO server_settings
-        (id, auto_approve_devices, auto_refresh_enabled, auto_refresh_seconds,
-         default_action_ttl_seconds, action_polling_enabled, ping_target_ip, force_https)
+            (id, auto_approve_devices, auto_refresh_enabled, auto_refresh_seconds, default_action_ttl_seconds, action_polling_enabled, ping_target_ip, force_https)
         VALUES (1, 0, 1, 30, 3600, 1, '8.8.8.8', 0);
         "#,
     )
@@ -289,15 +305,15 @@ pub struct ServerSettingsRow {
     pub force_https: bool,
 }
 
-pub fn load_settings(conn: &mut SqliteConnection) -> QueryResult<ServerSettingsRow> {
+pub fn load_settings(conn: &mut SqliteConnection) -> diesel::result::QueryResult<ServerSettingsRow> {
     server_settings::table.first(conn)
 }
 
 pub fn save_settings(
     conn: &mut SqliteConnection,
     settings: &ServerSettingsRow,
-) -> QueryResult<()> {
-    diesel::replace_into(server_settings::table)
+) -> diesel::result::QueryResult<()> {
+    let _ = diesel::replace_into(server_settings::table)
         .values(settings)
         .execute(conn)?;
     Ok(())
@@ -317,7 +333,7 @@ pub struct NewHistory<'a> {
 pub fn insert_history(
     conn: &mut SqliteConnection,
     entry: &NewHistory<'_>,
-) -> QueryResult<usize> {
+) -> diesel::result::QueryResult<usize> {
     diesel::insert_into(history_log::table)
         .values(entry)
         .execute(conn)
@@ -336,7 +352,7 @@ struct NewAudit<'a> {
 pub fn insert_audit(
     conn: &mut SqliteConnection,
     entry: &AuditLog,
-) -> QueryResult<usize> {
+) -> diesel::result::QueryResult<usize> {
     let record = NewAudit {
         actor: &entry.actor,
         action_type: &entry.action_type,
@@ -344,7 +360,6 @@ pub fn insert_audit(
         details: entry.details.as_deref(),
         created_at: entry.created_at,
     };
-
     diesel::insert_into(audit::table)
         .values(&record)
         .execute(conn)
@@ -356,7 +371,7 @@ pub fn log_audit(
     action: &str,
     target: Option<&str>,
     details: Option<&str>,
-) -> QueryResult<()> {
+) -> diesel::result::QueryResult<()> {
     let entry = AuditLog {
         id: 0,
         actor: actor.to_string(),
@@ -365,8 +380,7 @@ pub fn log_audit(
         details: details.map(str::to_string),
         created_at: Utc::now().naive_utc(),
     };
-
-    insert_audit(conn, &entry)?;
+    let _ = insert_audit(conn, &entry)?;
     Ok(())
 }
 
@@ -377,10 +391,9 @@ pub fn update_action_ttl(
     action_id_val: i64,
     new_ttl_seconds: i64,
     settings: &ServerSettingsRow,
-) -> QueryResult<usize> {
+) -> diesel::result::QueryResult<usize> {
     let ttl = std::cmp::min(new_ttl_seconds, settings.default_action_ttl_seconds);
     let expires = Utc::now().naive_utc() + chrono::Duration::seconds(ttl);
-
     diesel::update(actions::table.filter(actions::id.eq(action_id_val)))
         .set(actions::expires_at.eq(expires))
         .execute(conn)
@@ -389,12 +402,11 @@ pub fn update_action_ttl(
 pub fn fetch_action_ttl(
     conn: &mut SqliteConnection,
     action_id_val: i64,
-) -> QueryResult<i64> {
+) -> diesel::result::QueryResult<i64> {
     let expiry: NaiveDateTime = actions::table
         .filter(actions::id.eq(action_id_val))
         .select(actions::expires_at)
         .first(conn)?;
-
     let now = Utc::now().naive_utc();
     Ok(std::cmp::max(0, (expiry - now).num_seconds()))
 }
