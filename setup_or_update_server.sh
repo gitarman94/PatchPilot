@@ -4,12 +4,11 @@ set -euo pipefail
 APP_DIR="/opt/patchpilot_server"
 INSTALL_LOG="${APP_DIR}/install.log"
 SERVICE_NAME="patchpilot_server.service"
-SOCKET_NAME="patchpilot_server.socket"
 SYSTEMD_DIR="/etc/systemd/system"
 
 mkdir -p "$APP_DIR" /opt/patchpilot_install
 
-echo "🛠️ Starting PatchPilot server setup at $(date)..."
+echo "Starting PatchPilot server setup at $(date)..."
 
 GITHUB_USER="gitarman94"
 GITHUB_REPO="PatchPilot"
@@ -34,18 +33,15 @@ if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
         debian|ubuntu|linuxmint|pop|raspbian) ;;
-        *) echo "❌ Only Debian-based systems supported."; exit 1 ;;
+        *) echo "Only Debian-based systems supported."; exit 1 ;;
     esac
 else
-    echo "❌ Cannot determine OS."; exit 1
+    echo "Cannot determine OS."; exit 1
 fi
 
 # Stop and remove any running instances before reinstall
-echo "🛑 Ensuring no running PatchPilot server instances..."
 systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-systemctl stop "${SOCKET_NAME}" 2>/dev/null || true
 systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
-systemctl disable "${SOCKET_NAME}" 2>/dev/null || true
 
 rm -rf /opt/patchpilot_install*
 mkdir -p /opt/patchpilot_install "$APP_DIR"
@@ -79,37 +75,33 @@ export PATH="${CARGO_HOME}/bin:$PATH"
 mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
 
 if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
-    echo "🛠️ Installing Rust (self-contained)..."
     export RUSTUP_INIT_SKIP_PATH_CHECK=yes
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
       | HOME=/root CARGO_HOME="${CARGO_HOME}" RUSTUP_HOME="${RUSTUP_HOME}" sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
-# Explicitly install and set latest stable Rust
 export PATH="${CARGO_HOME}/bin:$PATH"
-/opt/patchpilot_server/.cargo/bin/rustup install stable
-/opt/patchpilot_server/.cargo/bin/rustup default stable
+"${CARGO_HOME}/bin/rustup" install stable
+"${CARGO_HOME}/bin/rustup" default stable
 
 # Verify Rust installation
-echo " Rust version:"
-/opt/patchpilot_server/.cargo/bin/rustc --version
-/opt/patchpilot_server/.cargo/bin/cargo --version
+"${CARGO_HOME}/bin/rustc" --version
+"${CARGO_HOME}/bin/cargo" --version
 
 # Ensure database exists and secure permissions
 SQLITE_DB="${APP_DIR}/patchpilot.db"
 if [[ ! -f "$SQLITE_DB" ]]; then
     touch "$SQLITE_DB"
 fi
-chown patchpilot:patchpilot "$SQLITE_DB"
-chmod 600 "$SQLITE_DB"
+chown patchpilot:patchpilot "$SQLITE_DB" || true
+chmod 600 "$SQLITE_DB" || true
 
-## Build the server
+# Build the server
 cd "$APP_DIR"
 
-echo "🛠️ Performing full rebuild of PatchPilot server (${BUILD_MODE})..."
 "${CARGO_HOME}/bin/cargo" clean
 if ! "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release"); then
-    echo "❌ Cargo build failed! Check the output above."
+    echo "Cargo build failed!"
     exit 1
 fi
 
@@ -133,7 +125,7 @@ EOF
 APP_ENV_FILE="${APP_DIR}/.env"
 if [[ ! -f "$APP_ENV_FILE" ]]; then
 cat > "${APP_ENV_FILE}" <<EOF
-DATABASE_URL=sqlite:////${APP_DIR}/patchpilot.db
+DATABASE_URL=sqlite:////opt/patchpilot_server/patchpilot.db
 RUST_LOG=info
 ROCKET_ADDRESS=0.0.0.0
 ROCKET_PORT=8080
@@ -144,10 +136,9 @@ EOF
 chmod 600 "$APP_ENV_FILE"
 fi
 
-# Generate Rocket secret key
+# Generate Rocket secret key if missing or invalid
 if ! grep -q "^ROCKET_SECRET_KEY=" "$APP_ENV_FILE" || \
    ! grep -E "^ROCKET_SECRET_KEY=([A-Za-z0-9+/]{43}=|[A-Fa-f0-9]{64})$" "$APP_ENV_FILE"; then
-    echo "Generating valid Rocket secret key"
     sed -i '/^ROCKET_SECRET_KEY=/d' "$APP_ENV_FILE"
     echo "ROCKET_SECRET_KEY=$(openssl rand -base64 32)" >> "$APP_ENV_FILE"
 fi
@@ -162,42 +153,27 @@ fi
 
 # Ensure patchpilot user exists
 if ! id -u patchpilot >/dev/null 2>&1; then
-    useradd -r -m -d /home/patchpilot -s /usr/sbin/nologin patchpilot
+    useradd -r -m -d /home/patchpilot -s /usr/sbin/nologin patchpilot || true
 fi
 mkdir -p /home/patchpilot/.cargo /home/patchpilot/.rustup
-chown -R patchpilot:patchpilot /home/patchpilot
-chmod 700 /home/patchpilot
-chmod 700 /home/patchpilot/.cargo /home/patchpilot/.rustup
+chown -R patchpilot:patchpilot /home/patchpilot || true
+chmod 700 /home/patchpilot || true
+chmod 700 /home/patchpilot/.cargo /home/patchpilot/.rustup || true
 
 mkdir -p /opt/patchpilot_server/migrations
-chown -R patchpilot:patchpilot /opt/patchpilot_server/migrations
-chown -R patchpilot:patchpilot "$APP_DIR"
-find "$APP_DIR" -type d -exec chmod 755 {} \;
-find "$APP_DIR" -type f -exec chmod 755 {} \;
+chown -R patchpilot:patchpilot /opt/patchpilot_server/migrations || true
+chown -R patchpilot:patchpilot "$APP_DIR" || true
+find "$APP_DIR" -type d -exec chmod 755 {} \; || true
+find "$APP_DIR" -type f -exec chmod 755 {} \; || true
 
-chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server"
+chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server" 2>/dev/null || true
 chmod +x "$APP_DIR/server_test.sh" 2>/dev/null || true
 
-# Systemd socket unit (8080)
-cat > "${SYSTEMD_DIR}/${SOCKET_NAME}" <<EOF
-[Unit]
-Description=PatchPilot Server Socket
-After=network.target
-
-[Socket]
-ListenStream=8080
-Accept=no
-
-[Install]
-WantedBy=sockets.target
-EOF
-
-# Systemd service unit (Rocket will use fd 3 provided by systemd)
+# Systemd service unit (Rocket binds port directly)
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
 Description=PatchPilot Server
-After=network.target ${SOCKET_NAME}
-Requires=${SOCKET_NAME}
+After=network.target
 
 [Service]
 User=patchpilot
@@ -216,18 +192,17 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-# Enable and start socket + service in the correct order (socket first)
+# Reload systemd and enable/start service
 systemctl daemon-reload
-systemctl enable --now "${SOCKET_NAME}"
 systemctl enable --now "${SERVICE_NAME}"
 
 # If the service failed to come up, print recent journal lines for troubleshooting
 if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
-    echo "❌ ${SERVICE_NAME} failed to start — recent journal output:"
+    echo "${SERVICE_NAME} failed to start — recent journal output:"
     journalctl -u "${SERVICE_NAME}" -n 50 --no-pager
 fi
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "✅ Installation complete!"
-echo "🌐 Dashboard: http://${SERVER_IP}:8080"
-echo "🔑 Admin token stored at ${TOKEN_FILE}"
+echo "Installation complete."
+echo "Dashboard: http://${SERVER_IP}:8080"
+echo "Admin token: ${TOKEN_FILE}"

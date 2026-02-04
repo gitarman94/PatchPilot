@@ -2,12 +2,15 @@
 extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
+use rocket::figment::providers::{Env, Toml, Format};
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::env;
+use std::net::TcpListener;
+use std::process;
 
 mod schema;
 mod db;
@@ -24,25 +27,44 @@ use state::{SystemState, AppState};
 
 #[launch]
 fn rocket() -> _ {
-    // Require systemd socket activation. If not present, exit.
-    let systemd_socket_active = env::var("LISTEN_FDS")
-        .ok()
-        .and_then(|s| s.parse::<i32>().ok())
-        .map(|n| n > 0)
-        .unwrap_or(false);
+    // Initialize logging
+    flexi_logger::Logger::try_with_env_or_str(
+        env::var("RUST_LOG").unwrap_or_else(|_| "info".into())
+    )
+    .unwrap()
+    .log_to_stdout()
+    .start()
+    .unwrap();
 
-    if !systemd_socket_active {
-        eprintln!("[!] No systemd socket detected. Exiting; systemd must own the port.");
-        std::process::exit(1);
-    } else {
-        log::info!("[*] Systemd socket detected; Rocket will inherit fd 3 for connections.");
+    // Determine address/port from environment (or Rocket.toml)
+    let address = env::var("ROCKET_ADDRESS").unwrap_or_else(|_| "0.0.0.0".into());
+    let port = env::var("ROCKET_PORT")
+        .unwrap_or_else(|_| "8080".into())
+        .parse::<u16>()
+        .unwrap_or(8080);
+
+    // Quick pre-bind check: try to bind to the address/port to ensure availability.
+    // If it's already in use, exit with non-zero so systemd / supervisor sees the failure.
+    if let Err(e) = TcpListener::bind((address.as_str(), port)) {
+        log::error!("Port {} on {} is not available: {:?}", port, address, e);
+        process::exit(1);
     }
 
-    // Build minimal figment so Rocket does not receive any address/port overrides.
+    log::info!("[*] Rocket will bind to {}:{}.", address, port);
+
+    // Build figment: merge Rocket.toml and environment, and override address/port
+    let override_map = serde_json::json!({
+        "address": address,
+        "port": port
+    });
+
     let figment = rocket::Config::figment()
+        .merge(Toml::file("Rocket.toml"))
+        .merge(Env::prefixed("ROCKET_").global())
+        .merge(rocket::figment::providers::Serialized::from(override_map, "default"))
         .merge(("template_dir", "/opt/patchpilot_server/templates"));
 
-    // Initialize DB and app state (unchanged)
+    // Initialize DB pool and settings
     let db_pool = initialize();
 
     let settings = {
@@ -72,16 +94,6 @@ fn rocket() -> _ {
         app_state.system.available_memory() / 1024 / 1024
     );
 
-    // Initialize logger from environment (keeps original behavior)
-    flexi_logger::Logger::try_with_env_or_str(
-        env::var("RUST_LOG").unwrap_or_else(|_| "info".into())
-    )
-    .unwrap()
-    .log_to_stdout()
-    .start()
-    .unwrap();
-
-    // Build Rocket without any address/port overrides so systemd's fd is used.
     rocket::custom(figment)
         .manage(db_pool)
         .manage(app_state.clone())
