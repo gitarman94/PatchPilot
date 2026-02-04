@@ -43,6 +43,11 @@ fi
 systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
 systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 
+# Remove old socket if it exists
+systemctl stop patchpilot_server.socket 2>/dev/null || true
+systemctl disable patchpilot_server.socket 2>/dev/null || true
+rm -f /etc/systemd/system/patchpilot_server.socket || true
+
 rm -rf /opt/patchpilot_install*
 mkdir -p /opt/patchpilot_install "$APP_DIR"
 
@@ -184,6 +189,7 @@ Environment=PATH=${CARGO_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr
 ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
 Restart=on-failure
 RestartSec=5s
+TimeoutStartSec=30s
 LimitNOFILE=65535
 StandardOutput=journal
 StandardError=journal
