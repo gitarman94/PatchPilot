@@ -95,8 +95,11 @@ fn rocket() -> _ {
         app_state.system.available_memory() / 1024 / 1024
     );
 
-    // src/main.rs
-    fn rocket() -> _ {
+    rocket::custom(figment)
+        .manage(db_pool)
+        .manage(app_state.clone())
+        .attach(Template::fairing())
+        .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)
         .attach(AdHoc::on_liftoff("Startup Audit", |rocket| {
             let app = rocket.state::<Arc<AppState>>().cloned();
@@ -129,5 +132,4 @@ fn rocket() -> _ {
         .mount("/settings", routes::settings::routes())
         .mount("/static", FileServer::from(relative!("static")))
         .mount("/", routes::page_routes())
-    }
 }
