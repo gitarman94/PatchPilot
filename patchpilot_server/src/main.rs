@@ -129,4 +129,5 @@ fn rocket() -> _ {
         .mount("/settings", routes::settings::routes())
         .mount("/static", FileServer::from(relative!("static")))
         .mount("/", routes::page_routes())
+    }
 }
