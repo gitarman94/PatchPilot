@@ -2,7 +2,6 @@
 use rocket::{get, State};
 use rocket::response::Redirect;
 use rocket_dyn_templates::{Template, context};
-use axum::response::Html;
 use crate::db::DbPool;
 use crate::models::{Device, Action as ActionModel, HistoryEntry, User};
 
