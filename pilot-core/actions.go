@@ -64,6 +64,14 @@ func (a *App) submitAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ensure device exists before inserting action
+	var exists int
+	err = a.DB.QueryRow("SELECT COUNT(1) FROM devices WHERE id = ?", deviceID).Scan(&exists)
+	if err != nil || exists == 0 {
+		http.Error(w, "device not found", http.StatusBadRequest)
+		return
+	}
+
 	now := time.Now()
 
 	_, err = a.DB.Exec(`
@@ -76,7 +84,11 @@ func (a *App) submitAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.logHistory("action_created")
+	// Corrected history logging (includes device_id)
+	_, _ = a.DB.Exec(`
+		INSERT INTO history (action, device_id, created_at)
+		VALUES (?, ?, ?)
+	`, "action_created", deviceID, now)
 
 	http.Redirect(w, r, "/actions_page", http.StatusFound)
 }
@@ -101,6 +113,14 @@ func (a *App) updateActionStatus(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 
+	// Get device_id for history logging
+	var deviceID int
+	err = a.DB.QueryRow("SELECT device_id FROM actions WHERE id = ?", id).Scan(&deviceID)
+	if err != nil {
+		http.Error(w, "action not found", http.StatusNotFound)
+		return
+	}
+
 	_, err = a.DB.Exec(`
 		UPDATE actions
 		SET status = ?, updated_at = ?
@@ -112,7 +132,11 @@ func (a *App) updateActionStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.logHistory("action_updated")
+	// Corrected history logging
+	_, _ = a.DB.Exec(`
+		INSERT INTO history (action, device_id, created_at)
+		VALUES (?, ?, ?)
+	`, "action_updated", deviceID, now)
 
 	w.WriteHeader(http.StatusOK)
 }

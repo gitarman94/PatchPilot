@@ -1,38 +1,32 @@
 package main
 
-import (
-	"net/http"
-)
+import "net/http"
 
-// Roles page handler
-func rolesHandler(w http.ResponseWriter, r *http.Request) {
-	roles, err := getAllRoles()
+func (a *App) rolesPage(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.DB.Query("SELECT id, name, description FROM roles ORDER BY id DESC")
 	if err != nil {
 		http.Error(w, "Failed to load roles", http.StatusInternalServerError)
 		return
 	}
-
-	renderTemplate(w, "roles.html", map[string]interface{}{
-		"Roles": roles,
-	})
-}
-
-// DB function (uses Role from models.go)
-func getAllRoles() ([]Role, error) {
-	rows, err := db.Query("SELECT id, name, description FROM roles")
-	if err != nil {
-		return nil, err
-	}
 	defer rows.Close()
 
 	var roles []Role
+
 	for rows.Next() {
-		var r Role
-		err := rows.Scan(&r.ID, &r.Name, &r.Description)
+		var role Role
+		err := rows.Scan(&role.ID, &role.Name, &role.Description)
 		if err != nil {
-			return nil, err
+			continue
 		}
-		roles = append(roles, r)
+		roles = append(roles, role)
 	}
-	return roles, nil
+
+	if err := rows.Err(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	a.Templates.ExecuteTemplate(w, "roles.html", map[string]interface{}{
+		"Roles": roles,
+	})
 }

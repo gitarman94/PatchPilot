@@ -7,7 +7,7 @@ import (
 
 func (a *App) historyPage(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(`
-		SELECT id, action, timestamp
+		SELECT id, action, device_id, created_at
 		FROM history ORDER BY id DESC
 	`)
 	if err != nil {
@@ -20,7 +20,7 @@ func (a *App) historyPage(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var h History
-		err := rows.Scan(&h.ID, &h.Action, &h.Timestamp)
+		err := rows.Scan(&h.ID, &h.Action, &h.DeviceID, &h.CreatedAt)
 		if err != nil {
 			continue
 		}
@@ -39,14 +39,14 @@ func (a *App) historyPage(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) logHistory(action string) {
 	_, _ = a.DB.Exec(`
-		INSERT INTO history (action, timestamp)
-		VALUES (?, ?)
-	`, action, time.Now())
+		INSERT INTO history (action, device_id, created_at)
+		VALUES (?, ?, ?)
+	`, action, 0, time.Now())
 }
 
 func (a *App) apiHistory(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(`
-		SELECT id, action, timestamp
+		SELECT id, action, device_id, created_at
 		FROM history ORDER BY id DESC
 	`)
 	if err != nil {
@@ -59,7 +59,7 @@ func (a *App) apiHistory(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var h History
-		err := rows.Scan(&h.ID, &h.Action, &h.Timestamp)
+		err := rows.Scan(&h.ID, &h.Action, &h.DeviceID, &h.CreatedAt)
 		if err != nil {
 			continue
 		}

@@ -54,6 +54,7 @@ type Role struct {
 	Description string `json:"description"`
 }
 
-type Settings struct {
-	SiteName string `json:"site_name"`
+type Setting struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }

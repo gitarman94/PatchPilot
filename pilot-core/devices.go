@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,7 +8,7 @@ import (
 
 func (a *App) devicesPage(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(`
-		SELECT id, hostname, ip, os, last_seen, approved
+		SELECT id, hostname, ip, os, IFNULL(last_seen, '') , approved
 		FROM devices ORDER BY id DESC
 	`)
 	if err != nil {
@@ -22,15 +21,10 @@ func (a *App) devicesPage(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var d Device
-		var lastSeen sql.NullString
 
-		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &lastSeen, &d.Approved)
+		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
 		if err != nil {
 			continue
-		}
-
-		if lastSeen.Valid {
-			d.LastSeen = lastSeen
 		}
 
 		devices = append(devices, d)
@@ -55,20 +49,15 @@ func (a *App) deviceDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var d Device
-	var lastSeen sql.NullString
 
 	err = a.DB.QueryRow(`
-		SELECT id, hostname, ip, os, last_seen, approved
+		SELECT id, hostname, ip, os, IFNULL(last_seen, ''), approved
 		FROM devices WHERE id = ?
-	`, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &lastSeen, &d.Approved)
+	`, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
 
 	if err != nil {
 		http.NotFound(w, r)
 		return
-	}
-
-	if lastSeen.Valid {
-		d.LastSeen = lastSeen
 	}
 
 	a.Templates.ExecuteTemplate(w, "device_detail.html", map[string]interface{}{
@@ -106,7 +95,11 @@ func (a *App) approveDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.logHistory("device_approved")
+	// log with device_id (matches new history schema)
+	_, _ = a.DB.Exec(`
+		INSERT INTO history (action, device_id, created_at)
+		VALUES (?, ?, datetime('now'))
+	`, "device_approved", id)
 
 	http.Redirect(w, r, "/devices_page", http.StatusFound)
 }
@@ -141,14 +134,18 @@ func (a *App) rejectDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.logHistory("device_rejected")
+	// log with device_id
+	_, _ = a.DB.Exec(`
+		INSERT INTO history (action, device_id, created_at)
+		VALUES (?, ?, datetime('now'))
+	`, "device_rejected", id)
 
 	http.Redirect(w, r, "/devices_page", http.StatusFound)
 }
 
 func (a *App) apiDevices(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(`
-		SELECT id, hostname, ip, os, last_seen, approved FROM devices
+		SELECT id, hostname, ip, os, IFNULL(last_seen, ''), approved FROM devices
 	`)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -160,15 +157,10 @@ func (a *App) apiDevices(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var d Device
-		var lastSeen sql.NullString
 
-		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &lastSeen, &d.Approved)
+		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
 		if err != nil {
 			continue
-		}
-
-		if lastSeen.Valid {
-			d.LastSeen = lastSeen
 		}
 
 		out = append(out, d)
@@ -179,30 +171,5 @@ func (a *App) apiDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type deviceOut struct {
-		ID       int    `json:"id"`
-		Hostname string `json:"hostname"`
-		IP       string `json:"ip"`
-		OS       string `json:"os"`
-		LastSeen string `json:"last_seen"`
-		Approved bool   `json:"approved"`
-	}
-
-	var clean []deviceOut
-	for _, d := range out {
-		ls := ""
-		if d.LastSeen.Valid {
-			ls = d.LastSeen.String
-		}
-		clean = append(clean, deviceOut{
-			ID:       d.ID,
-			Hostname: d.Hostname,
-			IP:       d.IP,
-			OS:       d.OS,
-			LastSeen: ls,
-			Approved: d.Approved,
-		})
-	}
-
-	writeJSON(w, clean)
+	writeJSON(w, out)
 }

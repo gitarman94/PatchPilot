@@ -1,33 +1,28 @@
 package main
 
-import (
-	"net/http"
-)
+import "net/http"
 
-// Users & Groups page handler
-func usersGroupsHandler(w http.ResponseWriter, r *http.Request) {
-	users, err := getAllUsers()
+func (a *App) usersGroupsPage(w http.ResponseWriter, r *http.Request) {
+	users, err := a.getAllUsers()
 	if err != nil {
 		http.Error(w, "Failed to load users", http.StatusInternalServerError)
 		return
 	}
 
-	groups, err := getAllGroups()
+	groups, err := a.getAllGroups()
 	if err != nil {
 		http.Error(w, "Failed to load groups", http.StatusInternalServerError)
 		return
 	}
 
-	renderTemplate(w, "users_groups.html", map[string]interface{}{
+	a.Templates.ExecuteTemplate(w, "users_groups.html", map[string]interface{}{
 		"Users":  users,
 		"Groups": groups,
 	})
 }
 
-// DB functions (use structs from models.go)
-
-func getAllUsers() ([]User, error) {
-	rows, err := db.Query("SELECT id, username, password_hash, role_id FROM users")
+func (a *App) getAllUsers() ([]User, error) {
+	rows, err := a.DB.Query("SELECT id, username, password_hash, role_id FROM users ORDER BY id DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -38,15 +33,20 @@ func getAllUsers() ([]User, error) {
 		var u User
 		err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.RoleID)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		users = append(users, u)
 	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return users, nil
 }
 
-func getAllGroups() ([]Group, error) {
-	rows, err := db.Query("SELECT id, name FROM groups")
+func (a *App) getAllGroups() ([]Group, error) {
+	rows, err := a.DB.Query("SELECT id, name FROM groups ORDER BY id DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -57,9 +57,14 @@ func getAllGroups() ([]Group, error) {
 		var g Group
 		err := rows.Scan(&g.ID, &g.Name)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		groups = append(groups, g)
 	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return groups, nil
 }

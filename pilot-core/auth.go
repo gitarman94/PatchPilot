@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"net/http"
 
 	"golang.org/x/crypto/bcrypt"
@@ -18,14 +19,18 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	password := r.FormValue("password")
 
 	var hash string
-	err := a.DB.QueryRow("SELECT password FROM users WHERE username=?", username).Scan(&hash)
+	err := a.DB.QueryRow("SELECT password_hash FROM users WHERE username = ?", username).Scan(&hash)
 	if err != nil {
-		http.Error(w, "Invalid credentials", 401)
+		if err == sql.ErrNoRows {
+			http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
-		http.Error(w, "Invalid credentials", 401)
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
@@ -53,7 +58,7 @@ func (a *App) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(sessionCookie)
 		if err != nil || cookie.Value == "" {
-			http.Redirect(w, r, "/auth/login", http.StatusFound)
+			http.Redirect(w, r, "/", http.StatusFound)
 			return
 		}
 		next(w, r)

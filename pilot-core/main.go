@@ -34,7 +34,7 @@ func main() {
 	/* -------------------------
 	   PUBLIC ROUTES
 	-------------------------- */
-	mux.HandleFunc("/", app.redirect)
+	mux.HandleFunc("/", app.login)
 	mux.HandleFunc("/auth/login", app.login)
 	mux.HandleFunc("/auth/logout", app.logout)
 
@@ -49,8 +49,7 @@ func main() {
 	mux.HandleFunc("/actions_page", app.requireAuth(app.actionsPage))
 	mux.HandleFunc("/history_page", app.requireAuth(app.historyPage))
 
-	mux.HandleFunc("/users_page", app.requireAuth(app.usersPage))
-	mux.HandleFunc("/groups_page", app.requireAuth(app.groupsPage))
+	mux.HandleFunc("/users_groups_page", app.requireAuth(app.usersGroupsPage))
 
 	mux.HandleFunc("/roles_page", app.requireAuth(app.rolesPage))
 	mux.HandleFunc("/settings_page", app.requireAuth(app.settingsPage))
@@ -87,10 +86,6 @@ func main() {
 /* -------------------------
    CORE HANDLERS
 -------------------------- */
-
-func (a *App) redirect(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/dashboard", http.StatusFound)
-}
 
 func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 	data := map[string]interface{}{}
