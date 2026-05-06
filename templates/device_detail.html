@@ -9,38 +9,47 @@
   {{ template "navbar.html" . }}
 
   <main class="container">
-    <h1>Device Detail</h1>
+    <section class="page-header">
+      <h1>Device Detail</h1>
+      <p>Inventory record and state</p>
+    </section>
 
-    <table>
-      <tr>
-        <th>ID</th>
-        <td>{{ .Device.ID }}</td>
-      </tr>
-      <tr>
-        <th>Hostname</th>
-        <td>{{ .Device.Hostname }}</td>
-      </tr>
-      <tr>
-        <th>IP</th>
-        <td>{{ .Device.IP }}</td>
-      </tr>
-      <tr>
-        <th>OS</th>
-        <td>{{ .Device.OS }}</td>
-      </tr>
-      <tr>
-        <th>Last Seen</th>
-        <td>{{ .Device.LastSeen }}</td>
-      </tr>
-      <tr>
-        <th>Approved</th>
-        <td>{{ .Device.Approved }}</td>
-      </tr>
-    </table>
-
-    <p>
-      <a href="/devices_page">Back to Devices</a>
-    </p>
+    {{ if .Device }}
+    <section class="card">
+      <table>
+        <tbody>
+          <tr>
+            <th>ID</th>
+            <td>{{ .Device.ID }}</td>
+          </tr>
+          <tr>
+            <th>Hostname</th>
+            <td>{{ .Device.Hostname }}</td>
+          </tr>
+          <tr>
+            <th>IP</th>
+            <td>{{ .Device.IP }}</td>
+          </tr>
+          <tr>
+            <th>OS</th>
+            <td>{{ .Device.OS }}</td>
+          </tr>
+          <tr>
+            <th>Last Seen</th>
+            <td>{{ .Device.LastSeen }}</td>
+          </tr>
+          <tr>
+            <th>Approved</th>
+            <td>{{ .Device.Approved }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+    {{ else }}
+    <section class="card">
+      <p>Device not found.</p>
+    </section>
+    {{ end }}
   </main>
 </body>
 </html>

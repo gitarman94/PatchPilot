@@ -2,18 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Users & Groups - CommandPilot</title>
+  <title>Users &amp; Groups - CommandPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   {{ template "navbar.html" . }}
 
   <main class="container">
-    <h1>Users & Groups</h1>
+    <section class="page-header">
+      <h1>Users &amp; Groups</h1>
+      <p>User administration</p>
+    </section>
 
     <section class="card">
       <h2>Create User</h2>
-
       <form method="POST" action="/create_user">
         <div class="form-group">
           <label for="username">Username</label>
@@ -31,21 +33,20 @@
 
     <section class="card">
       <h2>Users</h2>
-
       <table>
         <thead>
           <tr>
             <th>ID</th>
             <th>Username</th>
-            <th>Role</th>
+            <th>Role ID</th>
           </tr>
         </thead>
         <tbody>
-          {{ range .Users }}
+          {{ range . }}
           <tr>
             <td>{{ .ID }}</td>
             <td>{{ .Username }}</td>
-            <td>{{ .Role }}</td>
+            <td>{{ .RoleID }}</td>
           </tr>
           {{ else }}
           <tr>

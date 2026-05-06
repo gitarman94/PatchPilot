@@ -9,30 +9,37 @@
   {{ template "navbar.html" . }}
 
   <main class="container">
-    <h1>History</h1>
+    <section class="page-header">
+      <h1>History</h1>
+      <p>Action and device activity log</p>
+    </section>
 
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Action</th>
-          <th>Timestamp</th>
-        </tr>
-      </thead>
-      <tbody>
-        {{ range .History }}
-        <tr>
-          <td>{{ .ID }}</td>
-          <td>{{ .Action }}</td>
-          <td>{{ .Timestamp }}</td>
-        </tr>
-        {{ else }}
-        <tr>
-          <td colspan="3">No history entries.</td>
-        </tr>
-        {{ end }}
-      </tbody>
-    </table>
+    <section class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Action</th>
+            <th>Device ID</th>
+            <th>Created At</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .History }}
+          <tr>
+            <td>{{ .ID }}</td>
+            <td>{{ .Action }}</td>
+            <td>{{ .DeviceID }}</td>
+            <td>{{ .CreatedAt }}</td>
+          </tr>
+          {{ else }}
+          <tr>
+            <td colspan="4">No history entries found.</td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+    </section>
   </main>
 </body>
 </html>

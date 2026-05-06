@@ -9,11 +9,13 @@
   {{ template "navbar.html" . }}
 
   <main class="container">
-    <h1>Settings</h1>
+    <section class="page-header">
+      <h1>Settings</h1>
+      <p>System configuration</p>
+    </section>
 
     <section class="card">
       <h2>Update Setting</h2>
-
       <form method="POST" action="/update_setting">
         <div class="form-group">
           <label for="key">Key</label>
@@ -25,13 +27,12 @@
           <input id="value" name="value" type="text" required>
         </div>
 
-        <button type="submit">Save</button>
+        <button type="submit">Save Setting</button>
       </form>
     </section>
 
     <section class="card">
       <h2>Current Settings</h2>
-
       <table>
         <thead>
           <tr>
@@ -40,7 +41,7 @@
           </tr>
         </thead>
         <tbody>
-          {{ range .Settings }}
+          {{ range . }}
           <tr>
             <td>{{ .Key }}</td>
             <td>{{ .Value }}</td>

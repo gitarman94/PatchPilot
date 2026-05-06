@@ -9,38 +9,41 @@
   {{ template "navbar.html" . }}
 
   <main class="container">
-    <h1>Audit Logs</h1>
+    <section class="page-header">
+      <h1>Audit Logs</h1>
+      <p>Administrative activity record</p>
+    </section>
 
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>User</th>
-          <th>Action</th>
-          <th>Target</th>
-          <th>Details</th>
-          <th>Timestamp</th>
-        </tr>
-      </thead>
-      <tbody>
-        {{ if .audit }}
-          {{ range .audit }}
+    <section class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>User</th>
+            <th>Action</th>
+            <th>Target</th>
+            <th>Details</th>
+            <th>Created At</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .Audit }}
           <tr>
             <td>{{ .ID }}</td>
             <td>{{ .User }}</td>
             <td>{{ .Action }}</td>
             <td>{{ .Target }}</td>
             <td>{{ .Details }}</td>
-            <td>{{ .Timestamp }}</td>
+            <td>{{ .CreatedAt }}</td>
           </tr>
-          {{ end }}
-        {{ else }}
+          {{ else }}
           <tr>
             <td colspan="6">No audit entries.</td>
           </tr>
-        {{ end }}
-      </tbody>
-    </table>
+          {{ end }}
+        </tbody>
+      </table>
+    </section>
   </main>
 </body>
 </html>

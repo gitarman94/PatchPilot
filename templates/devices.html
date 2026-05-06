@@ -9,43 +9,52 @@
   {{ template "navbar.html" . }}
 
   <main class="container">
-    <h1>Devices</h1>
+    <section class="page-header">
+      <h1>Devices</h1>
+      <p>Approved and pending device inventory</p>
+    </section>
 
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Hostname</th>
-          <th>IP</th>
-          <th>OS</th>
-          <th>Last Seen</th>
-          <th>Approved</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-
-      <tbody>
-        {{ if .devices }}
-          {{ range .devices }}
+    <section class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Hostname</th>
+            <th>IP</th>
+            <th>OS</th>
+            <th>Last Seen</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .Devices }}
           <tr>
             <td>{{ .ID }}</td>
-            <td>{{ .Hostname }}</td>
+            <td><a href="/device_detail/{{ .ID }}">{{ .Hostname }}</a></td>
             <td>{{ .IP }}</td>
             <td>{{ .OS }}</td>
             <td>{{ .LastSeen }}</td>
-            <td>{{ .Approved }}</td>
+            <td>{{ if .Approved }}Approved{{ else }}Pending{{ end }}</td>
             <td>
-              <a href="/device_detail/{{ .ID }}">View</a>
+              <form method="POST" action="/approve_device" style="display:inline;">
+                <input type="hidden" name="id" value="{{ .ID }}">
+                <button type="submit">Approve</button>
+              </form>
+              <form method="POST" action="/reject_device" style="display:inline;">
+                <input type="hidden" name="id" value="{{ .ID }}">
+                <button type="submit">Reject</button>
+              </form>
             </td>
           </tr>
-          {{ end }}
-        {{ else }}
+          {{ else }}
           <tr>
             <td colspan="7">No devices found.</td>
           </tr>
-        {{ end }}
-      </tbody>
-    </table>
+          {{ end }}
+        </tbody>
+      </table>
+    </section>
   </main>
 </body>
 </html>

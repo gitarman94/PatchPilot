@@ -1,27 +1,23 @@
-{{define "navbar.html"}}
-<nav class="top-nav">
-  <div class="nav-inner">
-    <a class="brand" href="/">PatchPilot</a>
-    <ul class="nav-links">
+{{ define "navbar.html" }}
+<nav class="top_nav">
+  <div class="top_nav_inner">
+    <div class="top_nav_brand">
+      <a href="/dashboard">CommandPilot</a>
+    </div>
+
+    <ul class="top_nav_links">
       <li><a href="/dashboard">Dashboard</a></li>
       <li><a href="/devices_page">Devices</a></li>
       <li><a href="/actions_page">Actions</a></li>
       <li><a href="/history_page">History</a></li>
+      <li><a href="/users_groups_page">Users &amp; Groups</a></li>
+      <li><a href="/roles_page">Roles</a></li>
       <li><a href="/settings_page">Settings</a></li>
     </ul>
-    <div class="nav-right">
+
+    <div class="top_nav_actions">
       <a href="/auth/logout">Logout</a>
     </div>
   </div>
 </nav>
-
-<style>
-.top-nav{background:#fff;border-bottom:1px solid #eee;padding:10px 16px}
-.top-nav .nav-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:18px}
-.top-nav .brand{font-weight:700;text-decoration:none;color:#111}
-.top-nav .nav-links{list-style:none;margin:0;padding:0;display:flex;gap:12px}
-.top-nav .nav-links li a{color:#374151;text-decoration:none;font-size:14px}
-.top-nav .nav-right{margin-left:auto}
-.top-nav .nav-right a{color:#374151;text-decoration:none;font-size:14px}
-</style>
-{{end}}
+{{ end }}
