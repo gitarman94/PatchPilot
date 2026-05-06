@@ -102,7 +102,7 @@ fn rocket() -> _ {
     rocket::custom(figment)
         .manage(db_pool)
         .manage(app_state.clone())
-        .attach(Template::fairing())
+        .attach(Template::custom(|_| {}))
         .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)
         .attach(AdHoc::on_liftoff("Startup Audit", |rocket| {
