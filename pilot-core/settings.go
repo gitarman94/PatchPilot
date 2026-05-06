@@ -1,44 +1,47 @@
 package main
 
-import (
-	"net/http"
-)
+import "net/http"
 
-func (app *App) settingsHandler(w http.ResponseWriter, r *http.Request) {
-	rows, err := app.DB.Query("SELECT id, key, value FROM settings")
+func (app *App) settingsPage(w http.ResponseWriter, r *http.Request) {
+	rows, err := app.DB.Query("SELECT key, value FROM settings")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
-	var settings []Setting
+	type SettingKV struct {
+		Key   string
+		Value string
+	}
+
+	var settings []SettingKV
 	for rows.Next() {
-		var s Setting
-		if err := rows.Scan(&s.ID, &s.Key, &s.Value); err != nil {
+		var s SettingKV
+		if err := rows.Scan(&s.Key, &s.Value); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		settings = append(settings, s)
 	}
 
-	renderTemplate(w, "settings.html", settings)
+	app.renderTemplate(w, "settings.html", settings)
 }
 
 func (app *App) updateSetting(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		http.Redirect(w, r, "/settings_page", http.StatusSeeOther)
 		return
 	}
 
-	id := r.FormValue("id")
+	key := r.FormValue("key")
 	value := r.FormValue("value")
 
-	_, err := app.DB.Exec("UPDATE settings SET value=? WHERE id=?", value, id)
+	_, err := app.DB.Exec("UPDATE settings SET value=? WHERE key=?", value, key)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+	http.Redirect(w, r, "/settings_page", http.StatusSeeOther)
 }

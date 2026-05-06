@@ -1,10 +1,8 @@
 package main
 
-import (
-	"net/http"
-)
+import "net/http"
 
-func (app *App) rolesHandler(w http.ResponseWriter, r *http.Request) {
+func (app *App) rolesPage(w http.ResponseWriter, r *http.Request) {
 	rows, err := app.DB.Query("SELECT id, name FROM roles")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -22,12 +20,12 @@ func (app *App) rolesHandler(w http.ResponseWriter, r *http.Request) {
 		roles = append(roles, role)
 	}
 
-	renderTemplate(w, "roles.html", roles)
+	app.renderTemplate(w, "roles.html", roles)
 }
 
 func (app *App) createRole(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Redirect(w, r, "/roles", http.StatusSeeOther)
+		http.Redirect(w, r, "/roles_page", http.StatusSeeOther)
 		return
 	}
 
@@ -37,14 +35,11 @@ func (app *App) createRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := app.DB.Exec(
-		"INSERT INTO roles (name) VALUES (?)",
-		name,
-	)
+	_, err := app.DB.Exec("INSERT INTO roles (name) VALUES (?)", name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	http.Redirect(w, r, "/roles", http.StatusSeeOther)
+	http.Redirect(w, r, "/roles_page", http.StatusSeeOther)
 }

@@ -14,6 +14,11 @@ type App struct {
 	Templates *template.Template
 }
 
+func (a *App) renderTemplate(w http.ResponseWriter, name string, data interface{}) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	a.Templates.ExecuteTemplate(w, name, data)
+}
+
 func main() {
 	db, err := sql.Open("sqlite3", "./kentro.db")
 	if err != nil {
@@ -31,16 +36,10 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	/* -------------------------
-	   PUBLIC ROUTES
-	-------------------------- */
 	mux.HandleFunc("/", app.login)
 	mux.HandleFunc("/auth/login", app.login)
 	mux.HandleFunc("/auth/logout", app.logout)
 
-	/* -------------------------
-	   PROTECTED PAGE ROUTES
-	-------------------------- */
 	mux.HandleFunc("/dashboard", app.requireAuth(app.dashboard))
 
 	mux.HandleFunc("/devices_page", app.requireAuth(app.devicesPage))
@@ -50,13 +49,9 @@ func main() {
 	mux.HandleFunc("/history_page", app.requireAuth(app.historyPage))
 
 	mux.HandleFunc("/users_groups_page", app.requireAuth(app.usersGroupsPage))
-
 	mux.HandleFunc("/roles_page", app.requireAuth(app.rolesPage))
 	mux.HandleFunc("/settings_page", app.requireAuth(app.settingsPage))
 
-	/* -------------------------
-	   MUTATION ROUTES
-	-------------------------- */
 	mux.HandleFunc("/approve_device", app.requireAuth(app.approveDevice))
 	mux.HandleFunc("/reject_device", app.requireAuth(app.rejectDevice))
 
@@ -67,25 +62,15 @@ func main() {
 	mux.HandleFunc("/create_role", app.requireAuth(app.createRole))
 	mux.HandleFunc("/update_setting", app.requireAuth(app.updateSetting))
 
-	/* -------------------------
-	   API ROUTES
-	-------------------------- */
 	mux.HandleFunc("/api/devices", app.requireAuth(app.apiDevices))
 	mux.HandleFunc("/api/actions", app.requireAuth(app.apiActions))
 	mux.HandleFunc("/api/history", app.requireAuth(app.apiHistory))
 
-	/* -------------------------
-	   STATIC
-	-------------------------- */
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
 	log.Println("KentroCore running on :8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))
 }
-
-/* -------------------------
-   CORE HANDLERS
--------------------------- */
 
 func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 	data := map[string]interface{}{}
@@ -103,6 +88,5 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 	data["total_actions"] = totalActions
 	data["pending_devices"] = totalDevices - approvedDevices
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	a.Templates.ExecuteTemplate(w, "dashboard.html", data)
+	a.renderTemplate(w, "dashboard.html", data)
 }

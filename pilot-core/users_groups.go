@@ -6,7 +6,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func (app *App) usersGroupsHandler(w http.ResponseWriter, r *http.Request) {
+func (app *App) usersGroupsPage(w http.ResponseWriter, r *http.Request) {
 	rows, err := app.DB.Query("SELECT id, username FROM users")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -24,12 +24,12 @@ func (app *App) usersGroupsHandler(w http.ResponseWriter, r *http.Request) {
 		users = append(users, u)
 	}
 
-	renderTemplate(w, "users_groups.html", users)
+	app.renderTemplate(w, "users_groups.html", users)
 }
 
 func (app *App) createUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Redirect(w, r, "/users_groups", http.StatusSeeOther)
+		http.Redirect(w, r, "/users_groups_page", http.StatusSeeOther)
 		return
 	}
 
@@ -57,5 +57,5 @@ func (app *App) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/users_groups", http.StatusSeeOther)
+	http.Redirect(w, r, "/users_groups_page", http.StatusSeeOther)
 }
