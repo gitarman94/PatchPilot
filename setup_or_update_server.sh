@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
 SERVICE_NAME="pilot-core.service"
-RUNTIME_DIR="/opt/commandpilot"
-SOURCE_DIR="/usr/local/src/CommandPilot"
+BASE_DIR="/opt/commandpilot"
+SOURCE_DIR="${BASE_DIR}/src/CommandPilot"
 BUILD_DIR="${SOURCE_DIR}/pilot-core"
+RUNTIME_DIR="${BASE_DIR}/pilot-core"
 REPO_URL="https://github.com/gitarman94/CommandPilot.git"
 SERVER_URL="http://127.0.0.1:8080"
 VERBOSE=0
@@ -53,7 +55,6 @@ run apt-get install -y git curl wget sqlite3 build-essential ca-certificates || 
 pass "Dependencies installed"
 
 stage "Go"
-
 if ! command -v go >/dev/null 2>&1; then
     ARCH=$(uname -m)
 
@@ -75,17 +76,18 @@ go version >/dev/null 2>&1 || fail "Go install failed"
 pass "Go ready"
 
 stage "User"
-
 if ! id -u commandpilot >/dev/null 2>&1; then
     useradd --system --no-create-home --shell /usr/sbin/nologin commandpilot || fail "failed creating commandpilot user"
 fi
-
 pass "User ready"
 
-stage "Source"
-
+stage "Directories"
+mkdir -p "$BASE_DIR"
 mkdir -p "$(dirname "$SOURCE_DIR")"
+mkdir -p "$RUNTIME_DIR"
+pass "Directories ready"
 
+stage "Source"
 if [[ -d "${SOURCE_DIR}/.git" ]]; then
     run git -C "$SOURCE_DIR" fetch --all --prune || fail "git fetch failed"
     run git -C "$SOURCE_DIR" reset --hard origin/main || fail "git reset failed"
@@ -97,30 +99,22 @@ fi
 pass "Repository synced"
 
 stage "Build"
-
 cd "$BUILD_DIR"
 run go mod tidy || fail "go mod tidy failed"
+rm -f "${BUILD_DIR}/pilot-core"
 run go build -o pilot-core . || fail "go build failed"
-
 [[ -f "${BUILD_DIR}/pilot-core" ]] || fail "binary missing"
-
 chmod +x "${BUILD_DIR}/pilot-core"
 pass "Build succeeded"
 
 stage "Runtime"
-
-mkdir -p "$RUNTIME_DIR"
-
 run systemctl stop "${SERVICE_NAME}" || true
-
-cp "${BUILD_DIR}/pilot-core" "${RUNTIME_DIR}/pilot-core"
-
+rm -rf "${RUNTIME_DIR}/pilot-core"
+install -m 755 "${BUILD_DIR}/pilot-core" "${RUNTIME_DIR}/pilot-core" || fail "runtime binary install failed"
 rm -rf "${RUNTIME_DIR}/templates"
 rm -rf "${RUNTIME_DIR}/static"
-
-cp -r "${SOURCE_DIR}/templates" "${RUNTIME_DIR}/templates"
-cp -r "${SOURCE_DIR}/static" "${RUNTIME_DIR}/static"
-
+cp -r "${SOURCE_DIR}/templates" "${RUNTIME_DIR}/templates" || fail "templates copy failed"
+cp -r "${SOURCE_DIR}/static" "${RUNTIME_DIR}/static" || fail "static copy failed"
 mkdir -p "${RUNTIME_DIR}/backups"
 
 if [[ ! -f "${RUNTIME_DIR}/commandpilot.db" ]]; then
@@ -128,10 +122,11 @@ if [[ ! -f "${RUNTIME_DIR}/commandpilot.db" ]]; then
 fi
 
 chown -R commandpilot:commandpilot "$RUNTIME_DIR"
+[[ -f "${RUNTIME_DIR}/pilot-core" ]] || fail "runtime binary missing"
+[[ -x "${RUNTIME_DIR}/pilot-core" ]] || fail "runtime binary not executable"
 pass "Runtime deployed"
 
 stage "Assets"
-
 for f in login.html navbar.html dashboard.html devices.html device_detail.html actions.html history.html settings.html users_groups.html roles.html audit.html; do
     [[ -f "${RUNTIME_DIR}/templates/${f}" ]] || fail "missing template: ${f}"
 done
@@ -140,7 +135,6 @@ done
 pass "Assets ready"
 
 stage "Service"
-
 cat >/etc/systemd/system/${SERVICE_NAME} <<EOF
 [Unit]
 Description=CommandPilot Server
@@ -165,26 +159,27 @@ run systemctl enable ${SERVICE_NAME} || fail "enable failed"
 run systemctl restart ${SERVICE_NAME} || fail "service start failed"
 
 sleep 5
+
+if ! systemctl is-active --quiet ${SERVICE_NAME}; then
+    journalctl -u ${SERVICE_NAME} -n 100 --no-pager
+    fail "service inactive"
+fi
+
 pass "Service started"
 
 stage "Validation"
-
-systemctl is-active --quiet ${SERVICE_NAME} || fail "service inactive"
-pass "Service active"
-
 ss -tulpn | grep -q ":8080" || fail "port 8080 closed"
 pass "Port listening"
 
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${SERVER_URL}/")
-
 [[ "$HTTP_CODE" == "200" || "$HTTP_CODE" == "401" ]] || fail "HTTP failed (${HTTP_CODE})"
 
 pass "HTTP responding"
-
 [[ -f "${RUNTIME_DIR}/commandpilot.db" ]] || fail "database missing"
-pass "Database exists"
 
+pass "Database exists"
 sqlite3 "${RUNTIME_DIR}/commandpilot.db" "SELECT 1;" >/dev/null 2>&1 || fail "sqlite failed"
+
 pass "SQLite operational"
 
 IP_ADDR=$(hostname -I | awk '{print $1}')
@@ -193,3 +188,4 @@ echo
 echo "CommandPilot deployed successfully"
 echo "URL: http://${IP_ADDR}:8080"
 echo "Service: ${SERVICE_NAME}"
+echo "Runtime: ${RUNTIME_DIR}"
