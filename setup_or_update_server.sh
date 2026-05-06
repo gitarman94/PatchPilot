@@ -6,11 +6,11 @@ SERVICE_NAME="pilot-core.service"
 SYSTEMD_DIR="/etc/systemd/system"
 
 GITHUB_USER="gitarman94"
-GITHUB_REPO="commandpilot"
+GITHUB_REPO="CommandPilot"
 BRANCH="main"
 REPO_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}.git"
 
-echo "Starting KentroCore setup..."
+echo "Starting CommandPilot (pilot-core) setup..."
 
 # --- OS check ---
 if [[ -f /etc/os-release ]]; then
@@ -30,7 +30,7 @@ systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 # --- install dependencies ---
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl git build-essential sqlite3 libsqlite3-dev
+apt-get install -y -qq curl git build-essential sqlite3 libsqlite3-dev ca-certificates
 
 # --- install Go if missing ---
 if ! command -v go >/dev/null 2>&1; then
@@ -43,59 +43,47 @@ fi
 export PATH=$PATH:/usr/local/go/bin
 
 # --- create system user ---
-if ! id -u kentro >/dev/null 2>&1; then
-    useradd -r -m -d /home/kentro -s /usr/sbin/nologin kentro || true
+if ! id -u commandpilot >/dev/null 2>&1; then
+    useradd -r -m -d /home/commandpilot -s /usr/sbin/nologin commandpilot || true
 fi
 
 # --- fetch source ---
-echo "Fetching Kentro source..."
+echo "Fetching CommandPilot source..."
 rm -rf "$APP_DIR"
 git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
 
-cd "$APP_DIR"
-
-# If you keep code in a subdir, adjust here
-if [[ -d "kentrocore" ]]; then
-    cd kentrocore
-fi
-
-# --- ensure go module ---
-if [[ ! -f "go.mod" ]]; then
-    go mod init kentro
-fi
-
-# --- dependencies ---
-echo "Fetching Go dependencies..."
-go mod tidy
-
 # --- build ---
-echo "Building KentroCore..."
-go build -o kentrocore
+echo "Building pilot-core..."
+cd "$APP_DIR/pilot-core"
+
+# IMPORTANT: use repo's go.mod (do NOT create one)
+go mod tidy
+go build -o pilot-core
 
 # --- environment ---
-cat > .env <<EOF
-DATABASE_PATH=${APP_DIR}/kentro.db
+cat > "${APP_DIR}/.env" <<EOF
+DATABASE_PATH=${APP_DIR}/commandpilot.db
 SERVER_ADDRESS=0.0.0.0
 SERVER_PORT=8080
 EOF
 
 # --- permissions ---
-chown -R kentro:kentro "$APP_DIR"
-chmod +x kentrocore
+chown -R commandpilot:commandpilot "$APP_DIR"
+chmod +x "${APP_DIR}/pilot-core/pilot-core"
 
 # --- systemd ---
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
-Description=KentroCore Server
+Description=CommandPilot pilot-core
 After=network.target
 
 [Service]
-User=kentro
-Group=kentro
-WorkingDirectory=${APP_DIR}
+User=commandpilot
+Group=commandpilot
+WorkingDirectory=${APP_DIR}/pilot-core
 EnvironmentFile=${APP_DIR}/.env
 Environment=PATH=/usr/local/go/bin:/usr/bin:/bin
-ExecStart=${APP_DIR}/kentrocore
+ExecStart=${APP_DIR}/pilot-core/pilot-core
 Restart=on-failure
 RestartSec=5s
 
@@ -109,7 +97,7 @@ systemctl enable --now "${SERVICE_NAME}"
 
 # --- verify ---
 if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
-    echo "KentroCore failed to start. Logs:"
+    echo "pilot-core failed to start. Logs:"
     journalctl -u "${SERVICE_NAME}" -n 50 --no-pager
     exit 1
 fi
@@ -117,6 +105,7 @@ fi
 IP=$(hostname -I | awk '{print $1}')
 
 echo "----------------------------------------"
-echo "KentroCore is running"
+echo "CommandPilot is running"
 echo "URL: http://${IP}:8080"
+echo "Service: ${SERVICE_NAME}"
 echo "----------------------------------------"

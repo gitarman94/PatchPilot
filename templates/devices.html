@@ -17,7 +17,7 @@
       <tr><th>Hostname</th><th>IP</th><th>OS</th><th>Status</th></tr>
     </thead>
     <tbody>
-      {{range .devices}}
+      {{range .Devices}}
       <tr>
         <td><a href="/device_detail/{{.ID}}">{{.Hostname}}</a></td>
         <td>{{.IP}}</td>
