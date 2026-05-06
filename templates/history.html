@@ -1,33 +1,36 @@
-{{> navbar }}
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>History - PatchPilot</title>
+  <title>History - CommandPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+  {{ template "navbar.html" . }}
+
   <main class="container">
     <h1>History</h1>
 
     <table>
       <thead>
-        <tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th></tr>
+        <tr>
+          <th>ID</th>
+          <th>Action</th>
+          <th>Timestamp</th>
+        </tr>
       </thead>
       <tbody>
-        {{#each history}}
-          <tr>
-            <td>{{this.timestamp}}</td>
-            <td>{{this.actor}}</td>
-            <td>{{this.action}}</td>
-            <td>{{this.target}}</td>
-            <td>{{this.details}}</td>
-          </tr>
-        {{/each}}
-        {{#unless history}}
-          <tr><td colspan="5">No history records.</td></tr>
-        {{/unless}}
+        {{ range .History }}
+        <tr>
+          <td>{{ .ID }}</td>
+          <td>{{ .Action }}</td>
+          <td>{{ .Timestamp }}</td>
+        </tr>
+        {{ else }}
+        <tr>
+          <td colspan="3">No history entries.</td>
+        </tr>
+        {{ end }}
       </tbody>
     </table>
   </main>

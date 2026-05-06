@@ -1,127 +1,60 @@
-{{!-- templates/users_groups.hbs --}}
-{{#> layout title="Users & Groups"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Users & Groups - CommandPilot</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  {{ template "navbar.html" . }}
 
-<main class="container">
-  <h1>Users & Groups</h1>
+  <main class="container">
+    <h1>Users & Groups</h1>
 
-  {{!-- Users Section --}}
-  <section class="users-list">
-    <h2>Users</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Username</th>
-          <th>Email</th>
-          <th>Groups</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {{#each users}}
+    <section class="card">
+      <h2>Create User</h2>
+
+      <form method="POST" action="/create_user">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" required>
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required>
+        </div>
+
+        <button type="submit">Create User</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Users</h2>
+
+      <table>
+        <thead>
           <tr>
-            <td>{{this.id}}</td>
-            <td>{{this.username}}</td>
-            <td>{{this.email}}</td>
-            <td>
-              {{#each this.groups}}
-                <span class="user-group">{{this.name}}</span>
-              {{/each}}
-            </td>
-            <td>
-              <button class="btn-delete-user" data-user-id="{{this.id}}">Delete</button>
-            </td>
+            <th>ID</th>
+            <th>Username</th>
+            <th>Role</th>
           </tr>
-        {{/each}}
-
-        {{#unless users}}
-          <tr><td colspan="5">No users defined.</td></tr>
-        {{/unless}}
-      </tbody>
-    </table>
-
-    <h3>Add User</h3>
-    <form method="post" action="/users-groups/users/add" class="user-add-form">
-      <div class="form-row">
-        <label for="username">Username</label>
-        <input id="username" name="username" required>
-      </div>
-      <div class="form-row">
-        <label for="email">Email</label>
-        <input id="email" name="email" type="email">
-      </div>
-      <div class="form-row">
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password" required>
-      </div>
-      <div class="form-actions">
-        <button type="submit">Add User</button>
-      </div>
-    </form>
-  </section>
-
-  {{!-- Groups Section --}}
-  <section class="groups-list">
-    <h2>Groups</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Group Name</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {{#each groups}}
+        </thead>
+        <tbody>
+          {{ range .Users }}
           <tr>
-            <td>{{this.id}}</td>
-            <td>{{this.name}}</td>
-            <td>
-              <button class="btn-delete-group" data-group-id="{{this.id}}">Delete</button>
-            </td>
+            <td>{{ .ID }}</td>
+            <td>{{ .Username }}</td>
+            <td>{{ .Role }}</td>
           </tr>
-        {{/each}}
-
-        {{#unless groups}}
-          <tr><td colspan="3">No groups defined.</td></tr>
-        {{/unless}}
-      </tbody>
-    </table>
-
-    <h3>Add Group</h3>
-    <form method="post" action="/users-groups/groups/add" class="group-add-form">
-      <div class="form-row">
-        <label for="group-name">Group Name</label>
-        <input id="group-name" name="name" required>
-      </div>
-      <div class="form-actions">
-        <button type="submit">Add Group</button>
-      </div>
-    </form>
-  </section>
-</main>
-
-<script>
-document.addEventListener('click', function (e) {
-  const btnUser = e.target.closest('.btn-delete-user');
-  const btnGroup = e.target.closest('.btn-delete-group');
-
-  if (btnUser) {
-    const id = btnUser.getAttribute('data-user-id');
-    if (!confirm('Delete user ID ' + id + '?')) return;
-    fetch('/users-groups/users/' + encodeURIComponent(id), { method: 'DELETE' })
-      .then(r => r.ok ? location.reload() : r.text().then(t => alert('Delete failed: ' + t)))
-      .catch(err => alert('Network error: ' + err));
-  }
-
-  if (btnGroup) {
-    const id = btnGroup.getAttribute('data-group-id');
-    if (!confirm('Delete group ID ' + id + '?')) return;
-    fetch('/users-groups/groups/' + encodeURIComponent(id), { method: 'DELETE' })
-      .then(r => r.ok ? location.reload() : r.text().then(t => alert('Delete failed: ' + t)))
-      .catch(err => alert('Network error: ' + err));
-  }
-});
-</script>
-
-{{/layout}}
+          {{ else }}
+          <tr>
+            <td colspan="3">No users found.</td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

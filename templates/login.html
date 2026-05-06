@@ -7,27 +7,29 @@
 </head>
 <body>
   <main class="container">
-    <h1>CommandPilot</h1>
+    <div class="login-box">
+      <h1>CommandPilot</h1>
 
-    {{ if .Error }}
-    <div class="error">
-      {{ .Error }}
+      {{ if .Error }}
+      <div class="alert alert-error">
+        {{ .Error }}
+      </div>
+      {{ end }}
+
+      <form method="POST" action="/auth/login">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" required>
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required>
+        </div>
+
+        <button type="submit">Login</button>
+      </form>
     </div>
-    {{ end }}
-
-    <form method="POST" action="/auth/login">
-      <div class="form-group">
-        <label for="username">Username</label>
-        <input id="username" name="username" type="text" required>
-      </div>
-
-      <div class="form-group">
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password" required>
-      </div>
-
-      <button type="submit">Login</button>
-    </form>
   </main>
 </body>
 </html>

@@ -1,44 +1,57 @@
-{{> navbar }}
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Settings - PatchPilot</title>
+  <title>Settings - CommandPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+  {{ template "navbar.html" . }}
+
   <main class="container">
     <h1>Settings</h1>
 
-    <section>
-      <h2>Users</h2>
-      <table>
-        <thead>
-          <tr><th>ID</th><th>Username</th><th>Role</th></tr>
-        </thead>
-        <tbody>
-          {{#each users}}
-            <tr>
-              <td>{{this.id}}</td>
-              <td>{{this.username}}</td>
-              <td>{{this.role}}</td>
-            </tr>
-          {{/each}}
-          {{#unless users}}
-            <tr><td colspan="3">No users configured.</td></tr>
-          {{/unless}}
-        </tbody>
-      </table>
+    <section class="card">
+      <h2>Update Setting</h2>
+
+      <form method="POST" action="/update_setting">
+        <div class="form-group">
+          <label for="key">Key</label>
+          <input id="key" name="key" type="text" required>
+        </div>
+
+        <div class="form-group">
+          <label for="value">Value</label>
+          <input id="value" name="value" type="text" required>
+        </div>
+
+        <button type="submit">Save</button>
+      </form>
     </section>
 
-    <section>
-      <h2>Server Settings</h2>
-      <dl>
-        {{#each settings}}
-          <dt>{{@key}}</dt><dd>{{this}}</dd>
-        {{/each}}
-      </dl>
+    <section class="card">
+      <h2>Current Settings</h2>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Key</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .Settings }}
+          <tr>
+            <td>{{ .Key }}</td>
+            <td>{{ .Value }}</td>
+          </tr>
+          {{ else }}
+          <tr>
+            <td colspan="2">No settings configured.</td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
     </section>
   </main>
 </body>
