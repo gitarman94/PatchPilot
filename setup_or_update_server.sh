@@ -9,108 +9,71 @@ SERVER_URL="http://127.0.0.1:8080"
 
 VERBOSE=0
 [[ "${1:-}" == "--verbose" || "${1:-}" == "-v" ]] && VERBOSE=1
+[[ "$VERBOSE" -eq 1 ]] && set -x
 
-run() {
-    if [[ "$VERBOSE" -eq 1 ]]; then
-        "$@"
-    else
-        "$@" >/dev/null 2>&1
-    fi
-}
+run(){ if [[ "$VERBOSE" -eq 1 ]]; then echo "[RUN] $*"; "$@"; else "$@" >/dev/null 2>&1; fi; }
 
-fail() {
-    echo
+fail(){
     echo "[FAIL] $1"
+    if [[ "$VERBOSE" -eq 1 ]]; then
+        echo "===== DEBUG INFO ====="
+        echo "--- pwd ---"; pwd || true
+        echo "--- install dir ---"; ls -lah "$INSTALL_DIR" || true
+        echo "--- core dir ---"; ls -lah "$CORE_DIR" || true
+        echo "--- templates ---"; find "$INSTALL_DIR" -name "*.html" || true
+        echo "--- systemd unit ---"; cat "/etc/systemd/system/${SERVICE_NAME}" 2>/dev/null || true
+        echo "--- systemctl status ---"; systemctl status "${SERVICE_NAME}" --no-pager -l || true
+        echo "--- journalctl ---"; journalctl -u "${SERVICE_NAME}" -n 100 --no-pager || true
+        echo "--- listening ports ---"; ss -tulpn || true
+        echo "--- processes ---"; ps aux | grep pilot-core || true
+    fi
     exit 1
 }
 
-pass() {
-    echo "[PASS] $1"
-}
-
-stage() {
-    echo
-    echo "== $1 =="
-}
+pass(){ echo "[PASS] $1"; }
+stage(){ echo; echo "== $1 =="; }
 
 stage "Dependencies"
-
 run apt-get update -y || fail "apt update failed"
-
-run apt-get install -y \
-    git \
-    curl \
-    wget \
-    sqlite3 \
-    build-essential || fail "dependency install failed"
-
+run apt-get install -y git curl wget sqlite3 python3 python3-pip build-essential || fail "dependency install failed"
 pass "Dependencies installed"
 
 stage "Go"
-
 if ! command -v go >/dev/null 2>&1; then
     ARCH=$(uname -m)
-
-    if [[ "$ARCH" == "x86_64" ]]; then
-        GO_ARCH="amd64"
-    elif [[ "$ARCH" == "aarch64" ]]; then
-        GO_ARCH="arm64"
-    else
-        fail "unsupported architecture: $ARCH"
-    fi
-
-    run wget -q https://go.dev/dl/go1.25.0.linux-${GO_ARCH}.tar.gz -O /tmp/go.tar.gz || fail "Go download failed"
-
+    [[ "$ARCH" == "x86_64" ]] && GO_ARCH="amd64" || GO_ARCH="arm64"
+    run wget https://go.dev/dl/go1.25.0.linux-${GO_ARCH}.tar.gz -O /tmp/go.tar.gz || fail "Go download failed"
     rm -rf /usr/local/go
-
     run tar -C /usr/local -xzf /tmp/go.tar.gz || fail "Go extract failed"
-
     echo 'export PATH=$PATH:/usr/local/go/bin' >/etc/profile.d/golang.sh
 fi
 
 export PATH=$PATH:/usr/local/go/bin
-
 go version || fail "Go install failed"
-
 pass "Go ready"
 
 stage "Source"
-
 rm -rf "$INSTALL_DIR"
-
 run git clone "$REPO_URL" "$INSTALL_DIR" || fail "git clone failed"
-
 [[ -d "$CORE_DIR" ]] || fail "pilot-core missing"
-
 pass "Repository cloned"
 
 stage "Build"
-
 cd "$CORE_DIR"
-
 run go mod tidy || fail "go mod tidy failed"
-
 run go build -o pilot-core . || fail "go build failed"
-
 [[ -f "${CORE_DIR}/pilot-core" ]] || fail "binary missing"
-
 chmod +x "${CORE_DIR}/pilot-core"
-
 pass "Build succeeded"
 
 stage "Assets"
-
 mkdir -p "${INSTALL_DIR}/templates" "${INSTALL_DIR}/static"
-
 cp -r "${CORE_DIR}/templates/"* "${INSTALL_DIR}/templates/" 2>/dev/null || true
 cp -r "${CORE_DIR}/static/"* "${INSTALL_DIR}/static/" 2>/dev/null || true
-
 [[ -f "${INSTALL_DIR}/templates/login.html" ]] || fail "templates missing"
-
 pass "Assets ready"
 
 stage "Service"
-
 cat >/etc/systemd/system/${SERVICE_NAME} <<EOF
 [Unit]
 Description=CommandPilot Server
@@ -130,54 +93,36 @@ WantedBy=multi-user.target
 EOF
 
 run systemctl daemon-reload || fail "daemon-reload failed"
-
 run systemctl enable ${SERVICE_NAME} || fail "enable failed"
-
 run systemctl restart ${SERVICE_NAME} || fail "service start failed"
-
 sleep 5
-
 pass "Service started"
 
 stage "Validation"
-
-systemctl is-active --quiet ${SERVICE_NAME} || {
-    journalctl -u ${SERVICE_NAME} -n 50 --no-pager
-    fail "service inactive"
-}
-
+systemctl is-active --quiet ${SERVICE_NAME} || fail "service inactive"
 pass "Service active"
 
-ss -tulpn | grep -q ":8080" || {
-    journalctl -u ${SERVICE_NAME} -n 50 --no-pager
-    fail "port 8080 closed"
-}
-
+ss -tulpn | grep -q ":8080" || fail "port 8080 closed"
 pass "Port listening"
 
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${SERVER_URL}/")
-
 [[ "$HTTP_CODE" == "200" ]] || fail "HTTP failed (${HTTP_CODE})"
-
 pass "HTTP responding"
 
 [[ -f "${INSTALL_DIR}/commandpilot.db" ]] || fail "database missing"
-
 pass "Database exists"
 
 sqlite3 "${INSTALL_DIR}/commandpilot.db" "SELECT 1;" >/dev/null 2>&1 || fail "sqlite failed"
-
 pass "SQLite operational"
 
 TABLES=$(sqlite3 "${INSTALL_DIR}/commandpilot.db" ".tables")
-
 for table in devices actions history users roles settings; do
     echo "$TABLES" | grep -q "$table" || fail "missing table: $table"
 done
-
 pass "Schema valid"
 
 stage "Authenticated Validation"
+python3 -m pip install bcrypt >/dev/null 2>&1 || true
 
 ADMIN_EXISTS=$(sqlite3 "${INSTALL_DIR}/commandpilot.db" "SELECT COUNT(*) FROM users WHERE username='admin';")
 
@@ -189,30 +134,13 @@ fi
 
 COOKIE_JAR="/tmp/commandpilot.cookies"
 
-LOGIN_CODE=$(curl -s -c "$COOKIE_JAR" -o /dev/null -w "%{http_code}" \
-    -X POST "${SERVER_URL}/auth/login" \
-    -d "username=admin&password=admin")
-
+LOGIN_CODE=$(curl -s -c "$COOKIE_JAR" -o /dev/null -w "%{http_code}" -X POST "${SERVER_URL}/auth/login" -d "username=admin&password=admin")
 [[ "$LOGIN_CODE" == "302" || "$LOGIN_CODE" == "200" ]] || fail "login failed"
-
 pass "Login successful"
 
-for endpoint in \
-    "/dashboard" \
-    "/devices_page" \
-    "/actions_page" \
-    "/history_page" \
-    "/users_groups_page" \
-    "/roles_page" \
-    "/settings_page" \
-    "/api/devices" \
-    "/api/actions" \
-    "/api/history"
-do
+for endpoint in "/dashboard" "/devices_page" "/actions_page" "/history_page" "/users_groups_page" "/roles_page" "/settings_page" "/api/devices" "/api/actions" "/api/history"; do
     CODE=$(curl -s -b "$COOKIE_JAR" -o /dev/null -w "%{http_code}" "${SERVER_URL}${endpoint}")
-
     [[ "$CODE" == "200" ]] || fail "${endpoint} failed (${CODE})"
-
     pass "${endpoint} OK"
 done
 
@@ -224,6 +152,4 @@ echo
 echo "CommandPilot deployed successfully"
 echo "URL: http://${IP_ADDR}:8080"
 echo "Service: ${SERVICE_NAME}"
-echo
-echo "Verbose mode:"
-echo "bash setup_or_update_server.sh --verbose"
+echo "Verbose: bash setup_or_update_server.sh --verbose"
