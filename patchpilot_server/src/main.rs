@@ -2,18 +2,21 @@
 #[macro_use]
 extern crate rocket;
 
-use rocket::fs::{FileServer, relative};
-use rocket::figment::providers::{Env, Toml};
-use rocket::figment::providers::Serialized;
-use rocket::fairing::AdHoc;
-use rocket_dyn_templates::Template;
-use rocket_dyn_templates::handlebars::Handlebars;
+use rocket::{
+    fairing::AdHoc,
+    figment::providers::{Env, Format, Serialized, Toml},
+    fs::{relative, FileServer},
+};
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-use std::env;
-use std::net::TcpListener;
-use std::process;
+use rocket_dyn_templates::Template;
+
+use std::{
+    collections::HashMap,
+    env,
+    net::TcpListener,
+    process,
+    sync::{Arc, RwLock},
+};
 
 mod schema;
 mod db;
@@ -25,8 +28,8 @@ mod routes;
 mod action_ttl;
 mod pending_cleanup;
 
-use db::{initialize, get_conn};
-use state::{SystemState, AppState};
+use db::{get_conn, initialize};
+use state::{AppState, SystemState};
 
 #[launch]
 fn rocket() -> _ {
@@ -100,11 +103,6 @@ fn rocket() -> _ {
         .manage(db_pool)
         .manage(app_state.clone())
         .attach(Template::fairing())
-        .attach(Template::custom(|engines| {
-            engines
-                .handlebars
-                .set_templates_dir("/opt/patchpilot_server/templates");
-        }))
         .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)
         .attach(AdHoc::on_liftoff("Startup Audit", |rocket| {
