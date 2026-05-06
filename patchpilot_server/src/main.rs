@@ -64,7 +64,7 @@ fn rocket() -> _ {
     });
 
     let figment = rocket::Config::figment()
-        .merge(Toml::file("Rocket.toml").expect("Failed to load Rocket.toml"))
+        .merge(Toml::file("Rocket.toml"))
         .merge(Env::prefixed("ROCKET_").global())
         .merge(Serialized::from(override_map, "default"));
 
