@@ -1,58 +1,54 @@
 # ⚠️ EARLY DEVELOPMENT - EXPECT BREAKAGE
 
-# Kentro
+# CommandPilot
 
-**Kentro** is a cross-platform systems management platform designed to monitor devices, manage actions, and provide centralized control over infrastructure.
+CommandPilot is a cross-platform systems management platform designed to monitor devices, execute actions, and provide centralized operational control over infrastructure.
 
-It consists of a lightweight backend server (**KentroCore**) with a web UI, and future components for agents and CLI tooling.
+It consists of a lightweight Go-based backend (pilot-core) with a web UI, with future components for agents and CLI tooling.
 
 ---
 
 ## 🧠 Architecture Overview
 
-```
-Kentro (Product)
-├── KentroCore      (Go-based server / control plane)
-├── KentroAgent     (future endpoint agent)
-├── KentroUI        (web interface)
-├── KentroCLI       (future CLI)
-```
+CommandPilot (Product)
+├── pilot-core     (Go-based server / control plane)
+├── pilot-agent    (future endpoint agent)
+├── pilot-ui       (web interface)
+├── pilot-cli      (future CLI)
 
 ---
 
-## 🚀 KentroCore (Server)
+## 🚀 pilot-core (Server)
 
-KentroCore is a **Go-based backend server** that provides:
+pilot-core is the central control plane providing:
 
-* Device inventory and approval workflow
-* Action dispatch and tracking
-* Audit history and logging
-* Role-based access control (RBAC)
-* Web UI with dashboard + charts
-* REST API for integrations
+- Device inventory and approval workflows
+- Action dispatching and lifecycle tracking
+- Audit logging and historical records
+- Role-based access control (RBAC)
+- Web UI dashboard with charts
+- REST API for integrations
 
 ---
 
 ## ✨ Features
 
-* ⚡ **Go-based server** (fast, simple deployment, single binary)
-* 🗄️ **SQLite database** (no external DB required)
-* 🔐 Authentication with bcrypt + session handling
-* 👥 Users, roles, and groups
-* 📡 Device tracking (hostname, IP, OS, last seen)
-* 🧾 Action system with status + timestamps
-* 📊 Dashboard with live API-fed charts
-* 📜 Full audit/history logging
-* 🌐 Native HTML templates (no template engine dependency)
+- Go-based server (single static binary, minimal dependencies)
+- SQLite database (embedded, no external DB required)
+- Authentication using bcrypt + session cookies
+- Users, roles, and groups
+- Device tracking (hostname, IP, OS, last seen)
+- Action system with status + timestamps
+- Dashboard powered by API-driven charts
+- Full audit/history logging
+- Native HTML templates (Go html/template)
 
 ---
 
 ## 📁 Project Structure
 
-```
-kentro/
-│
-├── kentrocore/               # Go backend
+commandpilot/
+├── pilot-core/
 │   ├── main.go
 │   ├── db.go
 │   ├── models.go
@@ -60,11 +56,11 @@ kentro/
 │   ├── actions.go
 │   ├── history.go
 │   ├── auth.go
-│   ├── users.go
+│   ├── users_groups.go
 │   ├── roles.go
 │   ├── settings.go
 │
-├── templates/                # HTML templates (Go html/template)
+├── templates/
 │   ├── navbar.html
 │   ├── dashboard.html
 │   ├── devices.html
@@ -74,84 +70,70 @@ kentro/
 │   ├── settings.html
 │   ├── users_groups.html
 │   ├── roles.html
-│   └── login.html
+│   ├── login.html
+│   └── audit.html
 │
 ├── static/
 │   ├── app.js
 │   └── styles.css
 │
 └── setup_or_update_server.sh
-```
 
 ---
 
 ## ⚠️ Templates (IMPORTANT)
 
-KentroCore uses Go’s built-in:
+pilot-core uses Go’s built-in html/template engine.
 
-```
-html/template
-```
+Rules:
+- Templates must use .html
+- Do NOT use .hbs or Handlebars syntax
+- Use Go template syntax
 
-### Rules:
-
-* Templates must be `.html`
-* No `.hbs` or Handlebars syntax
-* Use Go template syntax:
-
-```
+Example:
 {{range .Devices}}
-{{.Hostname}}
+  {{.Hostname}}
 {{end}}
-```
 
-If templates are incorrect, you will see:
-
-* blank pages
-* missing data
-* or rendering errors
+If templates are incorrect, you may see:
+- Blank pages
+- Missing data
+- Rendering errors
 
 ---
 
 ## 🧱 Server Installation (Linux)
 
-### Requirements
-
-* Debian/Ubuntu-based system
-* root/sudo access
-* internet access
+Requirements:
+- Debian/Ubuntu-based system
+- root or sudo access
+- internet access
 
 ---
 
 ## ⚡ Install / Update (One Command)
 
-```bash
 apt-get update
 apt-get install -y curl
-curl -fsSL https://raw.githubusercontent.com/gitarman94/kentro/main/setup_or_update_server.sh | bash
-```
+curl -fsSL https://raw.githubusercontent.com/gitarman94/CommandPilot/refs/heads/main/setup_or_update_server.sh | bash
 
 ---
 
-### What the installer does
+## 🔧 What the Installer Does
 
-* Installs Go (if missing)
-* Installs SQLite + build tools
-* Downloads Kentro source from GitHub
-* Builds `kentrocore` binary
-* Creates system user (`kentro`)
-* Sets up systemd service
-* Starts server automatically
+- Installs Go (if missing)
+- Installs SQLite and build dependencies
+- Downloads CommandPilot source
+- Builds pilot-core binary
+- Creates system user (commandpilot)
+- Configures systemd service (pilot-core.service)
+- Starts and enables service
 
 ---
 
 ## 🌐 Access the UI
 
-After install:
-
-```
 http://<server-ip>:8080
-```
 
 ---
 
@@ -159,85 +141,76 @@ http://<server-ip>:8080
 
 Re-run the installer:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/gitarman94/kentro/main/setup_or_update_server.sh | bash
-```
+curl -fsSL https://raw.githubusercontent.com/gitarman94/CommandPilot/refs/heads/main/setup_or_update_server.sh | bash
 
 This will:
-
-* pull latest code
-* rebuild
-* restart service
+- Pull latest code
+- Rebuild the binary
+- Restart the service
 
 ---
 
 ## 📊 Core API Endpoints
 
-| Endpoint       | Description   |
-| -------------- | ------------- |
-| `/api/devices` | Device list   |
-| `/api/actions` | Actions list  |
-| `/api/history` | Audit history |
+/api/devices   → Device list
+/api/actions   → Actions list
+/api/history   → Audit history
 
-Used by dashboard charts and UI.
+These endpoints power the dashboard charts and UI.
 
 ---
 
 ## 🗄️ Database
 
-SQLite file:
+Default location:
+/opt/commandpilot/commandpilot.db
 
-```
-/opt/kentro/kentro.db
-```
-
-Tables include:
-
-* devices
-* actions
-* history
-* users
-* roles
-* groups
-* settings
+Tables:
+- devices
+- actions
+- history
+- users
+- roles
+- groups
+- settings
 
 ---
 
 ## 🔐 Authentication
 
-* bcrypt password hashing
-* session-based login
-* protected routes via middleware
+- bcrypt password hashing
+- session-based login
+- protected routes via middleware
 
 ---
 
 ## 🧪 Development Notes
 
-* No external runtime dependencies (single binary)
-* No Node, no Python, no Rust required
-* Templates + static files served directly
-* API + UI tightly coupled
+- Single binary deployment (no runtime dependencies)
+- No Node, Python, or Rust required
+- Templates + static assets served directly
+- API and UI tightly coupled
 
 ---
 
 ## ⚠️ Current Limitations
 
-* Early-stage (expect bugs)
-* No migrations yet
-* No clustering / HA
-* Sessions are basic (no distributed store)
-* Agent not implemented yet
+- Early-stage (expect bugs)
+- No migrations yet
+- No clustering / high availability
+- Basic session handling (not distributed)
+- Agent not implemented yet
 
 ---
 
 ## 🔮 Planned Features
 
-* KentroAgent (endpoint daemon)
-* CLI management tool
-* TLS support
-* API authentication tokens
-* Real-time updates (WebSockets)
-* Multi-node support
+- pilot-agent (endpoint daemon)
+- pilot-cli (management CLI)
+- TLS support
+- API authentication tokens
+- WebSocket live updates
+- Multi-node support
 
 ---
 
@@ -249,5 +222,4 @@ TBD
 
 ## 🙋 Support
 
-Open issues on GitHub:
-https://github.com/gitarman94/kentro
+https://github.com/gitarman94/CommandPilot
