@@ -41,15 +41,16 @@ func (app *App) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 🔐 Hash password using bcrypt
+	// Hash password (required for auth.go)
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
 		return
 	}
 
+	// ✅ CRITICAL: use password_hash column
 	_, err = app.DB.Exec(
-		"INSERT INTO users (username, password) VALUES (?, ?)",
+		"INSERT INTO users (username, password_hash) VALUES (?, ?)",
 		username,
 		string(hashedPassword),
 	)
