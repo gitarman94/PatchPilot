@@ -11,39 +11,44 @@ It consists of a lightweight Go-based backend (`pilot-core`) with a web UI, with
 ## 🧠 Architecture Overview
 
 ```text
-CommandPilot (Product)
-├── pilot-core     (Go-based server / control plane)
+CommandPilot
+├── pilot-core     (Go server / control plane)
 ├── pilot-agent    (future endpoint agent)
 ├── pilot-ui       (web interface)
 └── pilot-cli      (future CLI)
-```
+````
 
 ---
 
-## 🚀 pilot-core (Server)
+## 🚀 pilot-core
 
-`pilot-core` is the central control plane providing:
+`pilot-core` is the central control plane responsible for:
 
-- Device inventory and approval workflows
-- Action dispatching and lifecycle tracking
-- Audit logging and historical records
-- Role-based access control (RBAC)
-- Web UI dashboard with charts
-- REST API for integrations
+* Device inventory management
+* Device approval workflows
+* Action dispatch and tracking
+* Historical event logging
+* Audit visibility
+* Role-based access control (RBAC)
+* Administrative web interface
+* REST API integrations
 
 ---
 
 ## ✨ Features
 
-- Go-based server (single static binary, minimal dependencies)
-- SQLite database (embedded, no external DB required)
-- Authentication using bcrypt + session cookies
-- Users, roles, and groups
-- Device tracking (hostname, IP, OS, last seen)
-- Action system with status + timestamps
-- Dashboard powered by API-driven charts
-- Full audit/history logging
-- Native HTML templates (`Go html/template`)
+* Go-based server
+* Single static binary deployment
+* SQLite embedded database
+* Session authentication
+* bcrypt password hashing
+* Users, roles, and groups
+* Device tracking and inventory
+* Action lifecycle tracking
+* Dashboard metrics and charts
+* Audit and history visibility
+* Native Go HTML templates
+* Minimal runtime dependencies
 
 ---
 
@@ -61,7 +66,8 @@ commandpilot/
 │   ├── auth.go
 │   ├── users_groups.go
 │   ├── roles.go
-│   └── settings.go
+│   ├── settings.go
+│   └── utils.go
 │
 ├── templates/
 │   ├── navbar.html
@@ -80,76 +86,129 @@ commandpilot/
 │   ├── app.js
 │   └── styles.css
 │
-└── setup_or_update_server.sh
+├── setup_or_update_server.sh
+└── server_test.sh
 ```
 
 ---
 
-## ⚠️ Templates (IMPORTANT)
+## ⚠️ Template Engine Requirements
 
 `pilot-core` uses Go’s built-in `html/template` engine.
 
-### Rules
-
-- Templates must use `.html`
-- Do **NOT** use `.hbs` or Handlebars syntax
-- Use standard Go template syntax
-
-### Example
+### Supported Syntax
 
 ```go
 {{range .Devices}}
-  {{.Hostname}}
+<tr>
+  <td>{{.Hostname}}</td>
+</tr>
 {{end}}
 ```
 
-### Common Symptoms of Invalid Templates
+### Partial Templates
 
-- Blank pages
-- Missing data
-- Rendering errors
+```go
+{{template "navbar.html" .}}
+```
+
+### Unsupported Syntax
+
+The following syntax is NOT supported and will crash the server:
+
+```handlebars
+{{#each devices}}
+{{this.hostname}}
+{{/each}}
+
+{{> navbar}}
+```
+
+### Common Template Failure Symptoms
+
+* Blank pages
+* Panic during startup
+* `unexpected ">" in command`
+* Missing rendered data
+* Empty tables
+* HTTP 500 errors
 
 ---
 
-## 🧱 Server Installation (Linux)
+## 🧱 Server Requirements
 
-### Requirements
-
-- Debian/Ubuntu-based system
-- Root or sudo access
-- Internet access
+* Debian or Ubuntu
+* Root or sudo access
+* Internet connectivity
 
 ---
 
-## ⚡ Install / Update (One Command)
+## ⚡ Install / Update
 
 ```bash
 apt update -y && apt upgrade -y
 apt install -y curl
+
 curl -fsSL https://raw.githubusercontent.com/gitarman94/CommandPilot/refs/heads/main/setup_or_update_server.sh | bash
 ```
 
-### Verbose Mode
+---
+
+## 🔍 Verbose Installer Modes
+
+### Standard Verbose
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gitarman94/CommandPilot/refs/heads/main/setup_or_update_server.sh | bash -s -- --verbose
 ```
 
+Displays:
+
+* install stages
+* executed commands
+* validation steps
+* service checks
+
+### Deep Debug Mode
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gitarman94/CommandPilot/refs/heads/main/setup_or_update_server.sh | bash -s -- --veryverbose
+```
+
+Displays additional diagnostics:
+
+* systemd status
+* journal logs
+* process state
+* listening ports
+* template discovery
+* filesystem validation
+* working directories
+
 ---
 
-## 🔧 What the Installer Does
+## 🔧 Installer Responsibilities
 
-- Installs Go (if missing)
-- Installs SQLite and build dependencies
-- Downloads CommandPilot source
-- Builds `pilot-core` binary
-- Creates system user (`commandpilot`)
-- Configures systemd service (`pilot-core.service`)
-- Starts and enables the service
+The installer performs staged validation and exits immediately on failure.
+
+### Stages
+
+1. Dependency installation
+2. Go installation validation
+3. Repository retrieval
+4. Binary compilation
+5. Static/template asset validation
+6. systemd service creation
+7. Service startup validation
+8. HTTP validation
+9. Database validation
+10. Authenticated endpoint validation
 
 ---
 
-## 🌐 Access the UI
+## 🌐 Web Interface
+
+Default URL:
 
 ```text
 http://<server-ip>:8080
@@ -165,81 +224,97 @@ Re-run the installer:
 curl -fsSL https://raw.githubusercontent.com/gitarman94/CommandPilot/refs/heads/main/setup_or_update_server.sh | bash
 ```
 
-### Update Process
+Update flow:
 
-- Pull latest code
-- Rebuild the binary
-- Restart the service
+* pulls latest source
+* rebuilds binary
+* replaces service binary
+* validates startup
+* validates endpoints
 
 ---
 
 ## 📊 Core API Endpoints
 
 ```text
-/api/devices   → Device list
-/api/actions   → Actions list
-/api/history   → Audit history
+/api/devices
+/api/actions
+/api/history
 ```
 
-These endpoints power the dashboard charts and UI.
+Used by:
+
+* dashboard widgets
+* charts
+* administrative tables
+* UI refresh logic
 
 ---
 
 ## 🗄️ Database
 
-### Default Location
+Default database location:
 
 ```text
 /opt/commandpilot/commandpilot.db
 ```
 
-### Tables
+### Core Tables
 
-- devices
-- actions
-- history
-- users
-- roles
-- groups
-- settings
+* devices
+* actions
+* history
+* users
+* roles
+* groups
+* settings
 
 ---
 
 ## 🔐 Authentication
 
-- bcrypt password hashing
-- Session-based login
-- Protected routes via middleware
+* bcrypt password hashing
+* session cookie authentication
+* middleware-protected routes
+* role-aware administration
 
 ---
 
 ## 🧪 Development Notes
 
-- Single binary deployment (no runtime dependencies)
-- No Node.js, Python, or Rust required
-- Templates and static assets served directly
-- API and UI tightly coupled
+* Single binary deployment
+* No Node.js required
+* No Rust required
+* No external database required
+* Static assets served directly
+* Templates rendered server-side
+* API and UI tightly integrated
 
 ---
 
 ## ⚠️ Current Limitations
 
-- Early-stage (expect bugs)
-- No migrations yet
-- No clustering / high availability
-- Basic session handling (not distributed)
-- Agent not implemented yet
+* Early-stage project
+* No database migrations
+* No HA clustering
+* Basic session handling
+* Agent component incomplete
+* RBAC still evolving
+* Limited frontend validation
 
 ---
 
 ## 🔮 Planned Features
 
-- `pilot-agent` (endpoint daemon)
-- `pilot-cli` (management CLI)
-- TLS support
-- API authentication tokens
-- WebSocket live updates
-- Multi-node support
+* `pilot-agent`
+* `pilot-cli`
+* TLS support
+* API tokens
+* Live WebSocket updates
+* Multi-node support
+* Centralized event streaming
+* Remote command execution
+* Policy management
 
 ---
 
@@ -249,10 +324,13 @@ TBD
 
 ---
 
-## 🙋 Support
+## 🙋 Repository
 
-GitHub Repository:
+GitHub:
 
 ```text
 https://github.com/gitarman94/CommandPilot
+```
+
+```
 ```
