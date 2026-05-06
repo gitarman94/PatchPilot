@@ -3,9 +3,11 @@
 extern crate rocket;
 
 use rocket::fs::{FileServer, relative};
-use rocket::figment::providers::{Env, Toml, Format};
+use rocket::figment::providers::{Env, Toml};
+use rocket::figment::providers::Serialized;
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::Template;
+use rocket_dyn_templates::handlebars::Handlebars;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -44,8 +46,7 @@ fn rocket() -> _ {
         .parse::<u16>()
         .unwrap_or(8080);
 
-    // Quick pre-bind check: try to bind to the address/port to ensure availability.
-    // If it's already in use, exit with non-zero so systemd / supervisor sees the failure.
+    // Quick pre-bind check
     if let Err(e) = TcpListener::bind((address.as_str(), port)) {
         log::error!("Port {} on {} is not available: {:?}", port, address, e);
         process::exit(1);
@@ -53,7 +54,7 @@ fn rocket() -> _ {
 
     log::info!("[*] Rocket will bind to {}:{}.", address, port);
 
-    // Build figment: merge Rocket.toml and environment, and override address/port
+    // Build figment
     let override_map = serde_json::json!({
         "address": address,
         "port": port
@@ -62,8 +63,7 @@ fn rocket() -> _ {
     let figment = rocket::Config::figment()
         .merge(Toml::file("Rocket.toml"))
         .merge(Env::prefixed("ROCKET_").global())
-        .merge(rocket::figment::providers::Serialized::from(override_map, "default"))
-        .merge(("template_dir", "/opt/patchpilot_server/templates"));
+        .merge(Serialized::from(override_map, "default"));
 
     // Initialize DB pool and settings
     let db_pool = initialize();
@@ -89,6 +89,7 @@ fn rocket() -> _ {
     });
 
     app_state.system.refresh();
+
     log::info!(
         "System memory: total {} MB, available {} MB",
         app_state.system.total_memory() / 1024 / 1024,
@@ -99,6 +100,11 @@ fn rocket() -> _ {
         .manage(db_pool)
         .manage(app_state.clone())
         .attach(Template::fairing())
+        .attach(Template::custom(|engines| {
+            engines
+                .handlebars
+                .set_templates_dir("/opt/patchpilot_server/templates");
+        }))
         .attach(action_ttl::ActionTtlFairing)
         .attach(pending_cleanup::PendingCleanupFairing)
         .attach(AdHoc::on_liftoff("Startup Audit", |rocket| {
@@ -118,6 +124,7 @@ fn rocket() -> _ {
                             );
                         })
                         .await;
+
                         if let Err(e) = res {
                             log::error!("Startup audit spawn_blocking failed: {:?}", e);
                         }
