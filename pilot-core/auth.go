@@ -7,11 +7,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const sessionCookie = "kentro_session"
+const sessionCookie = "commandpilot_session"
 
 func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		a.Templates.ExecuteTemplate(w, "login.html", nil)
+		a.renderTemplate(w, "login.html", nil)
 		return
 	}
 

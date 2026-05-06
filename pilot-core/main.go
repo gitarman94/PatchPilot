@@ -20,7 +20,7 @@ func (a *App) renderTemplate(w http.ResponseWriter, name string, data interface{
 }
 
 func main() {
-	db, err := sql.Open("sqlite3", "./kentro.db")
+	db, err := sql.Open("sqlite3", "./commandpilot.db")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func main() {
 
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
-	log.Println("KentroCore running on :8080")
+	log.Println("CommandPilot running on :8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))
 }
 
