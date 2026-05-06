@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -29,7 +30,8 @@ func initDB(db *sql.DB) {
 	db.Exec(`CREATE TABLE IF NOT EXISTS history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		action TEXT,
-		timestamp TEXT
+		device_id INTEGER DEFAULT 0,
+		created_at TEXT
 	)`)
 
 	db.Exec(`CREATE TABLE IF NOT EXISTS users (
@@ -59,19 +61,66 @@ func initDB(db *sql.DB) {
 		value TEXT
 	)`)
 
-	db.Exec(`ALTER TABLE users ADD COLUMN password_hash TEXT`)
+	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN password_hash TEXT`)
+	_, _ = db.Exec(`ALTER TABLE history ADD COLUMN device_id INTEGER DEFAULT 0`)
+	_, _ = db.Exec(`ALTER TABLE history ADD COLUMN created_at TEXT`)
 
-	rows, err := db.Query(`SELECT id, password FROM users WHERE password IS NOT NULL AND (password_hash IS NULL OR password_hash = '')`)
+	rows, err := db.Query(`PRAGMA table_info(history)`)
+	if err == nil {
+		defer rows.Close()
+
+		hasTimestamp := false
+		hasCreatedAt := false
+
+		for rows.Next() {
+			var cid int
+			var name string
+			var ctype string
+			var notnull int
+			var dflt sql.NullString
+			var pk int
+
+			if rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk) == nil {
+				switch strings.ToLower(name) {
+				case "timestamp":
+					hasTimestamp = true
+				case "created_at":
+					hasCreatedAt = true
+				}
+			}
+		}
+
+		if hasTimestamp && hasCreatedAt {
+			_, _ = db.Exec(`
+				UPDATE history
+				SET created_at = timestamp
+				WHERE (created_at IS NULL OR created_at = '')
+				AND timestamp IS NOT NULL
+			`)
+		}
+	}
+
+	rows, err = db.Query(`
+		SELECT id, password
+		FROM users
+		WHERE password IS NOT NULL
+		AND (password_hash IS NULL OR password_hash = '')
+	`)
 	if err == nil {
 		defer rows.Close()
 
 		for rows.Next() {
 			var id int
 			var password string
+
 			if err := rows.Scan(&id, &password); err == nil {
 				hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 				if err == nil {
-					db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(hashed), id)
+					db.Exec(
+						`UPDATE users SET password_hash = ? WHERE id = ?`,
+						string(hashed),
+						id,
+					)
 				}
 			}
 		}
