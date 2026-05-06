@@ -1,271 +1,253 @@
-# EARLY DEVELOPMENT - WILL HAVE MANY BUGS
+# ⚠️ EARLY DEVELOPMENT - EXPECT BREAKAGE
 
-# PatchPilot
+# Kentro
 
-PatchPilot is a **cross-platform patch management client** designed to monitor, report, and deploy software updates on Windows and Linux systems. It includes a lightweight Rust-based client with **self-updating capabilities** and a Rust-based backend server with authentication, role-based access, and audit logging.
+**Kentro** is a cross-platform systems management platform designed to monitor devices, manage actions, and provide centralized control over infrastructure.
 
----
-
-## Features
-
-* 🦀 **Rust-based client** for performance and reliability
-* 🖥️ Runs as **Windows Service** or **Linux systemd service**
-* 🔄 **Self-updating client** via GitHub releases
-* 🔒 Secure: runs under a **non-root system user** on Linux
-* 📡 Reports **missing updates, system info, and command results** to the central server
-* ⚙️ Configurable patch server address per client
-* 🛡 Role-based access control (RBAC) and authentication for server
-* 📜 Audit logging and history tracking
-* 🌐 Rocket-served web UI
+It consists of a lightweight backend server (**KentroCore**) with a web UI, and future components for agents and CLI tooling.
 
 ---
 
-## Project Structure
+## 🧠 Architecture Overview
 
 ```
-
-PatchPilot/
-│
-├── patchpilot_server/                 # Rust-based backend server
-│   ├── Cargo.toml                     # Server dependencies & config
-│   │
-│   └── src/
-│       ├── main.rs                    # Rocket entry point
-│       ├── state.rs                   # AppState (system info, pending devices, settings)
-│       ├── settings.rs                # ServerSettings load/save
-│       ├── models.rs                  # Diesel models (Device, Action, AuditLog, User, Role, etc.)
-│       ├── schema.rs                  # Diesel schema for database tables
-│       ├── db.rs                      # Database pool & initialization
-│       ├── action_ttl.rs              # Expire old actions
-│       ├── pending_cleanup.rs         # Cleanup pending devices
-│       │
-│       ├── routes/                    # HTTP routes (API + pages)
-│       │   ├── mod.rs                 # api_routes() + page_routes()
-│       │   ├── devices.rs             # Device registration, heartbeat, listing
-│       │   ├── actions.rs             # Action creation and completion
-│       │   ├── settings.rs            # Server settings API
-│       │   ├── history.rs             # Audit/history API
-│       │   ├── auth.rs                # Authentication endpoints
-│       │   ├── users_groups.rs        # User and group management API
-│       │   └── roles.rs               # Role-based permissions API
-│       │
-│       └── logger.rs                  # Diesel / app logging
-│
-├── patchpilot_client/                 # Rust client (Windows & Linux)
-│   ├── Cargo.toml
-│   │
-│   └── src/
-│       ├── main.rs                    # Client entry point
-│       ├── service.rs                 # Windows service / Unix daemon glue
-│       ├── system_info.rs             # CPU, RAM, disk, OS, network
-│       ├── device.rs                  # Register, adopt, heartbeat
-│       ├── action.rs                  # CommandSpec, ServerCommand, CommandResult
-│       ├── command.rs                 # Polling, retries, result posting
-│       ├── self_update.rs             # Client self-update logic
-│       └── patchpilot_updater.rs      # Apply updates + restart
-│
-├── templates/                         # Rocket Handlebars templates
-│   ├── navbar.hbs                     # Sidebar navigation
-│   ├── dashboard.hbs                  # Main dashboard
-│   ├── device_detail.hbs              # Single device view
-│   ├── settings.hbs                   # Server and client policy settings
-│   ├── devices.hbs                    # Table of all devices
-│   ├── history.hbs                    # Audit/history page
-│   ├── actions.hbs                    # List and manage actions
-│   └── audit.hbs                      # Detailed audit log view
-│
-└── static/                            # Static web assets
-├── bootstrap.min.css
-├── bootstrap.bundle.min.js
-├── navbar.css
-└── favicon.ico
-
+Kentro (Product)
+├── KentroCore      (Go-based server / control plane)
+├── KentroAgent     (future endpoint agent)
+├── KentroUI        (web interface)
+├── KentroCLI       (future CLI)
 ```
 
 ---
 
-## ⚠️ Template Naming (IMPORTANT)
+## 🚀 KentroCore (Server)
 
-The PatchPilot server uses **Rocket + `rocket_dyn_templates`** with the **Handlebars engine**.
+KentroCore is a **Go-based backend server** that provides:
 
-**All templates must use the `.hbs` extension.**
-
-`.html` templates will **not be discovered** by Rocket and will cause runtime errors such as:
-
-```
-
-Template 'dashboard' does not exist
-
-```
-
-Rename the following files **before committing**:
-
-```
-
-templates/navbar.html        → navbar.hbs
-templates/dashboard.html     → dashboard.hbs
-templates/device_detail.html → device_detail.hbs
-templates/settings.html      → settings.hbs
-templates/devices.html       → devices.hbs
-templates/history.html       → history.hbs
-templates/actions.html       → actions.hbs
-templates/audit.html         → audit.hbs
-
-````
-
-No route changes are required — Rocket resolves templates by name, not extension.
+* Device inventory and approval workflow
+* Action dispatch and tracking
+* Audit history and logging
+* Role-based access control (RBAC)
+* Web UI with dashboard + charts
+* REST API for integrations
 
 ---
 
-## 🚀 Server Setup (Linux)
+## ✨ Features
 
-### Prerequisites
+* ⚡ **Go-based server** (fast, simple deployment, single binary)
+* 🗄️ **SQLite database** (no external DB required)
+* 🔐 Authentication with bcrypt + session handling
+* 👥 Users, roles, and groups
+* 📡 Device tracking (hostname, IP, OS, last seen)
+* 🧾 Action system with status + timestamps
+* 📊 Dashboard with live API-fed charts
+* 📜 Full audit/history logging
+* 🌐 Native HTML templates (no template engine dependency)
 
-* Rust toolchain (installed automatically in the setup script)
-* Git
-* `systemd` for automatic restart
+---
 
-### Install/Update in One Command
+## 📁 Project Structure
+
+```
+kentro/
+│
+├── kentrocore/               # Go backend
+│   ├── main.go
+│   ├── db.go
+│   ├── models.go
+│   ├── devices.go
+│   ├── actions.go
+│   ├── history.go
+│   ├── auth.go
+│   ├── users.go
+│   ├── roles.go
+│   ├── settings.go
+│
+├── templates/                # HTML templates (Go html/template)
+│   ├── navbar.html
+│   ├── dashboard.html
+│   ├── devices.html
+│   ├── device_detail.html
+│   ├── actions.html
+│   ├── history.html
+│   ├── settings.html
+│   ├── users_groups.html
+│   ├── roles.html
+│   └── login.html
+│
+├── static/
+│   ├── app.js
+│   └── styles.css
+│
+└── setup_or_update_server.sh
+```
+
+---
+
+## ⚠️ Templates (IMPORTANT)
+
+KentroCore uses Go’s built-in:
+
+```
+html/template
+```
+
+### Rules:
+
+* Templates must be `.html`
+* No `.hbs` or Handlebars syntax
+* Use Go template syntax:
+
+```
+{{range .Devices}}
+{{.Hostname}}
+{{end}}
+```
+
+If templates are incorrect, you will see:
+
+* blank pages
+* missing data
+* or rendering errors
+
+---
+
+## 🧱 Server Installation (Linux)
+
+### Requirements
+
+* Debian/Ubuntu-based system
+* root/sudo access
+* internet access
+
+---
+
+## ⚡ Install / Update (One Command)
 
 ```bash
 apt-get update
-apt-get install -y curl git
-curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh | bash -s -- --debug --force
-````
+apt-get install -y curl
+curl -fsSL https://raw.githubusercontent.com/gitarman94/kentro/main/setup_or_update_server.sh | bash
+```
+
+---
+
+### What the installer does
+
+* Installs Go (if missing)
+* Installs SQLite + build tools
+* Downloads Kentro source from GitHub
+* Builds `kentrocore` binary
+* Creates system user (`kentro`)
+* Sets up systemd service
+* Starts server automatically
+
+---
+
+## 🌐 Access the UI
+
+After install:
+
+```
+http://<server-ip>:8080
+```
+
+---
+
+## 🔄 Updating
+
+Re-run the installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gitarman94/kentro/main/setup_or_update_server.sh | bash
+```
 
 This will:
 
-* Install dependencies
-* Download or update the server
-* Initialize the database
-* Set up a systemd service
-* Start and enable it on boot
-
-**Force reinstall:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/refs/heads/main/setup_or_update_server.sh | bash -s -- --debug --force
-```
+* pull latest code
+* rebuild
+* restart service
 
 ---
 
-## 💻 Client Setup (Linux)
+## 📊 Core API Endpoints
 
-### Requirements
+| Endpoint       | Description   |
+| -------------- | ------------- |
+| `/api/devices` | Device list   |
+| `/api/actions` | Actions list  |
+| `/api/history` | Audit history |
 
-* Ubuntu/Debian
-* sudo/root access
-* Internet connection
-
-### Install/Update in One Command
-
-```bash
-apt-get update
-apt-get install -y curl git
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.sh)"
-```
-
-* Installs Rust if missing
-* Builds and installs the Rust client
-* Creates `patchpilot` system user
-* Configures systemd service
-* Supports auto-updates
-
-**Update client:**
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.sh)" -- --update
-```
-
-**Uninstall client:**
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.sh)" -- --uninstall
-```
+Used by dashboard charts and UI.
 
 ---
 
-## 🪟 Client Setup (Windows)
+## 🗄️ Database
 
-### Requirements
+SQLite file:
 
-* Windows 10/11
-* Admin privileges
-
-### Install/Update
-
-```powershell
-irm https://raw.githubusercontent.com/gitarman94/PatchPilot/main/setup_or_update_client.ps1 | iex
+```
+/opt/kentro/kentro.db
 ```
 
-* Installs Rust toolchain if missing
-* Builds client with `cargo`
-* Registers Windows service
-* Sets up config and auto-update
+Tables include:
+
+* devices
+* actions
+* history
+* users
+* roles
+* groups
+* settings
 
 ---
 
-## 🔧 Configuration
+## 🔐 Authentication
 
-All clients (Linux & Windows) store:
-
-* `server_url.txt` → Patch server URL
-* `client_id.txt` → Client ID (auto-generated)
-* Optional `config.json` → Custom client settings
-
-Edit server URL:
-
-```bash
-sudo nano /opt/patchpilot_client/server_url.txt
-# Windows:
-notepad "C:\ProgramData\RustPatchClient\server_url.txt"
-```
-
-Restart the client service after edits.
+* bcrypt password hashing
+* session-based login
+* protected routes via middleware
 
 ---
 
-## 📋 Check Status
+## 🧪 Development Notes
 
-**Linux:**
-
-```bash
-systemctl status patchpilot_client.timer
-journalctl -u patchpilot_client.service
-```
-
-**Windows:**
-
-```powershell
-Get-Service RustPatchClientService
-```
+* No external runtime dependencies (single binary)
+* No Node, no Python, no Rust required
+* Templates + static files served directly
+* API + UI tightly coupled
 
 ---
 
-## 🛠 Developer Info
+## ⚠️ Current Limitations
 
-* Rust-based client shared across OSes
-* Self-updates from GitHub Releases using version/tag logic
-* Platform-specific system info collected via PowerShell or Rust crates
-* Communication via REST API to Rust-based server
-* Server includes authentication, roles, RBAC, and audit logging
-* Web UI rendered by Rocket using Handlebars templates
+* Early-stage (expect bugs)
+* No migrations yet
+* No clustering / HA
+* Sessions are basic (no distributed store)
+* Agent not implemented yet
+
+---
+
+## 🔮 Planned Features
+
+* KentroAgent (endpoint daemon)
+* CLI management tool
+* TLS support
+* API authentication tokens
+* Real-time updates (WebSockets)
+* Multi-node support
 
 ---
 
 ## 📜 License
 
-Dual licensing:
-
-* **Free for Personal Use** – Free to use, modify, and distribute for non-commercial purposes
-* **Commercial Use** – Paid license required for commercial use
-
-See full license terms in the `LICENSE` file.
+TBD
 
 ---
 
-## 🙋 Contact
+## 🙋 Support
 
-Questions or bugs? Open an issue on GitHub.
-
-```
+Open issues on GitHub:
+https://github.com/gitarman94/kentro
