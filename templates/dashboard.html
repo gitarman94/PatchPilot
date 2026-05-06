@@ -3,8 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dashboard - CommandPilot</title>
+  <title>Infrastructure Dashboard - CommandPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script defer src="/static/app.js"></script>
 </head>
 <body>
   {{ template "navbar.html" . }}
@@ -13,33 +15,45 @@
     <section class="page-header">
       <div>
         <h1>Infrastructure Dashboard</h1>
-        <p>Centralized operational visibility across managed systems</p>
+        <p>Fleet visibility, operational health, and endpoint management</p>
       </div>
 
       <div class="header-actions">
-        <button class="btn btn-primary">Refresh</button>
+        <button class="btn btn-primary" onclick="window.location.reload()">
+          Refresh Dashboard
+        </button>
       </div>
     </section>
 
     <section class="stats-grid">
       <div class="stat-card">
-        <span class="stat-label">Total Devices</span>
-        <span class="stat-value">{{ .TotalDevices }}</span>
+        <span class="stat-label">Managed Devices</span>
+        <span class="stat-value" id="total-devices">0</span>
       </div>
 
       <div class="stat-card">
-        <span class="stat-label">Approved Devices</span>
-        <span class="stat-value">{{ .ApprovedDevices }}</span>
+        <span class="stat-label">Online Devices</span>
+        <span class="stat-value" id="online-devices">0</span>
       </div>
 
       <div class="stat-card">
-        <span class="stat-label">Pending Approval</span>
-        <span class="stat-value">{{ .PendingDevices }}</span>
+        <span class="stat-label">Pending Device Approval</span>
+        <span class="stat-value" id="pending-devices">0</span>
       </div>
 
       <div class="stat-card">
-        <span class="stat-label">Total Actions</span>
-        <span class="stat-value">{{ .TotalActions }}</span>
+        <span class="stat-label">Remote Actions</span>
+        <span class="stat-value" id="total-actions">0</span>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-label">High CPU Systems</span>
+        <span class="stat-value" id="high-cpu-devices">0</span>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-label">Low Disk Space</span>
+        <span class="stat-value" id="low-disk-devices">0</span>
       </div>
     </section>
 
@@ -47,45 +61,10 @@
 
       <div class="panel">
         <div class="panel-header">
-          <h2>Recent Actions</h2>
-        </div>
-
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Action</th>
-              <th>Status</th>
-              <th>Created</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {{ range .RecentActions }}
-            <tr>
-              <td>{{ .ID }}</td>
-              <td>{{ .Name }}</td>
-              <td>
-                <span class="status-badge">
-                  {{ .Status }}
-                </span>
-              </td>
-              <td>{{ .CreatedAt }}</td>
-            </tr>
-            {{ else }}
-            <tr>
-              <td colspan="4" class="empty-state">
-                No recent actions found
-              </td>
-            </tr>
-            {{ end }}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Recent Devices</h2>
+          <h2>Recent Endpoint Activity</h2>
+          <div class="panel-subtitle">
+            Recently active managed systems
+          </div>
         </div>
 
         <table class="data-table">
@@ -93,32 +72,104 @@
             <tr>
               <th>Hostname</th>
               <th>IP Address</th>
-              <th>OS</th>
+              <th>Operating System</th>
+              <th>CPU</th>
+              <th>Memory</th>
+              <th>Disk Free</th>
+              <th>Status</th>
+              <th>Last Check-In</th>
+            </tr>
+          </thead>
+
+          <tbody id="recent-devices-body">
+            <tr>
+              <td colspan="8" class="empty-state">
+                No managed endpoints have checked in yet.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Recent Remote Actions</h2>
+          <div class="panel-subtitle">
+            Latest operational tasks and command execution requests
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Action</th>
+              <th>Target Device</th>
+              <th>Status</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+
+          <tbody id="recent-actions-body">
+            <tr>
+              <td colspan="4" class="empty-state">
+                No remote actions have been executed recently.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Operating System Distribution</h2>
+          <div class="panel-subtitle">
+            Managed device platform breakdown
+          </div>
+        </div>
+
+        <div style="padding: 24px;">
+          <canvas id="os-distribution-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Remote Actions Over Time</h2>
+          <div class="panel-subtitle">
+            30 day execution activity
+          </div>
+        </div>
+
+        <div style="padding: 24px;">
+          <canvas id="actions-over-time-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Devices Requiring Attention</h2>
+          <div class="panel-subtitle">
+            Systems nearing operational thresholds
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Hostname</th>
+              <th>CPU Usage</th>
+              <th>Memory Usage</th>
+              <th>Disk Free</th>
               <th>Status</th>
             </tr>
           </thead>
 
-          <tbody>
-            {{ range .RecentDevices }}
+          <tbody id="fleet-health-body">
             <tr>
-              <td>{{ .Hostname }}</td>
-              <td>{{ .IP }}</td>
-              <td>{{ .OS }}</td>
-              <td>
-                {{ if .Approved }}
-                <span class="status-online">Approved</span>
-                {{ else }}
-                <span class="status-pending">Pending</span>
-                {{ end }}
+              <td colspan="5" class="empty-state">
+                No infrastructure alerts detected.
               </td>
             </tr>
-            {{ else }}
-            <tr>
-              <td colspan="4" class="empty-state">
-                No devices registered
-              </td>
-            </tr>
-            {{ end }}
           </tbody>
         </table>
       </div>

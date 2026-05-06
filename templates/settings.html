@@ -2,58 +2,125 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Settings - CommandPilot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Platform Settings - CommandPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   {{ template "navbar.html" . }}
 
   <main class="container">
+
     <section class="page-header">
-      <h1>Settings</h1>
-      <p>System configuration</p>
+      <div>
+        <h1>Platform Settings</h1>
+        <p>Global configuration and operational platform controls</p>
+      </div>
     </section>
 
-    <section class="card">
-      <h2>Update Setting</h2>
-      <form method="POST" action="/update_setting">
-        <div class="form-group">
-          <label for="key">Key</label>
-          <input id="key" name="key" type="text" required>
+    <section class="dashboard-grid">
+
+      <div class="panel">
+
+        <div class="panel-header">
+          <h2>Update Configuration</h2>
+
+          <div class="panel-subtitle">
+            Modify platform configuration values
+          </div>
         </div>
 
-        <div class="form-group">
-          <label for="value">Value</label>
-          <input id="value" name="value" type="text" required>
+        <div style="padding:24px;">
+
+          <form method="POST" action="/update_setting">
+
+            <div class="form-group">
+              <label for="key">
+                Configuration Key
+              </label>
+
+              <input
+                id="key"
+                name="key"
+                type="text"
+                placeholder="agent.checkin_interval"
+                required
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="value">
+                Configuration Value
+              </label>
+
+              <input
+                id="value"
+                name="value"
+                type="text"
+                placeholder="60"
+                required
+              >
+            </div>
+
+            <button
+              type="submit"
+              class="btn btn-primary"
+            >
+              Save Configuration
+            </button>
+
+          </form>
+
         </div>
 
-        <button type="submit">Save Setting</button>
-      </form>
+      </div>
+
+      <div class="panel">
+
+        <div class="panel-header">
+          <h2>Current Configuration</h2>
+
+          <div class="panel-subtitle">
+            Active platform configuration values
+          </div>
+        </div>
+
+        <table class="data-table">
+
+          <thead>
+            <tr>
+              <th>Configuration Key</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+
+          <tbody>
+
+            {{ range . }}
+
+            <tr>
+              <td>{{ .Key }}</td>
+              <td>{{ .Value }}</td>
+            </tr>
+
+            {{ else }}
+
+            <tr>
+              <td colspan="2" class="empty-state">
+                No platform configuration values are defined.
+              </td>
+            </tr>
+
+            {{ end }}
+
+          </tbody>
+
+        </table>
+
+      </div>
+
     </section>
 
-    <section class="card">
-      <h2>Current Settings</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Key</th>
-            <th>Value</th>
-          </tr>
-        </thead>
-        <tbody>
-          {{ range . }}
-          <tr>
-            <td>{{ .Key }}</td>
-            <td>{{ .Value }}</td>
-          </tr>
-          {{ else }}
-          <tr>
-            <td colspan="2">No settings configured.</td>
-          </tr>
-          {{ end }}
-        </tbody>
-      </table>
-    </section>
   </main>
 </body>
 </html>

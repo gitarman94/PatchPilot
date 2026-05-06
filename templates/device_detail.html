@@ -2,54 +2,536 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Device Detail - CommandPilot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Device Details - CommandPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   {{ template "navbar.html" . }}
 
   <main class="container">
+
     <section class="page-header">
-      <h1>Device Detail</h1>
-      <p>Inventory record and state</p>
+
+      <div>
+
+        {{ if .Device }}
+
+        <h1>{{ .Device.Hostname }}</h1>
+
+        <p>
+          Endpoint inventory, telemetry, operational state, and management controls
+        </p>
+
+        {{ else }}
+
+        <h1>Device Not Found</h1>
+
+        <p>
+          The requested endpoint record could not be located.
+        </p>
+
+        {{ end }}
+
+      </div>
+
+      <div class="header-actions">
+
+        <a
+          href="/devices"
+          class="btn btn-primary"
+          style="
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            width:auto;
+          "
+        >
+          Back to Devices
+        </a>
+
+      </div>
+
     </section>
 
     {{ if .Device }}
-    <section class="card">
-      <table>
-        <tbody>
-          <tr>
-            <th>ID</th>
-            <td>{{ .Device.ID }}</td>
-          </tr>
-          <tr>
-            <th>Hostname</th>
-            <td>{{ .Device.Hostname }}</td>
-          </tr>
-          <tr>
-            <th>IP</th>
-            <td>{{ .Device.IP }}</td>
-          </tr>
-          <tr>
-            <th>OS</th>
-            <td>{{ .Device.OS }}</td>
-          </tr>
-          <tr>
-            <th>Last Seen</th>
-            <td>{{ .Device.LastSeen }}</td>
-          </tr>
-          <tr>
-            <th>Approved</th>
-            <td>{{ .Device.Approved }}</td>
-          </tr>
-        </tbody>
-      </table>
+
+    <section class="stats-grid">
+
+      <div class="stat-card">
+        <span class="stat-label">Operating System</span>
+
+        <span
+          class="stat-value"
+          style="font-size:24px;"
+        >
+          {{ .Device.OS }}
+        </span>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-label">IP Address</span>
+
+        <span
+          class="stat-value"
+          style="font-size:24px;"
+        >
+          {{ .Device.IP }}
+        </span>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-label">CPU Usage</span>
+
+        <span
+          class="stat-value"
+          style="font-size:24px;"
+        >
+          {{ printf "%.1f%%" .Device.CPUUsage }}
+        </span>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-label">Memory Usage</span>
+
+        <span
+          class="stat-value"
+          style="font-size:24px;"
+        >
+          {{ printf "%.0f%%" .Device.RAMUsagePercent }}
+        </span>
+      </div>
+
     </section>
+
+    <section class="dashboard-grid">
+
+      <div class="panel">
+
+        <div class="panel-header">
+          <h2>Endpoint Overview</h2>
+
+          <div class="panel-subtitle">
+            Core inventory and registration metadata
+          </div>
+        </div>
+
+        <table class="data-table">
+
+          <tbody>
+
+            <tr>
+              <th>Hostname</th>
+              <td>{{ .Device.Hostname }}</td>
+            </tr>
+
+            <tr>
+              <th>Fully Qualified Domain Name</th>
+
+              <td>
+
+                {{ if .Device.FQDN }}
+
+                  {{ .Device.FQDN }}
+
+                {{ else }}
+
+                  <span class="muted">Unavailable</span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+            <tr>
+              <th>IP Address</th>
+              <td>{{ .Device.IP }}</td>
+            </tr>
+
+            <tr>
+              <th>Operating System</th>
+              <td>{{ .Device.OS }}</td>
+            </tr>
+
+            <tr>
+              <th>Architecture</th>
+
+              <td>
+
+                {{ if .Device.Architecture }}
+
+                  {{ .Device.Architecture }}
+
+                {{ else }}
+
+                  <span class="muted">Unavailable</span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+            <tr>
+              <th>Device Type</th>
+
+              <td>
+
+                {{ if .Device.DeviceType }}
+
+                  {{ .Device.DeviceType }}
+
+                {{ else }}
+
+                  <span class="muted">Unknown</span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+            <tr>
+              <th>Device Model</th>
+
+              <td>
+
+                {{ if .Device.DeviceModel }}
+
+                  {{ .Device.DeviceModel }}
+
+                {{ else }}
+
+                  <span class="muted">Unknown</span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+            <tr>
+              <th>Last Check-In</th>
+              <td>{{ .Device.LastSeen }}</td>
+            </tr>
+
+            <tr>
+              <th>Approval Status</th>
+
+              <td>
+
+                {{ if .Device.Approved }}
+
+                  <span class="status-online">
+                    Approved
+                  </span>
+
+                {{ else }}
+
+                  <span class="status-pending">
+                    Pending Approval
+                  </span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+          </tbody>
+
+        </table>
+
+      </div>
+
+      <div class="panel">
+
+        <div class="panel-header">
+          <h2>Hardware & Utilization</h2>
+
+          <div class="panel-subtitle">
+            Resource usage and infrastructure telemetry
+          </div>
+        </div>
+
+        <table class="data-table">
+
+          <tbody>
+
+            <tr>
+              <th>CPU Model</th>
+
+              <td>
+
+                {{ if .Device.CPUBrand }}
+
+                  {{ .Device.CPUBrand }}
+
+                {{ else }}
+
+                  <span class="muted">Unavailable</span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+            <tr>
+              <th>CPU Cores</th>
+
+              <td>
+
+                {{ if gt .Device.CPUCount 0 }}
+
+                  {{ .Device.CPUCount }}
+
+                {{ else }}
+
+                  <span class="muted">Unavailable</span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+            <tr>
+              <th>CPU Usage</th>
+
+              <td>
+
+                <span class="
+                  {{ if ge .Device.CPUUsage 90.0 }}
+                    metric-danger
+                  {{ else if ge .Device.CPUUsage 75.0 }}
+                    metric-warning
+                  {{ else }}
+                    metric-good
+                  {{ end }}
+                ">
+                  {{ printf "%.1f%%" .Device.CPUUsage }}
+                </span>
+
+              </td>
+            </tr>
+
+            <tr>
+              <th>Total Memory</th>
+
+              <td>
+
+                {{ if .Device.RAMTotalHuman }}
+
+                  {{ .Device.RAMTotalHuman }}
+
+                {{ else }}
+
+                  <span class="muted">Unavailable</span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+            <tr>
+              <th>Memory In Use</th>
+
+              <td>
+
+                {{ if .Device.RAMUsedHuman }}
+
+                  {{ .Device.RAMUsedHuman }}
+                  ({{ printf "%.0f%%" .Device.RAMUsagePercent }})
+
+                {{ else }}
+
+                  <span class="muted">Unavailable</span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+            <tr>
+              <th>Total Disk Capacity</th>
+
+              <td>
+
+                {{ if .Device.DiskTotalHuman }}
+
+                  {{ .Device.DiskTotalHuman }}
+
+                {{ else }}
+
+                  <span class="muted">Unavailable</span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+            <tr>
+              <th>Free Disk Space</th>
+
+              <td>
+
+                {{ if .Device.DiskFreeHuman }}
+
+                  {{ .Device.DiskFreeHuman }}
+
+                {{ else }}
+
+                  <span class="muted">Unavailable</span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+            <tr>
+              <th>Disk Health</th>
+
+              <td>
+
+                {{ if .Device.DiskHealth }}
+
+                  {{ .Device.DiskHealth }}
+
+                {{ else }}
+
+                  <span class="muted">Unknown</span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+            <tr>
+              <th>Network Throughput</th>
+
+              <td>
+
+                {{ if .Device.NetworkThroughputHuman }}
+
+                  {{ .Device.NetworkThroughputHuman }}
+
+                {{ else }}
+
+                  <span class="muted">Unavailable</span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+            <tr>
+              <th>Network Interfaces</th>
+
+              <td>
+
+                {{ if gt .Device.NetworkInterfaces 0 }}
+
+                  {{ .Device.NetworkInterfaces }}
+
+                {{ else }}
+
+                  <span class="muted">Unavailable</span>
+
+                {{ end }}
+
+              </td>
+            </tr>
+
+          </tbody>
+
+        </table>
+
+      </div>
+
+      <div class="panel">
+
+        <div class="panel-header">
+          <h2>Remote Management</h2>
+
+          <div class="panel-subtitle">
+            Endpoint administrative actions
+          </div>
+        </div>
+
+        <div style="padding:24px; display:flex; gap:12px; flex-wrap:wrap;">
+
+          <form method="POST" action="/approve_device">
+
+            <input
+              type="hidden"
+              name="id"
+              value="{{ .Device.ID }}"
+            >
+
+            <button
+              type="submit"
+              class="btn btn-primary"
+              style="width:auto;"
+            >
+              Approve Device
+            </button>
+
+          </form>
+
+          <form method="POST" action="/reject_device">
+
+            <input
+              type="hidden"
+              name="id"
+              value="{{ .Device.ID }}"
+            >
+
+            <button
+              type="submit"
+              class="btn"
+              style="
+                width:auto;
+                background:#7f1d1d;
+                color:white;
+              "
+            >
+              Reject Device
+            </button>
+
+          </form>
+
+          <a
+            href="/actions"
+            class="btn"
+            style="
+              width:auto;
+              background:#1d4ed8;
+              color:white;
+              display:inline-flex;
+              align-items:center;
+              justify-content:center;
+            "
+          >
+            Create Remote Action
+          </a>
+
+        </div>
+
+      </div>
+
+    </section>
+
     {{ else }}
-    <section class="card">
-      <p>Device not found.</p>
+
+    <section class="panel">
+
+      <div class="panel-header">
+        <h2>Endpoint Not Found</h2>
+      </div>
+
+      <div class="empty-state">
+        The requested device record does not exist or has been removed.
+      </div>
+
     </section>
+
     {{ end }}
+
   </main>
 </body>
 </html>

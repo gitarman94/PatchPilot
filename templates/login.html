@@ -2,32 +2,82 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>CommandPilot Login</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CommandPilot Authentication</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+
   <main class="container">
+
     <section class="card login-card">
-      <h1>CommandPilot</h1>
+
+      <div style="margin-bottom:32px;">
+
+        <h1 style="margin-bottom:8px;">
+          CommandPilot
+        </h1>
+
+        <p class="muted">
+          Centralized infrastructure operations and endpoint management
+        </p>
+
+      </div>
 
       {{ if .Error }}
-      <div class="alert alert-error">{{ .Error }}</div>
+
+      <div class="alert alert-error">
+        {{ .Error }}
+      </div>
+
       {{ end }}
 
       <form method="POST" action="/auth/login">
+
         <div class="form-group">
-          <label for="username">Username</label>
-          <input id="username" name="username" type="text" autocomplete="username" required>
+
+          <label for="username">
+            Username
+          </label>
+
+          <input
+            id="username"
+            name="username"
+            type="text"
+            autocomplete="username"
+            required
+          >
+
         </div>
 
         <div class="form-group">
-          <label for="password">Password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+          <label for="password">
+            Password
+          </label>
+
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+          >
+
         </div>
 
-        <button type="submit">Sign in</button>
+        <button
+          type="submit"
+          class="btn btn-primary"
+        >
+          Sign In
+        </button>
+
       </form>
+
     </section>
+
   </main>
+
 </body>
 </html>

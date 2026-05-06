@@ -2,44 +2,70 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>History - CommandPilot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Operational History - CommandPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   {{ template "navbar.html" . }}
 
   <main class="container">
+
     <section class="page-header">
-      <h1>History</h1>
-      <p>Action and device activity log</p>
+      <div>
+        <h1>Operational History</h1>
+        <p>Historical device actions and infrastructure activity records</p>
+      </div>
     </section>
 
-    <section class="card">
-      <table>
+    <section class="panel">
+
+      <div class="panel-header">
+        <h2>Historical Activity Log</h2>
+
+        <div class="panel-subtitle">
+          Chronological operational records across managed systems
+        </div>
+      </div>
+
+      <table class="data-table">
+
         <thead>
           <tr>
-            <th>ID</th>
+            <th>Record ID</th>
             <th>Action</th>
-            <th>Device ID</th>
-            <th>Created At</th>
+            <th>Target Device</th>
+            <th>Timestamp</th>
           </tr>
         </thead>
+
         <tbody>
+
           {{ range .History }}
+
           <tr>
             <td>{{ .ID }}</td>
             <td>{{ .Action }}</td>
             <td>{{ .DeviceID }}</td>
             <td>{{ .CreatedAt }}</td>
           </tr>
+
           {{ else }}
+
           <tr>
-            <td colspan="4">No history entries found.</td>
+            <td colspan="4" class="empty-state">
+              No operational history records are available.
+            </td>
           </tr>
+
           {{ end }}
+
         </tbody>
+
       </table>
+
     </section>
+
   </main>
 </body>
 </html>

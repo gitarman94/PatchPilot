@@ -2,32 +2,49 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Audit - CommandPilot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Audit Logs - CommandPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   {{ template "navbar.html" . }}
 
   <main class="container">
+
     <section class="page-header">
-      <h1>Audit Logs</h1>
-      <p>Administrative activity record</p>
+      <div>
+        <h1>Audit Logs</h1>
+        <p>Administrative actions, approvals, and system-level activity records</p>
+      </div>
     </section>
 
-    <section class="card">
-      <table>
+    <section class="panel">
+
+      <div class="panel-header">
+        <h2>Administrative Audit Trail</h2>
+
+        <div class="panel-subtitle">
+          Immutable administrative and operational activity history
+        </div>
+      </div>
+
+      <table class="data-table">
+
         <thead>
           <tr>
-            <th>ID</th>
+            <th>Audit ID</th>
             <th>User</th>
             <th>Action</th>
             <th>Target</th>
             <th>Details</th>
-            <th>Created At</th>
+            <th>Timestamp</th>
           </tr>
         </thead>
+
         <tbody>
+
           {{ range .Audit }}
+
           <tr>
             <td>{{ .ID }}</td>
             <td>{{ .User }}</td>
@@ -36,14 +53,23 @@
             <td>{{ .Details }}</td>
             <td>{{ .CreatedAt }}</td>
           </tr>
+
           {{ else }}
+
           <tr>
-            <td colspan="6">No audit entries.</td>
+            <td colspan="6" class="empty-state">
+              No audit log entries are currently available.
+            </td>
           </tr>
+
           {{ end }}
+
         </tbody>
+
       </table>
+
     </section>
+
   </main>
 </body>
 </html>
