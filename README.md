@@ -90,51 +90,6 @@ commandpilot/
 └── server_test.sh
 ```
 
----
-
-## ⚠️ Template Engine Requirements
-
-`pilot-core` uses Go’s built-in `html/template` engine.
-
-### Supported Syntax
-
-```go
-{{range .Devices}}
-<tr>
-  <td>{{.Hostname}}</td>
-</tr>
-{{end}}
-```
-
-### Partial Templates
-
-```go
-{{template "navbar.html" .}}
-```
-
-### Unsupported Syntax
-
-The following syntax is NOT supported and will crash the server:
-
-```handlebars
-{{#each devices}}
-{{this.hostname}}
-{{/each}}
-
-{{> navbar}}
-```
-
-### Common Template Failure Symptoms
-
-* Blank pages
-* Panic during startup
-* `unexpected ">" in command`
-* Missing rendered data
-* Empty tables
-* HTTP 500 errors
-
----
-
 ## 🧱 Server Requirements
 
 * Debian or Ubuntu
