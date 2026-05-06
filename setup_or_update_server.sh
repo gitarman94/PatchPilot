@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="/opt/kentro"
-SERVICE_NAME="kentrocore.service"
+APP_DIR="/opt/commandpilot"
+SERVICE_NAME="pilot-core.service"
 SYSTEMD_DIR="/etc/systemd/system"
 
 GITHUB_USER="gitarman94"
-GITHUB_REPO="kentro"              # <-- YOU MUST rename repo to this
+GITHUB_REPO="commandpilot"
 BRANCH="main"
 REPO_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}.git"
 
