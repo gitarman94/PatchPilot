@@ -14,16 +14,19 @@ for arg in "$@"; do
     esac
 done
 [[ "$VERYVERBOSE" -eq 1 ]] && set -x
-run(){ if [[ "$VERYVERBOSE" -eq 1 || "$VERBOSE" -eq 1 ]]; then echo "[RUN] $*"; "$@"; else "$@" >/dev/null 2>&1; fi; }
-fail(){ echo "[FAIL] $1"; if [[ "$VERYVERBOSE" -eq 1 ]]; then echo "===== DEBUG INFO ====="; echo "--- pwd ---"; pwd || true; echo "--- install dir ---"; ls -lah "$INSTALL_DIR" || true; echo "--- core dir ---"; ls -lah "$CORE_DIR" || true; echo "--- templates ---"; find "$INSTALL_DIR" -name "*.html" || true; echo "--- systemd unit ---"; cat "/etc/systemd/system/${SERVICE_NAME}" 2>/dev/null || true; echo "--- systemctl status ---"; systemctl status "${SERVICE_NAME}" --no-pager -l || true; echo "--- journalctl ---"; journalctl -u "${SERVICE_NAME}" -n 100 --no-pager || true; echo "--- listening ports ---"; ss -tulpn || true; echo "--- processes ---"; ps aux | grep pilot-core || true; fi; exit 1; }
+run(){ if [[ "$VERBOSE" -eq 1 || "$VERYVERBOSE" -eq 1 ]]; then echo "[RUN] $*"; "$@"; else "$@" >/dev/null 2>&1; fi; }
+debug_info(){ echo "===== DEBUG INFO ====="; echo "--- pwd ---"; pwd || true; echo "--- install dir ---"; ls -lah "$INSTALL_DIR" 2>/dev/null || true; echo "--- core dir ---"; ls -lah "$CORE_DIR" 2>/dev/null || true; echo "--- templates ---"; find "$INSTALL_DIR" -name "*.html" 2>/dev/null || true; echo "--- systemd unit ---"; cat "/etc/systemd/system/${SERVICE_NAME}" 2>/dev/null || true; echo "--- systemctl status ---"; systemctl status "${SERVICE_NAME}" --no-pager -l || true; echo "--- journalctl ---"; journalctl -u "${SERVICE_NAME}" -n 100 --no-pager || true; echo "--- listening ports ---"; ss -tulpn || true; echo "--- processes ---"; ps aux | grep pilot-core || true; echo "--- database tables ---"; sqlite3 "${INSTALL_DIR}/commandpilot.db" ".tables" 2>/dev/null || true; }
+fail(){ echo "[FAIL] $1"; [[ "$VERBOSE" -eq 1 || "$VERYVERBOSE" -eq 1 ]] && debug_info; exit 1; }
 pass(){ echo "[PASS] $1"; }
 stage(){ echo; echo "== $1 =="; }
-cleanup(){ rm -f "${CORE_DIR}/hashgen_tmp.go" /tmp/commandpilot.cookies 2>/dev/null || true; }
+cleanup(){ rm -f "${CORE_DIR}/hashgen_tmp.go" /tmp/commandpilot.cookies /tmp/commandpilot_endpoint.out 2>/dev/null || true; }
 trap cleanup EXIT
+
 stage "Dependencies"
 run apt-get update -y || fail "apt update failed"
 run apt-get install -y git curl wget sqlite3 build-essential ca-certificates || fail "dependency install failed"
 pass "Dependencies installed"
+
 stage "Go"
 if ! command -v go >/dev/null 2>&1; then
     ARCH=$(uname -m)
@@ -40,20 +43,22 @@ fi
 export PATH=$PATH:/usr/local/go/bin
 go version >/dev/null 2>&1 || fail "Go install failed"
 pass "Go ready"
+
 stage "Source"
 if ! id -u commandpilot >/dev/null 2>&1; then
     useradd --system --no-create-home --shell /usr/sbin/nologin commandpilot || fail "failed creating commandpilot user"
 fi
 run systemctl stop "${SERVICE_NAME}" || true
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
-    git -C "$INSTALL_DIR" fetch --all --prune >/dev/null 2>&1 || fail "git fetch failed"
-    git -C "$INSTALL_DIR" reset --hard origin/main >/dev/null 2>&1 || fail "git reset failed"
+    run git -C "$INSTALL_DIR" fetch --all --prune || fail "git fetch failed"
+    run git -C "$INSTALL_DIR" reset --hard origin/main || fail "git reset failed"
 else
     mkdir -p "$(dirname "$INSTALL_DIR")"
     run git clone "$REPO_URL" "$INSTALL_DIR" || fail "git clone failed"
 fi
 [[ -d "$CORE_DIR" ]] || fail "pilot-core missing"
 pass "Repository synced"
+
 stage "Build"
 cd "$CORE_DIR"
 run go mod tidy || fail "go mod tidy failed"
@@ -61,15 +66,18 @@ run go build -o pilot-core . || fail "go build failed"
 [[ -f "${CORE_DIR}/pilot-core" ]] || fail "binary missing"
 chmod +x "${CORE_DIR}/pilot-core"
 pass "Build succeeded"
+
 stage "Assets"
 for f in login.html navbar.html dashboard.html devices.html device_detail.html actions.html history.html settings.html users_groups.html roles.html audit.html; do
     [[ -f "${INSTALL_DIR}/templates/${f}" ]] || fail "missing template: ${f}"
 done
 [[ -f "${INSTALL_DIR}/static/styles.css" ]] || fail "styles.css missing"
 pass "Assets ready"
+
 stage "Permissions"
 chown -R commandpilot:commandpilot "$INSTALL_DIR" || fail "chown failed"
 pass "Permissions set"
+
 stage "Service"
 cat >/etc/systemd/system/${SERVICE_NAME} <<EOF
 [Unit]
@@ -92,6 +100,7 @@ run systemctl enable ${SERVICE_NAME} || fail "enable failed"
 run systemctl restart ${SERVICE_NAME} || fail "service start failed"
 sleep 5
 pass "Service started"
+
 stage "Validation"
 systemctl is-active --quiet ${SERVICE_NAME} || fail "service inactive"
 pass "Service active"
@@ -109,10 +118,11 @@ for table in devices actions history users roles groups settings user_groups; do
     echo "$TABLES" | grep -q "$table" || fail "missing table: $table"
 done
 pass "Schema valid"
+
 stage "Authenticated Validation"
 ADMIN_EXISTS=$(sqlite3 "${INSTALL_DIR}/commandpilot.db" "SELECT COUNT(*) FROM users WHERE username='admin';")
 if [[ "$ADMIN_EXISTS" == "0" ]]; then
-    cat >"${CORE_DIR}/hashgen_tmp.go" <<'EOF'
+cat >"${CORE_DIR}/hashgen_tmp.go" <<'EOF'
 package main
 import (
     "fmt"
@@ -133,11 +143,11 @@ LOGIN_CODE=$(curl -s -c "$COOKIE_JAR" -o /dev/null -w "%{http_code}" -X POST "${
 [[ "$LOGIN_CODE" == "302" || "$LOGIN_CODE" == "200" ]] || fail "login failed"
 pass "Login successful"
 for endpoint in "/dashboard" "/devices_page" "/actions_page" "/history_page" "/users_groups_page" "/roles_page" "/settings_page" "/api/devices" "/api/actions" "/api/history"; do
-    CODE=$(curl -s -b "$COOKIE_JAR" -o /dev/null -w "%{http_code}" "${SERVER_URL}${endpoint}")
-    [[ "$CODE" == "200" ]] || fail "${endpoint} failed (${CODE})"
+    CODE=$(curl -s -b "$COOKIE_JAR" -o /tmp/commandpilot_endpoint.out -w "%{http_code}" "${SERVER_URL}${endpoint}")
+    [[ "$CODE" == "200" ]] || { echo "[ERROR] Endpoint validation failed"; echo "Endpoint: ${endpoint}"; echo "HTTP Code: ${CODE}"; [[ -s /tmp/commandpilot_endpoint.out ]] && { echo "--- response body ---"; cat /tmp/commandpilot_endpoint.out || true; }; fail "${endpoint} failed (${CODE})"; }
     pass "${endpoint} OK"
 done
-rm -f "$COOKIE_JAR"
+
 IP_ADDR=$(hostname -I | awk '{print $1}')
 echo
 echo "CommandPilot deployed successfully"
