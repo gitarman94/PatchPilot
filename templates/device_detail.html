@@ -1,0 +1,23 @@
+{{template "navbar.html" .}}
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Device Detail</title>
+</head>
+<body>
+
+<h1>Device Detail</h1>
+
+{{if .device}}
+<p>ID: {{.device.ID}}</p>
+<p>Hostname: {{.device.Hostname}}</p>
+<p>IP: {{.device.IP}}</p>
+<p>OS: {{.device.OS}}</p>
+<p>Approved: {{.device.Approved}}</p>
+{{else}}
+<p>Device not found</p>
+{{end}}
+
+</body>
+</html>

@@ -1,0 +1,35 @@
+{{template "navbar.html" .}}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Devices</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<main class="container">
+  <h1>Devices</h1>
+
+  <table>
+    <thead>
+      <tr><th>Hostname</th><th>IP</th><th>OS</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {{range .devices}}
+      <tr>
+        <td><a href="/device_detail/{{.ID}}">{{.Hostname}}</a></td>
+        <td>{{.IP}}</td>
+        <td>{{.OS}}</td>
+        <td>{{if eq .Approved 1}}Approved{{else}}Pending{{end}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="4">No devices.</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</main>
+
+</body>
+</html>

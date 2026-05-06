@@ -1,0 +1,69 @@
+{{template "navbar.html" .}}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Actions</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+
+<main class="container">
+  <header class="page-header">
+    <h1>Actions</h1>
+    <p class="muted">View and manage submitted actions</p>
+  </header>
+
+  <section class="card">
+    <div class="card-header">
+      <h2>All Actions</h2>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Device</th>
+            <th>Status</th>
+            <th>Submitted</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {{range .actions}}
+          <tr>
+            <td>{{.ID}}</td>
+            <td>{{.Name}}</td>
+            <td>{{.DeviceID}}</td>
+            <td>
+              {{if eq .Status "pending"}}
+                <span class="badge badge-warning">Pending</span>
+              {{else if eq .Status "approved"}}
+                <span class="badge badge-success">Approved</span>
+              {{else if eq .Status "failed"}}
+                <span class="badge badge-danger">Failed</span>
+              {{else}}
+                <span class="badge">{{.Status}}</span>
+              {{end}}
+            </td>
+            <td>{{.CreatedAt}}</td>
+            <td>{{.UpdatedAt}}</td>
+          </tr>
+          {{else}}
+          <tr>
+            <td colspan="6">No actions found.</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+</body>
+</html>

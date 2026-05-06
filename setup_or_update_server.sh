@@ -1,34 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="/opt/patchpilot_server"
-INSTALL_LOG="${APP_DIR}/install.log"
-SERVICE_NAME="patchpilot_server.service"
+APP_DIR="/opt/kentro"
+SERVICE_NAME="kentrocore.service"
 SYSTEMD_DIR="/etc/systemd/system"
 
-mkdir -p "$APP_DIR" /opt/patchpilot_install
+echo "Starting Kentro setup..."
 
-echo "Starting PatchPilot server setup at $(date)..."
-
-GITHUB_USER="gitarman94"
-GITHUB_REPO="PatchPilot"
-BRANCH="main"
-ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.zip"
-
-FORCE_REINSTALL=false
-UPGRADE=false
-BUILD_MODE="debug"
-
-for arg in "$@"; do
-    case "$arg" in
-        --force) FORCE_REINSTALL=true ;;
-        --upgrade) UPGRADE=true ;;
-        --debug) BUILD_MODE="debug" ;;
-        --release) BUILD_MODE="release" ;;
-    esac
-done
-
-# Only Debian-based systems supported
+# --- OS check ---
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     case "$ID" in
@@ -39,179 +18,215 @@ else
     echo "Cannot determine OS."; exit 1
 fi
 
-# Stop and remove any running instances before reinstall
+# --- stop old service ---
 systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
 systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 
-# Remove old socket if it exists
-systemctl stop patchpilot_server.socket 2>/dev/null || true
-systemctl disable patchpilot_server.socket 2>/dev/null || true
-rm -f /etc/systemd/system/patchpilot_server.socket || true
-
-rm -rf /opt/patchpilot_install*
-mkdir -p /opt/patchpilot_install "$APP_DIR"
-
-# Download latest source
-cd /opt/patchpilot_install
-curl -L "$ZIP_URL" -o latest.zip
-unzip -o latest.zip
-
-# Remove existing folders to allow mv to succeed
-rm -rf "$APP_DIR/src" "$APP_DIR/templates" "$APP_DIR/static"
-
-# Move new files into place
-cd "$APP_DIR"
-mv /opt/patchpilot_install/PatchPilot-main/patchpilot_server/* "$APP_DIR"
-mv /opt/patchpilot_install/PatchPilot-main/templates "$APP_DIR"
-mv /opt/patchpilot_install/PatchPilot-main/server_test.sh "$APP_DIR"
-mv /opt/patchpilot_install/PatchPilot-main/static "$APP_DIR"
-chmod +x "$APP_DIR/server_test.sh"
-rm -rf /opt/patchpilot_install
-
-# System dependencies
-export DEBIAN_FRONTEND=noninteractive
+# --- install deps ---
 apt-get update -qq
-apt-get install -y -qq curl unzip build-essential libssl-dev pkg-config sqlite3 libsqlite3-dev openssl
+apt-get install -y -qq curl build-essential sqlite3 libsqlite3-dev
 
-# Rust self-contained installation
-export CARGO_HOME="${APP_DIR}/.cargo"
-export RUSTUP_HOME="${APP_DIR}/.rustup"
-export PATH="${CARGO_HOME}/bin:$PATH"
-mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
-
-if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
-    export RUSTUP_INIT_SKIP_PATH_CHECK=yes
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-      | HOME=/root CARGO_HOME="${CARGO_HOME}" RUSTUP_HOME="${RUSTUP_HOME}" sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
+# --- install Go if missing ---
+if ! command -v go >/dev/null 2>&1; then
+    curl -LO https://go.dev/dl/go1.22.5.linux-amd64.tar.gz
+    rm -rf /usr/local/go
+    tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz
+    export PATH=$PATH:/usr/local/go/bin
 fi
 
-export PATH="${CARGO_HOME}/bin:$PATH"
-"${CARGO_HOME}/bin/rustup" install stable
-"${CARGO_HOME}/bin/rustup" default stable
+export PATH=$PATH:/usr/local/go/bin
 
-# Verify Rust installation
-"${CARGO_HOME}/bin/rustc" --version
-"${CARGO_HOME}/bin/cargo" --version
-
-# Ensure database exists and secure permissions
-SQLITE_DB="${APP_DIR}/patchpilot.db"
-if [[ ! -f "$SQLITE_DB" ]]; then
-    touch "$SQLITE_DB"
+# --- create user ---
+if ! id -u kentro >/dev/null 2>&1; then
+    useradd -r -m -d /home/kentro -s /usr/sbin/nologin kentro || true
 fi
-chown patchpilot:patchpilot "$SQLITE_DB" || true
-chmod 600 "$SQLITE_DB" || true
 
-# Build the server
+# --- setup dirs ---
+rm -rf "$APP_DIR"
+mkdir -p "$APP_DIR"
 cd "$APP_DIR"
 
-"${CARGO_HOME}/bin/cargo" clean
-if ! "${CARGO_HOME}/bin/cargo" build $([[ "$BUILD_MODE" == "release" ]] && echo "--release"); then
-    echo "Cargo build failed!"
-    exit 1
-fi
+# --- create go module ---
+cat > go.mod <<EOF
+module kentro
 
-# Rocket configuration
-cat > "${APP_DIR}/Rocket.toml" <<EOF
-[default]
-address = "0.0.0.0"
-port = 8080
-log_level = "normal"
-template_dir = "templates"
+go 1.22
 
-[release]
-log_level = "critical"
-template_dir = "templates"
-
-[dev]
-log_level = "normal"
-address = "0.0.0.0"
-port = 8080
-template_dir = "templates"
+require github.com/mattn/go-sqlite3 v1.14.22
 EOF
 
-# Environment file — preserve existing, otherwise create minimal default
-APP_ENV_FILE="${APP_DIR}/.env"
-if [[ ! -f "$APP_ENV_FILE" ]]; then
-cat > "${APP_ENV_FILE}" <<EOF
-DATABASE_URL=sqlite:////opt/patchpilot_server/patchpilot.db
-RUST_LOG=info
-ROCKET_ADDRESS=0.0.0.0
-ROCKET_PORT=8080
-ROCKET_PROFILE=dev
-ROCKET_INSECURE_ALLOW_DEV=true
-HOME=/home/patchpilot
+# --- main.go ---
+cat > main.go <<'EOF'
+package main
+
+import (
+	"database/sql"
+	"html/template"
+	"log"
+	"net/http"
+	"os"
+
+	_ "github.com/mattn/go-sqlite3"
+)
+
+type App struct {
+	DB        *sql.DB
+	Templates *template.Template
+}
+
+type DashboardData struct {
+	TotalDevices    int
+	ApprovedDevices int
+	PendingDevices  int
+	TotalActions    int
+}
+
+func main() {
+	dbPath := getEnv("DATABASE_PATH", "./kentro.db")
+	addr := getEnv("SERVER_ADDRESS", "0.0.0.0")
+	port := getEnv("SERVER_PORT", "8080")
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := db.Ping(); err != nil {
+		log.Fatal(err)
+	}
+
+	initDB(db)
+
+	tmpl := template.Must(template.ParseGlob("templates/*.html"))
+
+	app := &App{
+		DB:        db,
+		Templates: tmpl,
+	}
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/", app.redirect)
+	mux.HandleFunc("/dashboard", app.dashboard)
+
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+
+	log.Printf("KentroCore running on %s:%s\n", addr, port)
+	log.Fatal(http.ListenAndServe(addr+":"+port, mux))
+}
+
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func initDB(db *sql.DB) {
+	db.Exec(`CREATE TABLE IF NOT EXISTS devices (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT,
+		approved INTEGER DEFAULT 0
+	)`)
+
+	db.Exec(`CREATE TABLE IF NOT EXISTS actions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT
+	)`)
+}
+
+func (a *App) redirect(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/dashboard", http.StatusFound)
+}
+
+func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
+	data := DashboardData{}
+
+	a.DB.QueryRow("SELECT COUNT(*) FROM devices").Scan(&data.TotalDevices)
+	a.DB.QueryRow("SELECT COUNT(*) FROM devices WHERE approved = 1").Scan(&data.ApprovedDevices)
+	a.DB.QueryRow("SELECT COUNT(*) FROM actions").Scan(&data.TotalActions)
+
+	data.PendingDevices = data.TotalDevices - data.ApprovedDevices
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	a.Templates.ExecuteTemplate(w, "dashboard.html", data)
+}
 EOF
-chmod 600 "$APP_ENV_FILE"
-fi
 
-# Generate Rocket secret key if missing or invalid
-if ! grep -q "^ROCKET_SECRET_KEY=" "$APP_ENV_FILE" || \
-   ! grep -E "^ROCKET_SECRET_KEY=([A-Za-z0-9+/]{43}=|[A-Fa-f0-9]{64})$" "$APP_ENV_FILE"; then
-    sed -i '/^ROCKET_SECRET_KEY=/d' "$APP_ENV_FILE"
-    echo "ROCKET_SECRET_KEY=$(openssl rand -base64 32)" >> "$APP_ENV_FILE"
-fi
-chmod 600 "$APP_ENV_FILE"
+# --- templates ---
+mkdir -p templates
 
-# Admin token
-TOKEN_FILE="${APP_DIR}/admin_token.txt"
-if [[ ! -f "$TOKEN_FILE" ]]; then
-    openssl rand -base64 32 | head -c 44 > "$TOKEN_FILE"
-    chmod 600 "$TOKEN_FILE"
-fi
+cat > templates/dashboard.html <<'EOF'
+{{ define "dashboard.html" }}
+<!DOCTYPE html>
+<html>
+<head>
+<title>Kentro Dashboard</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
 
-# Ensure patchpilot user exists
-if ! id -u patchpilot >/dev/null 2>&1; then
-    useradd -r -m -d /home/patchpilot -s /usr/sbin/nologin patchpilot || true
-fi
-mkdir -p /home/patchpilot/.cargo /home/patchpilot/.rustup
-chown -R patchpilot:patchpilot /home/patchpilot || true
-chmod 700 /home/patchpilot || true
-chmod 700 /home/patchpilot/.cargo /home/patchpilot/.rustup || true
+{{ template "navbar.html" . }}
 
-mkdir -p /opt/patchpilot_server/migrations
-chown -R patchpilot:patchpilot /opt/patchpilot_server/migrations || true
-chown -R patchpilot:patchpilot "$APP_DIR" || true
-find "$APP_DIR" -type d -exec chmod 755 {} \; || true
-find "$APP_DIR" -type f -exec chmod 755 {} \; || true
+<h1>Kentro Dashboard</h1>
 
-chmod +x "$APP_DIR/target/${BUILD_MODE}/patchpilot_server" 2>/dev/null || true
-chmod +x "$APP_DIR/server_test.sh" 2>/dev/null || true
+<div>Total Devices: {{.TotalDevices}}</div>
+<div>Approved: {{.ApprovedDevices}}</div>
+<div>Pending: {{.PendingDevices}}</div>
+<div>Total Actions: {{.TotalActions}}</div>
 
-# Systemd service unit (Rocket binds port directly)
+</body>
+</html>
+{{ end }}
+EOF
+
+cat > templates/navbar.html <<'EOF'
+{{ define "navbar.html" }}
+<nav>
+<a href="/dashboard">Dashboard</a>
+</nav>
+{{ end }}
+EOF
+
+# --- static ---
+mkdir -p static
+
+echo "body { font-family: sans-serif; }" > static/styles.css
+
+# --- env ---
+cat > .env <<EOF
+DATABASE_PATH=/opt/kentro/kentro.db
+SERVER_ADDRESS=0.0.0.0
+SERVER_PORT=8080
+EOF
+
+# --- build ---
+go mod tidy
+go build -o kentrocore
+
+# --- permissions ---
+chown -R kentro:kentro "$APP_DIR"
+chmod +x kentrocore
+
+# --- systemd ---
 cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
 [Unit]
-Description=PatchPilot Server
+Description=Kentro Core Server
 After=network.target
 
 [Service]
-User=patchpilot
-Group=patchpilot
+User=kentro
+Group=kentro
 WorkingDirectory=${APP_DIR}
-EnvironmentFile=${APP_ENV_FILE}
-Environment=PATH=${CARGO_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=${APP_DIR}/target/${BUILD_MODE}/patchpilot_server
+EnvironmentFile=${APP_DIR}/.env
+ExecStart=${APP_DIR}/kentrocore
 Restart=on-failure
-RestartSec=5s
-TimeoutStartSec=30s
-LimitNOFILE=65535
-StandardOutput=journal
-StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Reload systemd and enable/start service
 systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
 
-# If the service failed to come up, print recent journal lines for troubleshooting
-if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
-    echo "${SERVICE_NAME} failed to start — recent journal output:"
-    journalctl -u "${SERVICE_NAME}" -n 50 --no-pager
-fi
-
-SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "Installation complete."
-echo "Dashboard: http://${SERVER_IP}:8080"
-echo "Admin token: ${TOKEN_FILE}"
+IP=$(hostname -I | awk '{print $1}')
+echo "Kentro running at http://${IP}:8080"
