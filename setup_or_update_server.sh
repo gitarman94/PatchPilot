@@ -1,111 +1,105 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="/opt/commandpilot"
 SERVICE_NAME="pilot-core.service"
-SYSTEMD_DIR="/etc/systemd/system"
+INSTALL_DIR="/opt/commandpilot"
+CORE_DIR="${INSTALL_DIR}/pilot-core"
+REPO_URL="https://github.com/gitarman94/CommandPilot.git"
+SERVER_URL="http://127.0.0.1:8080"
 
-GITHUB_USER="gitarman94"
-GITHUB_REPO="CommandPilot"
-BRANCH="main"
-REPO_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}.git"
+fail(){ echo "[FAIL] $1"; exit 1; }
+pass(){ echo "[PASS] $1"; }
+stage(){ echo; echo "== $1 =="; }
 
-echo "Starting CommandPilot (pilot-core) setup..."
+stage "Dependencies"
+apt-get update -y >/dev/null 2>&1 || fail "apt update failed"
+apt-get install -y git curl wget sqlite3 build-essential >/dev/null 2>&1 || fail "dependency install failed"
+pass "Dependencies installed"
 
-# --- OS check ---
-if [[ -f /etc/os-release ]]; then
-    . /etc/os-release
-    case "$ID" in
-        debian|ubuntu|linuxmint|pop|raspbian) ;;
-        *) echo "Only Debian-based systems supported."; exit 1 ;;
-    esac
-else
-    echo "Cannot determine OS."; exit 1
-fi
-
-# --- stop old service ---
-systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
-
-# --- install dependencies ---
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq curl git build-essential sqlite3 libsqlite3-dev ca-certificates
-
-# --- install Go if missing ---
+stage "Go"
 if ! command -v go >/dev/null 2>&1; then
-    echo "Installing Go..."
-    curl -LO https://go.dev/dl/go1.22.5.linux-amd64.tar.gz
+    ARCH=$(uname -m)
+    [[ "$ARCH" == "x86_64" ]] && GO_ARCH="amd64" || GO_ARCH="arm64"
+    wget -q https://go.dev/dl/go1.25.0.linux-${GO_ARCH}.tar.gz -O /tmp/go.tar.gz || fail "Go download failed"
     rm -rf /usr/local/go
-    tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz
+    tar -C /usr/local -xzf /tmp/go.tar.gz || fail "Go extract failed"
+    echo 'export PATH=$PATH:/usr/local/go/bin' >/etc/profile.d/golang.sh
 fi
-
 export PATH=$PATH:/usr/local/go/bin
+go version >/dev/null 2>&1 || fail "Go install failed"
+pass "Go ready"
 
-# --- create system user ---
-if ! id -u commandpilot >/dev/null 2>&1; then
-    useradd -r -m -d /home/commandpilot -s /usr/sbin/nologin commandpilot || true
-fi
+stage "Source"
+rm -rf "$INSTALL_DIR"
+git clone "$REPO_URL" "$INSTALL_DIR" >/dev/null 2>&1 || fail "git clone failed"
+[[ -d "$CORE_DIR" ]] || fail "pilot-core missing"
+pass "Repository cloned"
 
-# --- fetch source ---
-echo "Fetching CommandPilot source..."
-rm -rf "$APP_DIR"
-git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
+stage "Build"
+cd "$CORE_DIR"
+go mod tidy >/dev/null 2>&1 || fail "go mod tidy failed"
+go build -o pilot-core . || fail "go build failed"
+[[ -f "${CORE_DIR}/pilot-core" ]] || fail "binary missing"
+chmod +x "${CORE_DIR}/pilot-core"
+pass "Build succeeded"
 
-# --- build ---
-echo "Building pilot-core..."
-cd "$APP_DIR/pilot-core"
+stage "Assets"
+mkdir -p "${INSTALL_DIR}/templates" "${INSTALL_DIR}/static"
+cp -r "${CORE_DIR}/templates/"* "${INSTALL_DIR}/templates/" 2>/dev/null || true
+cp -r "${CORE_DIR}/static/"* "${INSTALL_DIR}/static/" 2>/dev/null || true
+[[ -f "${INSTALL_DIR}/templates/login.html" ]] || fail "templates missing"
+pass "Assets ready"
 
-# IMPORTANT: use repo's go.mod (do NOT create one)
-go mod tidy
-go build -o pilot-core
-
-# --- environment ---
-cat > "${APP_DIR}/.env" <<EOF
-DATABASE_PATH=${APP_DIR}/commandpilot.db
-SERVER_ADDRESS=0.0.0.0
-SERVER_PORT=8080
-EOF
-
-# --- permissions ---
-chown -R commandpilot:commandpilot "$APP_DIR"
-chmod +x "${APP_DIR}/pilot-core/pilot-core"
-
-# --- systemd ---
-cat > "${SYSTEMD_DIR}/${SERVICE_NAME}" <<EOF
+stage "Service"
+cat >/etc/systemd/system/${SERVICE_NAME} <<EOF
 [Unit]
-Description=CommandPilot pilot-core
+Description=CommandPilot Server
 After=network.target
 
 [Service]
-User=commandpilot
-Group=commandpilot
-WorkingDirectory=${APP_DIR}/pilot-core
-EnvironmentFile=${APP_DIR}/.env
+Type=simple
+User=root
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=${CORE_DIR}/pilot-core
+Restart=always
+RestartSec=3
 Environment=PATH=/usr/local/go/bin:/usr/bin:/bin
-ExecStart=${APP_DIR}/pilot-core/pilot-core
-Restart=on-failure
-RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# --- start service ---
-systemctl daemon-reload
-systemctl enable --now "${SERVICE_NAME}"
+systemctl daemon-reload || fail "daemon-reload failed"
+systemctl enable ${SERVICE_NAME} >/dev/null 2>&1 || fail "enable failed"
+systemctl restart ${SERVICE_NAME} || fail "service start failed"
+sleep 5
+pass "Service started"
 
-# --- verify ---
-if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
-    echo "pilot-core failed to start. Logs:"
-    journalctl -u "${SERVICE_NAME}" -n 50 --no-pager
-    exit 1
-fi
+stage "Validation"
+systemctl is-active --quiet ${SERVICE_NAME} || { journalctl -u ${SERVICE_NAME} -n 50 --no-pager; fail "service inactive"; }
+pass "Service active"
 
-IP=$(hostname -I | awk '{print $1}')
+ss -tulpn | grep -q ":8080" || { journalctl -u ${SERVICE_NAME} -n 50 --no-pager; fail "port 8080 closed"; }
+pass "Port listening"
 
-echo "----------------------------------------"
-echo "CommandPilot is running"
-echo "URL: http://${IP}:8080"
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${SERVER_URL}/")
+[[ "$HTTP_CODE" == "200" ]] || fail "HTTP failed (${HTTP_CODE})"
+pass "HTTP responding"
+
+[[ -f "${INSTALL_DIR}/commandpilot.db" ]] || fail "database missing"
+pass "Database exists"
+
+sqlite3 "${INSTALL_DIR}/commandpilot.db" "SELECT 1;" >/dev/null 2>&1 || fail "sqlite failed"
+pass "SQLite operational"
+
+TABLES=$(sqlite3 "${INSTALL_DIR}/commandpilot.db" ".tables")
+for table in devices actions history users roles settings; do
+    echo "$TABLES" | grep -q "$table" || fail "missing table: $table"
+done
+pass "Schema valid"
+
+IP_ADDR=$(hostname -I | awk '{print $1}')
+echo
+echo "CommandPilot deployed"
+echo "URL: http://${IP_ADDR}:8080"
 echo "Service: ${SERVICE_NAME}"
-echo "----------------------------------------"
