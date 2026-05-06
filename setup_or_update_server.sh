@@ -116,14 +116,17 @@ cat > "${APP_DIR}/Rocket.toml" <<EOF
 address = "0.0.0.0"
 port = 8080
 log_level = "normal"
+template_dir = "templates"
 
 [release]
 log_level = "critical"
+template_dir = "templates"
 
 [dev]
 log_level = "normal"
 address = "0.0.0.0"
 port = 8080
+template_dir = "templates"
 EOF
 
 # Environment file — preserve existing, otherwise create minimal default
