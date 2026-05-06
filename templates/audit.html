@@ -1,34 +1,44 @@
-{{> navbar }}
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Audit - PatchPilot</title>
+  <title>Audit - CommandPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+  {{ template "navbar.html" . }}
+
   <main class="container">
     <h1>Audit Logs</h1>
 
     <table>
       <thead>
-        <tr><th>ID</th><th>User</th><th>Action</th><th>Target</th><th>Details</th><th>Timestamp</th></tr>
+        <tr>
+          <th>ID</th>
+          <th>User</th>
+          <th>Action</th>
+          <th>Target</th>
+          <th>Details</th>
+          <th>Timestamp</th>
+        </tr>
       </thead>
       <tbody>
-        {{#each audit}}
+        {{ if .audit }}
+          {{ range .audit }}
           <tr>
-            <td>{{this.id}}</td>
-            <td>{{this.user}}</td>
-            <td>{{this.action}}</td>
-            <td>{{this.target}}</td>
-            <td>{{this.details}}</td>
-            <td>{{this.timestamp}}</td>
+            <td>{{ .ID }}</td>
+            <td>{{ .User }}</td>
+            <td>{{ .Action }}</td>
+            <td>{{ .Target }}</td>
+            <td>{{ .Details }}</td>
+            <td>{{ .Timestamp }}</td>
           </tr>
-        {{/each}}
-        {{#unless audit}}
-          <tr><td colspan="6">No audit entries.</td></tr>
-        {{/unless}}
+          {{ end }}
+        {{ else }}
+          <tr>
+            <td colspan="6">No audit entries.</td>
+          </tr>
+        {{ end }}
       </tbody>
     </table>
   </main>
