@@ -37,8 +37,10 @@ type Audit struct {
 }
 
 type User struct {
-	ID       int    `json:"id"`
-	Username string `json:"username"`
+	ID           int    `json:"id"`
+	Username     string `json:"username"`
+	PasswordHash string `json:"-"`
+	RoleID       int    `json:"role_id"`
 }
 
 type Group struct {
@@ -47,8 +49,9 @@ type Group struct {
 }
 
 type Role struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 type Settings struct {
