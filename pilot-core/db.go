@@ -1,6 +1,10 @@
 package main
 
-import "database/sql"
+import (
+	"database/sql"
+
+	"golang.org/x/crypto/bcrypt"
+)
 
 func initDB(db *sql.DB) {
 
@@ -31,7 +35,7 @@ func initDB(db *sql.DB) {
 	db.Exec(`CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT UNIQUE,
-		password TEXT,
+		password_hash TEXT,
 		role_id INTEGER
 	)`)
 
@@ -54,4 +58,22 @@ func initDB(db *sql.DB) {
 		key TEXT PRIMARY KEY,
 		value TEXT
 	)`)
+
+	db.Exec(`ALTER TABLE users ADD COLUMN password_hash TEXT`)
+
+	rows, err := db.Query(`SELECT id, password FROM users WHERE password IS NOT NULL AND (password_hash IS NULL OR password_hash = '')`)
+	if err == nil {
+		defer rows.Close()
+
+		for rows.Next() {
+			var id int
+			var password string
+			if err := rows.Scan(&id, &password); err == nil {
+				hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+				if err == nil {
+					db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(hashed), id)
+				}
+			}
+		}
+	}
 }
