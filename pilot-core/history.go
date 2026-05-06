@@ -11,7 +11,7 @@ func (a *App) historyPage(w http.ResponseWriter, r *http.Request) {
 		FROM history ORDER BY id DESC
 	`)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -20,20 +20,28 @@ func (a *App) historyPage(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var h History
-		rows.Scan(&h.ID, &h.Action, &h.Timestamp)
+		err := rows.Scan(&h.ID, &h.Action, &h.Timestamp)
+		if err != nil {
+			continue
+		}
 		history = append(history, h)
 	}
 
+	if err := rows.Err(); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
 	a.Templates.ExecuteTemplate(w, "history.html", map[string]interface{}{
-		"history": history,
+		"History": history,
 	})
 }
 
 func (a *App) logHistory(action string) {
-	a.DB.Exec(`
+	_, _ = a.DB.Exec(`
 		INSERT INTO history (action, timestamp)
 		VALUES (?, ?)
-	`, action, time.Now().Format(time.RFC3339))
+	`, action, time.Now())
 }
 
 func (a *App) apiHistory(w http.ResponseWriter, r *http.Request) {
@@ -51,8 +59,16 @@ func (a *App) apiHistory(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var h History
-		rows.Scan(&h.ID, &h.Action, &h.Timestamp)
+		err := rows.Scan(&h.ID, &h.Action, &h.Timestamp)
+		if err != nil {
+			continue
+		}
 		history = append(history, h)
+	}
+
+	if err := rows.Err(); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
 	}
 
 	writeJSON(w, history)

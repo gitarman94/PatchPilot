@@ -1,25 +1,54 @@
 package main
 
+import "time"
+
 type Device struct {
-	ID       int    `json:"id"`
-	Hostname string `json:"hostname"`
-	IP       string `json:"ip"`
-	OS       string `json:"os"`
-	LastSeen string `json:"last_seen"`
-	Approved int    `json:"approved"`
+	ID        int       `json:"id"`
+	Name      string    `json:"name"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Action struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	DeviceID  int    `json:"device_id"`
-	Status    string `json:"status"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID        int       `json:"id"`
+	Name      string    `json:"name"`
+	DeviceID  int       `json:"device_id"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type History struct {
-	ID        int    `json:"id"`
-	Action    string `json:"action"`
-	Timestamp string `json:"timestamp"`
+	ID        int       `json:"id"`
+	Action    string    `json:"action"`
+	DeviceID  int       `json:"device_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Audit struct {
+	ID        int       `json:"id"`
+	User      string    `json:"user"`
+	Action    string    `json:"action"`
+	Target    string    `json:"target"`
+	Details   string    `json:"details"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type User struct {
+	ID       int    `json:"id"`
+	Username string `json:"username"`
+}
+
+type Group struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+type Role struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+type Settings struct {
+	SiteName string `json:"site_name"`
 }

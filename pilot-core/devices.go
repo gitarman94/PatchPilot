@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 func (a *App) devicesPage(w http.ResponseWriter, r *http.Request) {
@@ -11,7 +12,7 @@ func (a *App) devicesPage(w http.ResponseWriter, r *http.Request) {
 		FROM devices ORDER BY id DESC
 	`)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -20,21 +21,33 @@ func (a *App) devicesPage(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var d Device
-		rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
+		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
+		if err != nil {
+			continue
+		}
 		devices = append(devices, d)
 	}
 
+	if err := rows.Err(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	a.Templates.ExecuteTemplate(w, "devices.html", map[string]interface{}{
-		"devices": devices,
+		"Devices": devices,
 	})
 }
 
 func (a *App) deviceDetail(w http.ResponseWriter, r *http.Request) {
-	idStr := r.URL.Path[len("/device_detail/"):]
-	id, _ := strconv.Atoi(idStr)
+	idStr := strings.TrimPrefix(r.URL.Path, "/device_detail/")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	var d Device
-	err := a.DB.QueryRow(`
+	err = a.DB.QueryRow(`
 		SELECT id, hostname, ip, os, last_seen, approved
 		FROM devices WHERE id = ?
 	`, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
@@ -44,13 +57,40 @@ func (a *App) deviceDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.Templates.ExecuteTemplate(w, "device_detail.html", d)
+	a.Templates.ExecuteTemplate(w, "device_detail.html", map[string]interface{}{
+		"Device": d,
+	})
 }
 
 func (a *App) approveDevice(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-	a.DB.Exec("UPDATE devices SET approved = 1 WHERE id = ?", id)
+	id, err := strconv.Atoi(r.FormValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := a.DB.Begin()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	_, err = tx.Exec("UPDATE devices SET approved = 1 WHERE id = ?", id)
+	if err != nil {
+		tx.Rollback()
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 
 	a.logHistory("device_approved")
 
@@ -58,16 +98,39 @@ func (a *App) approveDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) rejectDevice(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-	a.DB.Exec("DELETE FROM devices WHERE id = ?", id)
+	id, err := strconv.Atoi(r.FormValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := a.DB.Begin()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	_, err = tx.Exec("DELETE FROM devices WHERE id = ?", id)
+	if err != nil {
+		tx.Rollback()
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 
 	a.logHistory("device_rejected")
 
 	http.Redirect(w, r, "/devices_page", http.StatusFound)
 }
-
-/* --- API --- */
 
 func (a *App) apiDevices(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(`
@@ -83,8 +146,16 @@ func (a *App) apiDevices(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var d Device
-		rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
+		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
+		if err != nil {
+			continue
+		}
 		out = append(out, d)
+	}
+
+	if err := rows.Err(); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
 	}
 
 	writeJSON(w, out)

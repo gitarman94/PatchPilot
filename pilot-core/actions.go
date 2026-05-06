@@ -13,7 +13,7 @@ func (a *App) actionsPage(w http.ResponseWriter, r *http.Request) {
 		ORDER BY id DESC
 	`)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -22,7 +22,7 @@ func (a *App) actionsPage(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var act Action
-		rows.Scan(
+		err := rows.Scan(
 			&act.ID,
 			&act.Name,
 			&act.Status,
@@ -30,28 +30,49 @@ func (a *App) actionsPage(w http.ResponseWriter, r *http.Request) {
 			&act.CreatedAt,
 			&act.UpdatedAt,
 		)
+		if err != nil {
+			continue
+		}
 		actions = append(actions, act)
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := rows.Err(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	a.Templates.ExecuteTemplate(w, "actions.html", map[string]interface{}{
-		"actions": actions,
+		"Actions": actions,
 	})
 }
 
 func (a *App) submitAction(w http.ResponseWriter, r *http.Request) {
-	deviceID, _ := strconv.Atoi(r.FormValue("device_id"))
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	deviceID, err := strconv.Atoi(r.FormValue("device_id"))
+	if err != nil {
+		http.Error(w, "invalid device_id", http.StatusBadRequest)
+		return
+	}
+
 	name := r.FormValue("name")
+	if name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
 
-	now := time.Now().Format(time.RFC3339)
+	now := time.Now()
 
-	_, err := a.DB.Exec(`
+	_, err = a.DB.Exec(`
 		INSERT INTO actions (name, device_id, status, created_at, updated_at)
 		VALUES (?, ?, 'pending', ?, ?)
 	`, name, deviceID, now, now)
 
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -61,28 +82,40 @@ func (a *App) submitAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) updateActionStatus(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.Atoi(r.FormValue("id"))
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	id, err := strconv.Atoi(r.FormValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
 	status := r.FormValue("status")
+	if status == "" {
+		http.Error(w, "status is required", http.StatusBadRequest)
+		return
+	}
 
-	now := time.Now().Format(time.RFC3339)
+	now := time.Now()
 
-	_, err := a.DB.Exec(`
+	_, err = a.DB.Exec(`
 		UPDATE actions
 		SET status = ?, updated_at = ?
 		WHERE id = ?
 	`, status, now, id)
 
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	a.logHistory("action_updated")
 
-	w.WriteHeader(200)
+	w.WriteHeader(http.StatusOK)
 }
-
-/* --- API --- */
 
 func (a *App) apiActions(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(`
@@ -91,7 +124,7 @@ func (a *App) apiActions(w http.ResponseWriter, r *http.Request) {
 		ORDER BY id DESC
 	`)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -100,7 +133,7 @@ func (a *App) apiActions(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var act Action
-		rows.Scan(
+		err := rows.Scan(
 			&act.ID,
 			&act.Name,
 			&act.Status,
@@ -108,7 +141,15 @@ func (a *App) apiActions(w http.ResponseWriter, r *http.Request) {
 			&act.CreatedAt,
 			&act.UpdatedAt,
 		)
+		if err != nil {
+			continue
+		}
 		out = append(out, act)
+	}
+
+	if err := rows.Err(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	writeJSON(w, out)
