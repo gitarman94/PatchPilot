@@ -181,6 +181,3 @@ echo
 echo "CommandPilot deployed successfully"
 echo "URL: http://${IP_ADDR}:8080"
 echo "Service: ${SERVICE_NAME}"
-echo
-echo "Verbose: bash setup_or_update_server.sh --verbose"
-echo "Very Verbose: bash setup_or_update_server.sh --veryverbose"
