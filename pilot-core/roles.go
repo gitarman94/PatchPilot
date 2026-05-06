@@ -1,32 +1,50 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
+)
 
-func (a *App) rolesPage(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.DB.Query("SELECT id, name, description FROM roles ORDER BY id DESC")
+func (app *App) rolesHandler(w http.ResponseWriter, r *http.Request) {
+	rows, err := app.DB.Query("SELECT id, name FROM roles")
 	if err != nil {
-		http.Error(w, "Failed to load roles", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
 	var roles []Role
-
 	for rows.Next() {
 		var role Role
-		err := rows.Scan(&role.ID, &role.Name, &role.Description)
-		if err != nil {
-			continue
+		if err := rows.Scan(&role.ID, &role.Name); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 		roles = append(roles, role)
 	}
 
-	if err := rows.Err(); err != nil {
+	renderTemplate(w, "roles.html", roles)
+}
+
+func (app *App) createRole(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/roles", http.StatusSeeOther)
+		return
+	}
+
+	name := r.FormValue("name")
+	if name == "" {
+		http.Error(w, "Missing role name", http.StatusBadRequest)
+		return
+	}
+
+	_, err := app.DB.Exec(
+		"INSERT INTO roles (name) VALUES (?)",
+		name,
+	)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	a.Templates.ExecuteTemplate(w, "roles.html", map[string]interface{}{
-		"Roles": roles,
-	})
+	http.Redirect(w, r, "/roles", http.StatusSeeOther)
 }

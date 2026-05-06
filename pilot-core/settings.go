@@ -1,14 +1,11 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
+)
 
-type Setting struct {
-	Key   string
-	Value string
-}
-
-func (a *App) settingsPage(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.DB.Query("SELECT key, value FROM settings")
+func (app *App) settingsHandler(w http.ResponseWriter, r *http.Request) {
+	rows, err := app.DB.Query("SELECT id, key, value FROM settings")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -16,49 +13,32 @@ func (a *App) settingsPage(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var settings []Setting
-
 	for rows.Next() {
 		var s Setting
-		if err := rows.Scan(&s.Key, &s.Value); err != nil {
-			continue
+		if err := rows.Scan(&s.ID, &s.Key, &s.Value); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 		settings = append(settings, s)
 	}
 
-	if err := rows.Err(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	a.Templates.ExecuteTemplate(w, "settings.html", map[string]interface{}{
-		"Settings": settings,
-	})
+	renderTemplate(w, "settings.html", settings)
 }
 
-func (a *App) updateSetting(w http.ResponseWriter, r *http.Request) {
+func (app *App) updateSetting(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
 		return
 	}
 
-	key := r.FormValue("key")
+	id := r.FormValue("id")
 	value := r.FormValue("value")
 
-	if key == "" {
-		http.Error(w, "key is required", http.StatusBadRequest)
-		return
-	}
-
-	_, err := a.DB.Exec(`
-		INSERT INTO settings (key, value)
-		VALUES (?, ?)
-		ON CONFLICT(key) DO UPDATE SET value=excluded.value
-	`, key, value)
-
+	_, err := app.DB.Exec("UPDATE settings SET value=? WHERE id=?", value, id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	http.Redirect(w, r, "/settings_page", http.StatusFound)
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }

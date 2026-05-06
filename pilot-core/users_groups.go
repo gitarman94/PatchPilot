@@ -1,70 +1,62 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
 
-func (a *App) usersGroupsPage(w http.ResponseWriter, r *http.Request) {
-	users, err := a.getAllUsers()
+	"golang.org/x/crypto/bcrypt"
+)
+
+func (app *App) usersGroupsHandler(w http.ResponseWriter, r *http.Request) {
+	rows, err := app.DB.Query("SELECT id, username FROM users")
 	if err != nil {
-		http.Error(w, "Failed to load users", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	groups, err := a.getAllGroups()
-	if err != nil {
-		http.Error(w, "Failed to load groups", http.StatusInternalServerError)
-		return
-	}
-
-	a.Templates.ExecuteTemplate(w, "users_groups.html", map[string]interface{}{
-		"Users":  users,
-		"Groups": groups,
-	})
-}
-
-func (a *App) getAllUsers() ([]User, error) {
-	rows, err := a.DB.Query("SELECT id, username, password_hash, role_id FROM users ORDER BY id DESC")
-	if err != nil {
-		return nil, err
 	}
 	defer rows.Close()
 
 	var users []User
 	for rows.Next() {
 		var u User
-		err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.RoleID)
-		if err != nil {
-			continue
+		if err := rows.Scan(&u.ID, &u.Username); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 		users = append(users, u)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return users, nil
+	renderTemplate(w, "users_groups.html", users)
 }
 
-func (a *App) getAllGroups() ([]Group, error) {
-	rows, err := a.DB.Query("SELECT id, name FROM groups ORDER BY id DESC")
+func (app *App) createUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/users_groups", http.StatusSeeOther)
+		return
+	}
+
+	username := r.FormValue("username")
+	password := r.FormValue("password")
+
+	if username == "" || password == "" {
+		http.Error(w, "Missing username or password", http.StatusBadRequest)
+		return
+	}
+
+	// 🔐 Hash password using bcrypt
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var groups []Group
-	for rows.Next() {
-		var g Group
-		err := rows.Scan(&g.ID, &g.Name)
-		if err != nil {
-			continue
-		}
-		groups = append(groups, g)
+		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
+		return
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, err
+	_, err = app.DB.Exec(
+		"INSERT INTO users (username, password) VALUES (?, ?)",
+		username,
+		string(hashedPassword),
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	return groups, nil
+	http.Redirect(w, r, "/users_groups", http.StatusSeeOther)
 }
