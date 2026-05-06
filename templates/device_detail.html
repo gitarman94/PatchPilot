@@ -1,23 +1,46 @@
-{{template "navbar.html" .}}
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Device Detail</title>
+  <meta charset="utf-8">
+  <title>Device Detail - CommandPilot</title>
+  <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+  {{ template "navbar.html" . }}
 
-<h1>Device Detail</h1>
+  <main class="container">
+    <h1>Device Detail</h1>
 
-{{if .device}}
-<p>ID: {{.device.ID}}</p>
-<p>Hostname: {{.device.Hostname}}</p>
-<p>IP: {{.device.IP}}</p>
-<p>OS: {{.device.OS}}</p>
-<p>Approved: {{.device.Approved}}</p>
-{{else}}
-<p>Device not found</p>
-{{end}}
+    <table>
+      <tr>
+        <th>ID</th>
+        <td>{{ .Device.ID }}</td>
+      </tr>
+      <tr>
+        <th>Hostname</th>
+        <td>{{ .Device.Hostname }}</td>
+      </tr>
+      <tr>
+        <th>IP</th>
+        <td>{{ .Device.IP }}</td>
+      </tr>
+      <tr>
+        <th>OS</th>
+        <td>{{ .Device.OS }}</td>
+      </tr>
+      <tr>
+        <th>Last Seen</th>
+        <td>{{ .Device.LastSeen }}</td>
+      </tr>
+      <tr>
+        <th>Approved</th>
+        <td>{{ .Device.Approved }}</td>
+      </tr>
+    </table>
 
+    <p>
+      <a href="/devices_page">Back to Devices</a>
+    </p>
+  </main>
 </body>
 </html>

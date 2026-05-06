@@ -1,31 +1,33 @@
-{{!-- templates/login.hbs --}}
-{{#> layout title="Login"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CommandPilot Login</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="container">
+    <h1>CommandPilot</h1>
 
-<main class="container auth-page">
-  <h1>Login</h1>
-
-  {{#if error}}
-    <div class="alert alert-error">{{error}}</div>
-  {{/if}}
-
-  <form method="post" action="/auth/login" class="auth-form">
-    <div class="form-row">
-      <label for="username">Username</label>
-      <input id="username" name="username" type="text" required autofocus value="{{username}}">
+    {{ if .Error }}
+    <div class="error">
+      {{ .Error }}
     </div>
+    {{ end }}
 
-    <div class="form-row">
-      <label for="password">Password</label>
-      <input id="password" name="password" type="password" required>
-    </div>
+    <form method="POST" action="/auth/login">
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" required>
+      </div>
 
-    {{!-- optional redirect param passed through --}}
-    <input type="hidden" name="redirect" value="{{redirect}}">
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" required>
+      </div>
 
-    <div class="form-actions">
-      <button type="submit">Sign in</button>
-    </div>
-  </form>
-</main>
-
-{{/layout}}
+      <button type="submit">Login</button>
+    </form>
+  </main>
+</body>
+</html>

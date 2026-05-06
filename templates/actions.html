@@ -1,69 +1,47 @@
-{{template "navbar.html" .}}
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Actions</title>
+  <meta charset="utf-8">
+  <title>Actions - CommandPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
-  <script src="/static/app.js" defer></script>
 </head>
 <body>
+  {{ template "navbar.html" . }}
 
-<main class="container">
-  <header class="page-header">
+  <main class="container">
     <h1>Actions</h1>
-    <p class="muted">View and manage submitted actions</p>
-  </header>
 
-  <section class="card">
-    <div class="card-header">
-      <h2>All Actions</h2>
-    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Device ID</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
 
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead>
+      <tbody>
+        {{ if .actions }}
+          {{ range .actions }}
           <tr>
-            <th>ID</th>
-            <th>Name</th>
-            <th>Device</th>
-            <th>Status</th>
-            <th>Submitted</th>
-            <th>Updated</th>
+            <td>{{ .ID }}</td>
+            <td>{{ .Name }}</td>
+            <td>{{ .DeviceID }}</td>
+            <td>{{ .Status }}</td>
+            <td>{{ .CreatedAt }}</td>
+            <td>{{ .UpdatedAt }}</td>
           </tr>
-        </thead>
-
-        <tbody>
-          {{range .actions}}
-          <tr>
-            <td>{{.ID}}</td>
-            <td>{{.Name}}</td>
-            <td>{{.DeviceID}}</td>
-            <td>
-              {{if eq .Status "pending"}}
-                <span class="badge badge-warning">Pending</span>
-              {{else if eq .Status "approved"}}
-                <span class="badge badge-success">Approved</span>
-              {{else if eq .Status "failed"}}
-                <span class="badge badge-danger">Failed</span>
-              {{else}}
-                <span class="badge">{{.Status}}</span>
-              {{end}}
-            </td>
-            <td>{{.CreatedAt}}</td>
-            <td>{{.UpdatedAt}}</td>
-          </tr>
-          {{else}}
+          {{ end }}
+        {{ else }}
           <tr>
             <td colspan="6">No actions found.</td>
           </tr>
-          {{end}}
-        </tbody>
-      </table>
-    </div>
-  </section>
-</main>
-
+        {{ end }}
+      </tbody>
+    </table>
+  </main>
 </body>
 </html>

@@ -1,35 +1,51 @@
-{{template "navbar.html" .}}
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Devices</title>
+  <title>Devices - CommandPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+  {{ template "navbar.html" . }}
 
-<main class="container">
-  <h1>Devices</h1>
+  <main class="container">
+    <h1>Devices</h1>
 
-  <table>
-    <thead>
-      <tr><th>Hostname</th><th>IP</th><th>OS</th><th>Status</th></tr>
-    </thead>
-    <tbody>
-      {{range .Devices}}
-      <tr>
-        <td><a href="/device_detail/{{.ID}}">{{.Hostname}}</a></td>
-        <td>{{.IP}}</td>
-        <td>{{.OS}}</td>
-        <td>{{if eq .Approved 1}}Approved{{else}}Pending{{end}}</td>
-      </tr>
-      {{else}}
-      <tr><td colspan="4">No devices.</td></tr>
-      {{end}}
-    </tbody>
-  </table>
-</main>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Hostname</th>
+          <th>IP</th>
+          <th>OS</th>
+          <th>Last Seen</th>
+          <th>Approved</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
 
+      <tbody>
+        {{ if .devices }}
+          {{ range .devices }}
+          <tr>
+            <td>{{ .ID }}</td>
+            <td>{{ .Hostname }}</td>
+            <td>{{ .IP }}</td>
+            <td>{{ .OS }}</td>
+            <td>{{ .LastSeen }}</td>
+            <td>{{ .Approved }}</td>
+            <td>
+              <a href="/device_detail/{{ .ID }}">View</a>
+            </td>
+          </tr>
+          {{ end }}
+        {{ else }}
+          <tr>
+            <td colspan="7">No devices found.</td>
+          </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </main>
 </body>
 </html>
