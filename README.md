@@ -113,9 +113,14 @@ Requirements:
 
 ## ⚡ Install / Update (One Command)
 
-apt-get update
-apt-get install -y curl
+apt update -y && apt upgrade -y
+apt install -y curl
 curl -fsSL https://raw.githubusercontent.com/gitarman94/CommandPilot/refs/heads/main/setup_or_update_server.sh | bash
+
+
+## Verbose mode
+
+curl -fsSL https://raw.githubusercontent.com/gitarman94/CommandPilot/refs/heads/main/setup_or_update_server.sh | bash -s -- --verbose
 
 ---
 
