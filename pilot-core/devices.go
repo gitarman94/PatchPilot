@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"net/http"
 	"strconv"
 	"strings"
@@ -21,10 +22,17 @@ func (a *App) devicesPage(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var d Device
-		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
+		var lastSeen sql.NullString
+
+		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &lastSeen, &d.Approved)
 		if err != nil {
 			continue
 		}
+
+		if lastSeen.Valid {
+			d.LastSeen = lastSeen
+		}
+
 		devices = append(devices, d)
 	}
 
@@ -47,14 +55,20 @@ func (a *App) deviceDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var d Device
+	var lastSeen sql.NullString
+
 	err = a.DB.QueryRow(`
 		SELECT id, hostname, ip, os, last_seen, approved
 		FROM devices WHERE id = ?
-	`, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
+	`, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &lastSeen, &d.Approved)
 
 	if err != nil {
 		http.NotFound(w, r)
 		return
+	}
+
+	if lastSeen.Valid {
+		d.LastSeen = lastSeen
 	}
 
 	a.Templates.ExecuteTemplate(w, "device_detail.html", map[string]interface{}{
@@ -80,7 +94,7 @@ func (a *App) approveDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.Exec("UPDATE devices SET approved = 1 WHERE id = ?", id)
+	_, err = tx.Exec("UPDATE devices SET approved = 1, last_seen = datetime('now') WHERE id = ?", id)
 	if err != nil {
 		tx.Rollback()
 		http.Error(w, err.Error(), 500)
@@ -146,10 +160,17 @@ func (a *App) apiDevices(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var d Device
-		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
+		var lastSeen sql.NullString
+
+		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &lastSeen, &d.Approved)
 		if err != nil {
 			continue
 		}
+
+		if lastSeen.Valid {
+			d.LastSeen = lastSeen
+		}
+
 		out = append(out, d)
 	}
 
@@ -158,5 +179,30 @@ func (a *App) apiDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, out)
+	type deviceOut struct {
+		ID       int    `json:"id"`
+		Hostname string `json:"hostname"`
+		IP       string `json:"ip"`
+		OS       string `json:"os"`
+		LastSeen string `json:"last_seen"`
+		Approved bool   `json:"approved"`
+	}
+
+	var clean []deviceOut
+	for _, d := range out {
+		ls := ""
+		if d.LastSeen.Valid {
+			ls = d.LastSeen.String
+		}
+		clean = append(clean, deviceOut{
+			ID:       d.ID,
+			Hostname: d.Hostname,
+			IP:       d.IP,
+			OS:       d.OS,
+			LastSeen: ls,
+			Approved: d.Approved,
+		})
+	}
+
+	writeJSON(w, clean)
 }

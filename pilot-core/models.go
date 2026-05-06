@@ -3,10 +3,12 @@ package main
 import "time"
 
 type Device struct {
-	ID        int       `json:"id"`
-	Name      string    `json:"name"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        int
+	Hostname  string
+	IP        string
+	OS        string
+	LastSeen  string
+	Approved  bool
 }
 
 type Action struct {

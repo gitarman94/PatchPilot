@@ -4,54 +4,62 @@ import (
 	"net/http"
 )
 
-type User struct {
-	ID       int
-	Username string
-	RoleID   int
+// Users & Groups page handler
+func usersGroupsHandler(w http.ResponseWriter, r *http.Request) {
+	users, err := getAllUsers()
+	if err != nil {
+		http.Error(w, "Failed to load users", http.StatusInternalServerError)
+		return
+	}
+
+	groups, err := getAllGroups()
+	if err != nil {
+		http.Error(w, "Failed to load groups", http.StatusInternalServerError)
+		return
+	}
+
+	renderTemplate(w, "users_groups.html", map[string]interface{}{
+		"Users":  users,
+		"Groups": groups,
+	})
 }
 
-type Group struct {
-	ID   int
-	Name string
-}
+// DB functions (use structs from models.go)
 
-func (a *App) usersPage(w http.ResponseWriter, r *http.Request) {
-	rows, _ := a.DB.Query("SELECT id, username, role_id FROM users")
+func getAllUsers() ([]User, error) {
+	rows, err := db.Query("SELECT id, username, password_hash, role_id FROM users")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
 	var users []User
 	for rows.Next() {
 		var u User
-		rows.Scan(&u.ID, &u.Username, &u.RoleID)
+		err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.RoleID)
+		if err != nil {
+			return nil, err
+		}
 		users = append(users, u)
 	}
-
-	a.Templates.ExecuteTemplate(w, "users.html", map[string]interface{}{
-		"Users": users,
-	})
+	return users, nil
 }
 
-func (a *App) createUser(w http.ResponseWriter, r *http.Request) {
-	username := r.FormValue("username")
-	password := r.FormValue("password")
-
-	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-
-	a.DB.Exec("INSERT INTO users (username, password) VALUES (?, ?)", username, hash)
-
-	http.Redirect(w, r, "/users_page", http.StatusFound)
-}
-
-func (a *App) groupsPage(w http.ResponseWriter, r *http.Request) {
-	rows, _ := a.DB.Query("SELECT id, name FROM groups")
+func getAllGroups() ([]Group, error) {
+	rows, err := db.Query("SELECT id, name FROM groups")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
 	var groups []Group
 	for rows.Next() {
 		var g Group
-		rows.Scan(&g.ID, &g.Name)
+		err := rows.Scan(&g.ID, &g.Name)
+		if err != nil {
+			return nil, err
+		}
 		groups = append(groups, g)
 	}
-
-	a.Templates.ExecuteTemplate(w, "groups.html", map[string]interface{}{
-		"Groups": groups,
-	})
+	return groups, nil
 }

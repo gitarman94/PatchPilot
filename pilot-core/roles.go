@@ -1,31 +1,38 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
+)
 
-type Role struct {
-	ID   int
-	Name string
-}
-
-func (a *App) rolesPage(w http.ResponseWriter, r *http.Request) {
-	rows, _ := a.DB.Query("SELECT id, name FROM roles")
-
-	var roles []Role
-	for rows.Next() {
-		var r2 Role
-		rows.Scan(&r2.ID, &r2.Name)
-		roles = append(roles, r2)
+// Roles page handler
+func rolesHandler(w http.ResponseWriter, r *http.Request) {
+	roles, err := getAllRoles()
+	if err != nil {
+		http.Error(w, "Failed to load roles", http.StatusInternalServerError)
+		return
 	}
 
-	a.Templates.ExecuteTemplate(w, "roles.html", map[string]interface{}{
+	renderTemplate(w, "roles.html", map[string]interface{}{
 		"Roles": roles,
 	})
 }
 
-func (a *App) createRole(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("name")
+// DB function (uses Role from models.go)
+func getAllRoles() ([]Role, error) {
+	rows, err := db.Query("SELECT id, name, description FROM roles")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-	a.DB.Exec("INSERT INTO roles (name) VALUES (?)", name)
-
-	http.Redirect(w, r, "/roles_page", http.StatusFound)
+	var roles []Role
+	for rows.Next() {
+		var r Role
+		err := rows.Scan(&r.ID, &r.Name, &r.Description)
+		if err != nil {
+			return nil, err
+		}
+		roles = append(roles, r)
+	}
+	return roles, nil
 }
