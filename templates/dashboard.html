@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dashboard - CommandPilot</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
@@ -10,52 +11,118 @@
 
   <main class="container">
     <section class="page-header">
-      <h1>Dashboard</h1>
-      <p>System-wide overview and recent activity</p>
+      <div>
+        <h1>Infrastructure Dashboard</h1>
+        <p>Centralized operational visibility across managed systems</p>
+      </div>
+
+      <div class="header-actions">
+        <button class="btn btn-primary">Refresh</button>
+      </div>
     </section>
 
     <section class="stats-grid">
-      <div class="card">
-        <h2>Total Devices</h2>
-        <p>{{ index . "total_devices" }}</p>
+      <div class="stat-card">
+        <span class="stat-label">Total Devices</span>
+        <span class="stat-value">{{ .TotalDevices }}</span>
       </div>
-      <div class="card">
-        <h2>Approved Devices</h2>
-        <p>{{ index . "approved_devices" }}</p>
+
+      <div class="stat-card">
+        <span class="stat-label">Approved Devices</span>
+        <span class="stat-value">{{ .ApprovedDevices }}</span>
       </div>
-      <div class="card">
-        <h2>Pending Devices</h2>
-        <p>{{ index . "pending_devices" }}</p>
+
+      <div class="stat-card">
+        <span class="stat-label">Pending Approval</span>
+        <span class="stat-value">{{ .PendingDevices }}</span>
       </div>
-      <div class="card">
-        <h2>Total Actions</h2>
-        <p>{{ index . "total_actions" }}</p>
+
+      <div class="stat-card">
+        <span class="stat-label">Total Actions</span>
+        <span class="stat-value">{{ .TotalActions }}</span>
       </div>
     </section>
 
-    <section class="card">
-      <h2>Actions Over Time</h2>
-      <p>Recent 30 days</p>
-    </section>
+    <section class="dashboard-grid">
 
-    <section class="card">
-      <h2>Device OS Distribution</h2>
-      <p>All registered devices</p>
-    </section>
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Recent Actions</h2>
+        </div>
 
-    <section class="card">
-      <h2>Devices with Expiring TTL</h2>
-      <p>TTL &lt; 24h</p>
-    </section>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Action</th>
+              <th>Status</th>
+              <th>Created</th>
+            </tr>
+          </thead>
 
-    <section class="card">
-      <h2>Recent Actions</h2>
-      <p>Action, Device, Submitted, Status</p>
-    </section>
+          <tbody>
+            {{ range .RecentActions }}
+            <tr>
+              <td>{{ .ID }}</td>
+              <td>{{ .Name }}</td>
+              <td>
+                <span class="status-badge">
+                  {{ .Status }}
+                </span>
+              </td>
+              <td>{{ .CreatedAt }}</td>
+            </tr>
+            {{ else }}
+            <tr>
+              <td colspan="4" class="empty-state">
+                No recent actions found
+              </td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+      </div>
 
-    <section class="card">
-      <h2>Recent Devices</h2>
-      <p>Name, Hostname, IP, Last Seen, Approved</p>
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Recent Devices</h2>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Hostname</th>
+              <th>IP Address</th>
+              <th>OS</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {{ range .RecentDevices }}
+            <tr>
+              <td>{{ .Hostname }}</td>
+              <td>{{ .IP }}</td>
+              <td>{{ .OS }}</td>
+              <td>
+                {{ if .Approved }}
+                <span class="status-online">Approved</span>
+                {{ else }}
+                <span class="status-pending">Pending</span>
+                {{ end }}
+              </td>
+            </tr>
+            {{ else }}
+            <tr>
+              <td colspan="4" class="empty-state">
+                No devices registered
+              </td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+      </div>
+
     </section>
   </main>
 </body>
