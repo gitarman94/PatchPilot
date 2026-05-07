@@ -2,32 +2,78 @@
 set -euo pipefail
 
 SERVICE_NAME="pilot-core.service"
+
 BASE_DIR="/opt/commandpilot"
 SOURCE_DIR="${BASE_DIR}/src/CommandPilot"
 BUILD_DIR="${SOURCE_DIR}/pilot-core"
 RUNTIME_DIR="${BASE_DIR}/pilot-core"
+
+DB_PATH="${RUNTIME_DIR}/commandpilot.db"
+
 REPO_URL="https://github.com/gitarman94/CommandPilot.git"
 SERVER_URL="http://127.0.0.1:8080"
 
 DEFAULT_ADMIN_USER="admin"
 DEFAULT_ADMIN_PASS="admin"
 
+MODE=""
+FORCE_TEMPLATES=0
+FORCE_CONFIG=0
+
 VERBOSE=0
 VERYVERBOSE=0
 
 for arg in "$@"; do
     case "$arg" in
+
+        --install)
+            MODE="install"
+            ;;
+
+        --upgrade)
+            MODE="upgrade"
+            ;;
+
+        --force-templates)
+            FORCE_TEMPLATES=1
+            ;;
+
+        --force-config)
+            FORCE_CONFIG=1
+            ;;
+
         --verbose|-v)
             VERBOSE=1
             ;;
+
         --veryverbose|-vv|--very-verbose)
             VERBOSE=1
             VERYVERBOSE=1
+            ;;
+
+        *)
+            echo "[FAIL] unknown argument: $arg"
+            exit 1
             ;;
     esac
 done
 
 [[ "$VERYVERBOSE" -eq 1 ]] && set -x
+
+if [[ -z "$MODE" ]]; then
+    echo
+    echo "Usage:"
+    echo "  $0 --install [options]"
+    echo "  $0 --upgrade [options]"
+    echo
+    echo "Options:"
+    echo "  --verbose"
+    echo "  --veryverbose"
+    echo "  --force-templates"
+    echo "  --force-config"
+    echo
+    exit 1
+fi
 
 run() {
     if [[ "$VERBOSE" -eq 1 || "$VERYVERBOSE" -eq 1 ]]; then
@@ -58,6 +104,16 @@ cleanup() {
 
 trap cleanup EXIT
 
+stage "Mode"
+
+echo "Deployment mode: ${MODE}"
+
+if [[ "$MODE" == "install" ]]; then
+    echo "Fresh install mode enabled"
+else
+    echo "Upgrade mode enabled"
+fi
+
 stage "Dependencies"
 
 run apt-get update -y || fail "apt update failed"
@@ -67,6 +123,7 @@ run apt-get install -y \
     curl \
     wget \
     sqlite3 \
+    rsync \
     build-essential \
     ca-certificates || fail "dependency install failed"
 
@@ -75,6 +132,7 @@ pass "Dependencies installed"
 stage "Go"
 
 if ! command -v go >/dev/null 2>&1; then
+
     ARCH=$(uname -m)
 
     case "$ARCH" in
@@ -95,14 +153,17 @@ if ! command -v go >/dev/null 2>&1; then
 
     rm -rf /usr/local/go
 
-    run tar -C /usr/local -xzf /tmp/go.tar.gz || fail "Go extract failed"
+    run tar -C /usr/local -xzf /tmp/go.tar.gz \
+        || fail "Go extract failed"
 
-    echo 'export PATH=$PATH:/usr/local/go/bin' >/etc/profile.d/golang.sh
+    echo 'export PATH=$PATH:/usr/local/go/bin' \
+        >/etc/profile.d/golang.sh
 fi
 
 export PATH=$PATH:/usr/local/go/bin
 
-go version >/dev/null 2>&1 || fail "Go install failed"
+go version >/dev/null 2>&1 \
+    || fail "Go install failed"
 
 pass "Go ready"
 
@@ -113,7 +174,8 @@ if ! id -u commandpilot >/dev/null 2>&1; then
         --system \
         --no-create-home \
         --shell /usr/sbin/nologin \
-        commandpilot || fail "failed creating commandpilot user"
+        commandpilot \
+        || fail "failed creating commandpilot user"
 fi
 
 pass "User ready"
@@ -129,14 +191,22 @@ pass "Directories ready"
 stage "Source"
 
 if [[ -d "${SOURCE_DIR}/.git" ]]; then
-    run git -C "$SOURCE_DIR" fetch --all --prune || fail "git fetch failed"
 
-    run git -C "$SOURCE_DIR" reset --hard origin/main || fail "git reset failed"
+    run git -C "$SOURCE_DIR" fetch --all --prune \
+        || fail "git fetch failed"
+
+    run git -C "$SOURCE_DIR" reset --hard origin/main \
+        || fail "git reset failed"
+
 else
-    run git clone "$REPO_URL" "$SOURCE_DIR" || fail "git clone failed"
+
+    run git clone "$REPO_URL" "$SOURCE_DIR" \
+        || fail "git clone failed"
+
 fi
 
-[[ -d "$BUILD_DIR" ]] || fail "pilot-core source missing"
+[[ -d "$BUILD_DIR" ]] \
+    || fail "pilot-core source missing"
 
 pass "Repository synced"
 
@@ -148,9 +218,11 @@ run go mod tidy || fail "go mod tidy failed"
 
 rm -f "${BUILD_DIR}/pilot-core"
 
-run go build -o pilot-core . || fail "go build failed"
+run go build -o pilot-core . \
+    || fail "go build failed"
 
-[[ -f "${BUILD_DIR}/pilot-core" ]] || fail "binary missing"
+[[ -f "${BUILD_DIR}/pilot-core" ]] \
+    || fail "binary missing"
 
 chmod +x "${BUILD_DIR}/pilot-core"
 
@@ -160,69 +232,152 @@ stage "Runtime"
 
 run systemctl stop "${SERVICE_NAME}" || true
 
-rm -f "${RUNTIME_DIR}/pilot-core"
-
 install -m 755 \
     "${BUILD_DIR}/pilot-core" \
-    "${RUNTIME_DIR}/pilot-core" || fail "runtime binary install failed"
-
-rm -rf "${RUNTIME_DIR}/templates"
-rm -rf "${RUNTIME_DIR}/static"
-
-cp -r "${SOURCE_DIR}/templates" "${RUNTIME_DIR}/templates" || fail "templates copy failed"
-
-cp -r "${SOURCE_DIR}/static" "${RUNTIME_DIR}/static" || fail "static copy failed"
+    "${RUNTIME_DIR}/pilot-core" \
+    || fail "runtime binary install failed"
 
 mkdir -p "${RUNTIME_DIR}/backups"
 
-if [[ ! -f "${RUNTIME_DIR}/commandpilot.db" ]]; then
-    touch "${RUNTIME_DIR}/commandpilot.db"
+if [[ "$MODE" == "install" || "$FORCE_TEMPLATES" -eq 1 ]]; then
+
+    rm -rf "${RUNTIME_DIR}/templates"
+    rm -rf "${RUNTIME_DIR}/static"
+
+    cp -r "${SOURCE_DIR}/templates" "${RUNTIME_DIR}/templates" \
+        || fail "templates copy failed"
+
+    cp -r "${SOURCE_DIR}/static" "${RUNTIME_DIR}/static" \
+        || fail "static copy failed"
+
+else
+
+    mkdir -p "${RUNTIME_DIR}/templates"
+    mkdir -p "${RUNTIME_DIR}/static"
+
+    rsync -a \
+        --ignore-existing \
+        "${SOURCE_DIR}/templates/" \
+        "${RUNTIME_DIR}/templates/" \
+        || fail "templates sync failed"
+
+    rsync -a \
+        --ignore-existing \
+        "${SOURCE_DIR}/static/" \
+        "${RUNTIME_DIR}/static/" \
+        || fail "static sync failed"
+
+fi
+
+if [[ ! -f "$DB_PATH" ]]; then
+    touch "$DB_PATH"
 fi
 
 chown -R commandpilot:commandpilot "$RUNTIME_DIR"
-
-[[ -f "${RUNTIME_DIR}/pilot-core" ]] || fail "runtime binary missing"
-[[ -x "${RUNTIME_DIR}/pilot-core" ]] || fail "runtime binary not executable"
 
 pass "Runtime deployed"
 
 stage "Database"
 
-sqlite3 "${RUNTIME_DIR}/commandpilot.db" <<EOF
+sqlite3 "$DB_PATH" <<EOF
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY
+);
+
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'admin',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    username TEXT UNIQUE,
+    password_hash TEXT,
+    role_id INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS user_groups (
+    user_id INTEGER,
+    group_id INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 EOF
 
-ADMIN_EXISTS=$(sqlite3 "${RUNTIME_DIR}/commandpilot.db" \
+CURRENT_VERSION=$(sqlite3 "$DB_PATH" \
+    "SELECT COALESCE(MAX(version),0) FROM schema_migrations;")
+
+if [[ "$CURRENT_VERSION" -lt 1 ]]; then
+
+    sqlite3 "$DB_PATH" <<EOF
+ALTER TABLE users ADD COLUMN password_hash TEXT;
+INSERT INTO schema_migrations(version) VALUES(1);
+EOF
+
+    pass "Migration v1 applied"
+
+fi
+
+ROLE_EXISTS=$(sqlite3 "$DB_PATH" \
+    "SELECT COUNT(*) FROM roles WHERE name='admin';")
+
+if [[ "$ROLE_EXISTS" == "0" ]]; then
+
+    sqlite3 "$DB_PATH" \
+        "INSERT INTO roles (name) VALUES ('admin');"
+
+    pass "Admin role created"
+
+fi
+
+ADMIN_ROLE_ID=$(sqlite3 "$DB_PATH" \
+    "SELECT id FROM roles WHERE name='admin' LIMIT 1;")
+
+ADMIN_EXISTS=$(sqlite3 "$DB_PATH" \
     "SELECT COUNT(*) FROM users WHERE username='${DEFAULT_ADMIN_USER}';")
 
-if [[ "$ADMIN_EXISTS" == "0" ]]; then
-    sqlite3 "${RUNTIME_DIR}/commandpilot.db" <<EOF
+if [[ "$MODE" == "install" && "$ADMIN_EXISTS" == "0" ]]; then
+
+    ADMIN_HASH='$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'
+
+    sqlite3 "$DB_PATH" <<EOF
 INSERT INTO users (
     username,
-    password,
-    role
+    password_hash,
+    role_id
 ) VALUES (
     '${DEFAULT_ADMIN_USER}',
-    '${DEFAULT_ADMIN_PASS}',
-    'admin'
+    '${ADMIN_HASH}',
+    ${ADMIN_ROLE_ID}
 );
 EOF
 
     pass "Default admin user created"
+
 else
-    pass "Admin user already exists"
+
+    pass "Existing users preserved"
+
 fi
 
-sqlite3 "${RUNTIME_DIR}/commandpilot.db" "SELECT 1;" >/dev/null 2>&1 \
+sqlite3 "$DB_PATH" "SELECT 1;" >/dev/null 2>&1 \
     || fail "database validation failed"
 
-chown commandpilot:commandpilot "${RUNTIME_DIR}/commandpilot.db"
+chown commandpilot:commandpilot "$DB_PATH"
 
 pass "Database ready"
 
@@ -241,8 +396,10 @@ for f in \
     roles.html \
     audit.html
 do
+
     [[ -f "${RUNTIME_DIR}/templates/${f}" ]] \
         || fail "missing template: ${f}"
+
 done
 
 [[ -f "${RUNTIME_DIR}/static/styles.css" ]] \
@@ -271,24 +428,31 @@ Environment=PATH=/usr/local/go/bin:/usr/bin:/bin
 WantedBy=multi-user.target
 EOF
 
-run systemctl daemon-reload || fail "daemon-reload failed"
+run systemctl daemon-reload \
+    || fail "daemon-reload failed"
 
-run systemctl enable "${SERVICE_NAME}" || fail "enable failed"
+run systemctl enable "${SERVICE_NAME}" \
+    || fail "enable failed"
 
-run systemctl restart "${SERVICE_NAME}" || fail "service start failed"
+run systemctl restart "${SERVICE_NAME}" \
+    || fail "service start failed"
 
 sleep 5
 
 if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
+
     journalctl -u "${SERVICE_NAME}" -n 100 --no-pager
+
     fail "service inactive"
+
 fi
 
 pass "Service started"
 
 stage "Validation"
 
-ss -tulpn | grep -q ":8080" || fail "port 8080 closed"
+ss -tulpn | grep -q ":8080" \
+    || fail "port 8080 closed"
 
 pass "Port listening"
 
@@ -302,59 +466,64 @@ HTTP_CODE=$(curl -s \
 
 pass "HTTP responding"
 
-[[ -f "${RUNTIME_DIR}/commandpilot.db" ]] \
+[[ -f "$DB_PATH" ]] \
     || fail "database missing"
 
 pass "Database exists"
 
-sqlite3 "${RUNTIME_DIR}/commandpilot.db" "SELECT 1;" >/dev/null 2>&1 \
+sqlite3 "$DB_PATH" "SELECT 1;" >/dev/null 2>&1 \
     || fail "sqlite failed"
 
 pass "SQLite operational"
 
-USER_COUNT=$(sqlite3 "${RUNTIME_DIR}/commandpilot.db" \
+USER_COUNT=$(sqlite3 "$DB_PATH" \
     "SELECT COUNT(*) FROM users;" 2>/dev/null || echo 0)
 
-[[ "$USER_COUNT" -gt 0 ]] \
-    || fail "no users present"
+echo "User count: ${USER_COUNT}"
 
-pass "Users present (${USER_COUNT})"
+if [[ "$MODE" == "install" ]]; then
 
-TMP_DIR="/tmp/commandpilot_validation"
-COOKIE_JAR="${TMP_DIR}/cookies.txt"
+    TMP_DIR="/tmp/commandpilot_validation"
+    COOKIE_JAR="${TMP_DIR}/cookies.txt"
 
-mkdir -p "$TMP_DIR"
+    mkdir -p "$TMP_DIR"
 
-curl -s -L \
-    -c "$COOKIE_JAR" \
-    -X POST "${SERVER_URL}/auth/login" \
-    -d "username=${DEFAULT_ADMIN_USER}&password=${DEFAULT_ADMIN_PASS}" \
-    -o /dev/null
+    curl -s -L \
+        -c "$COOKIE_JAR" \
+        -X POST "${SERVER_URL}/auth/login" \
+        -d "username=${DEFAULT_ADMIN_USER}&password=${DEFAULT_ADMIN_PASS}" \
+        -o /dev/null
 
-LOGIN_CODE=$(curl -s \
-    -b "$COOKIE_JAR" \
-    -o /dev/null \
-    -w "%{http_code}" \
-    "${SERVER_URL}/dashboard")
+    LOGIN_CODE=$(curl -s \
+        -b "$COOKIE_JAR" \
+        -o /dev/null \
+        -w "%{http_code}" \
+        "${SERVER_URL}/dashboard")
 
-rm -rf "$TMP_DIR"
+    rm -rf "$TMP_DIR"
 
-if [[ "$LOGIN_CODE" == "200" ]]; then
-    pass "Admin login verified"
-else
-    fail "admin login failed (${LOGIN_CODE})"
+    if [[ "$LOGIN_CODE" == "200" ]]; then
+        pass "Admin login verified"
+    else
+        fail "admin login failed (${LOGIN_CODE})"
+    fi
+
 fi
 
 IP_ADDR=$(hostname -I | awk '{print $1}')
 
 echo
 echo "======================================"
-echo " CommandPilot deployed successfully"
+echo " CommandPilot deployment complete"
 echo "======================================"
+echo "Mode: ${MODE}"
 echo "URL: http://${IP_ADDR}:8080"
 echo "Service: ${SERVICE_NAME}"
 echo "Runtime: ${RUNTIME_DIR}"
-echo
-echo "Default credentials:"
-echo "Username: ${DEFAULT_ADMIN_USER}"
-echo "Password: ${DEFAULT_ADMIN_PASS}"
+
+if [[ "$MODE" == "install" ]]; then
+    echo
+    echo "Default credentials:"
+    echo "Username: ${DEFAULT_ADMIN_USER}"
+    echo "Password: ${DEFAULT_ADMIN_PASS}"
+fi
