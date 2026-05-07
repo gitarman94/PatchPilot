@@ -14,31 +14,25 @@
     <section class="page-header">
       <div>
         <h1>Platform Settings</h1>
-        <p>Global configuration and operational platform controls</p>
+        <p>Global configuration, operational controls, and account security</p>
       </div>
     </section>
 
     <section class="dashboard-grid">
 
       <div class="panel">
-
         <div class="panel-header">
           <h2>Update Configuration</h2>
-
           <div class="panel-subtitle">
             Modify platform configuration values
           </div>
         </div>
 
         <div style="padding:24px;">
-
           <form method="POST" action="/update_setting">
 
             <div class="form-group">
-              <label for="key">
-                Configuration Key
-              </label>
-
+              <label for="key">Configuration Key</label>
               <input
                 id="key"
                 name="key"
@@ -49,10 +43,7 @@
             </div>
 
             <div class="form-group">
-              <label for="value">
-                Configuration Value
-              </label>
-
+              <label for="value">Configuration Value</label>
               <input
                 id="value"
                 name="value"
@@ -62,24 +53,88 @@
               >
             </div>
 
-            <button
-              type="submit"
-              class="btn btn-primary"
-            >
+            <button type="submit" class="btn btn-primary">
               Save Configuration
             </button>
 
           </form>
-
         </div>
-
       </div>
 
       <div class="panel">
+        <div class="panel-header">
+          <h2>Change Password</h2>
+          <div class="panel-subtitle">
+            Update the password for the currently authenticated account
+          </div>
+        </div>
 
+        <div style="padding:24px;">
+
+          {{ if eq .PasswordChanged "true" }}
+          <div class="alert alert-success" style="margin-bottom:20px;">
+            Password updated successfully.
+          </div>
+          {{ end }}
+
+          {{ if .PasswordError }}
+          <div class="alert alert-danger" style="margin-bottom:20px;">
+            {{ .PasswordError }}
+          </div>
+          {{ end }}
+
+          <form method="POST" action="/change_password">
+
+            <div class="form-group">
+              <label for="current_password">Current Password</label>
+              <input
+                id="current_password"
+                name="current_password"
+                type="password"
+                autocomplete="current-password"
+                required
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="new_password">New Password</label>
+              <input
+                id="new_password"
+                name="new_password"
+                type="password"
+                autocomplete="new-password"
+                minlength="8"
+                required
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="confirm_password">Confirm New Password</label>
+              <input
+                id="confirm_password"
+                name="confirm_password"
+                type="password"
+                autocomplete="new-password"
+                minlength="8"
+                required
+              >
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+              Change Password
+            </button>
+
+          </form>
+        </div>
+      </div>
+
+    </section>
+
+    <section style="margin-top:24px;">
+
+      <div class="panel">
         <div class="panel-header">
           <h2>Current Configuration</h2>
-
           <div class="panel-subtitle">
             Active platform configuration values
           </div>
@@ -96,27 +151,23 @@
 
           <tbody>
 
-            {{ range . }}
-
+            {{ range .Settings }}
             <tr>
               <td>{{ .Key }}</td>
               <td>{{ .Value }}</td>
             </tr>
 
             {{ else }}
-
             <tr>
               <td colspan="2" class="empty-state">
                 No platform configuration values are defined.
               </td>
             </tr>
-
             {{ end }}
 
           </tbody>
 
         </table>
-
       </div>
 
     </section>

@@ -5,72 +5,177 @@ echo "======================================"
 echo "   CommandPilot Diagnostic Test      "
 echo "======================================"
 
-SERVICE_NAME="commandpilot.service"
-APP_DIR="/opt/commandpilot"
+SERVICE_NAME="pilot-core.service"
+APP_DIR="/opt/commandpilot/pilot-core"
 DB_PATH="${APP_DIR}/commandpilot.db"
 SERVER_URL="http://127.0.0.1:8080"
 TMP_DIR="/tmp/commandpilot_test"
 COOKIE_JAR="${TMP_DIR}/cookies.txt"
 
+USERNAME="admin"
+PASSWORD="admin"
+
 mkdir -p "$TMP_DIR"
 
-pass() { echo "[PASS] $1"; }
-fail() { echo "[FAIL] $1"; }
+pass() {
+    echo "[PASS] $1"
+}
+
+fail() {
+    echo "[FAIL] $1"
+}
 
 echo "Checking systemd service..."
 if systemctl is-active --quiet "${SERVICE_NAME}"; then
     pass "Service is active"
 else
     fail "Service not active"
-    journalctl -u "${SERVICE_NAME}" -n 30 --no-pager || true
+    journalctl -u "${SERVICE_NAME}" -n 50 --no-pager || true
+fi
+
+echo "Checking process..."
+if ps -C pilot-core -o pid,%cpu,%mem,cmd >/dev/null 2>&1; then
+    pass "Process running"
+else
+    fail "Process missing"
 fi
 
 echo "Checking port 8080..."
 if ss -tulpn | grep -q ":8080"; then
-    pass "Port 8080 is listening"
+    pass "Port 8080 listening"
 else
-    fail "Port 8080 is not open"
+    fail "Port 8080 not open"
 fi
 
 echo "Checking base HTTP..."
 code=$(curl -s -o /dev/null -w "%{http_code}" "${SERVER_URL}/")
-[[ "$code" == "200" ]] && pass "Login page reachable" || fail "Login page failed ($code)"
+
+if [[ "$code" == "200" ]]; then
+    pass "Login page reachable"
+else
+    fail "Base HTTP failed (${code})"
+fi
 
 echo "Checking auth redirect..."
 code=$(curl -s -o /dev/null -w "%{http_code}" "${SERVER_URL}/dashboard")
-[[ "$code" == "302" ]] && pass "Auth redirect OK" || fail "Auth redirect failed ($code)"
 
-USERNAME="admin"
-PASSWORD="admin"
+if [[ "$code" == "302" ]]; then
+    pass "Auth redirect working"
+else
+    fail "Unexpected dashboard response (${code})"
+fi
 
 echo "Testing login..."
-curl -s -c "$COOKIE_JAR" -X POST "${SERVER_URL}/auth/login" -d "username=${USERNAME}&password=${PASSWORD}" -o /dev/null
 
-code=$(curl -s -b "$COOKIE_JAR" -o /dev/null -w "%{http_code}" "${SERVER_URL}/dashboard")
-[[ "$code" == "200" ]] && pass "Login works" || fail "Login failed ($code)"
+curl -s -L \
+    -c "$COOKIE_JAR" \
+    -X POST "${SERVER_URL}/auth/login" \
+    -d "username=${USERNAME}&password=${PASSWORD}" \
+    -o /dev/null
 
-echo "Testing pages..."
-for ep in /devices_page /actions_page /history_page /users_groups_page /roles_page /settings_page; do
-    code=$(curl -s -b "$COOKIE_JAR" -o /dev/null -w "%{http_code}" "${SERVER_URL}${ep}")
-    [[ "$code" == "200" ]] && pass "$ep OK" || fail "$ep failed ($code)"
+if [[ ! -s "$COOKIE_JAR" ]]; then
+    fail "Cookie jar empty"
+else
+    pass "Cookies received"
+fi
+
+code=$(curl -s \
+    -b "$COOKIE_JAR" \
+    -o /dev/null \
+    -w "%{http_code}" \
+    "${SERVER_URL}/dashboard")
+
+if [[ "$code" == "200" ]]; then
+    pass "Login works"
+else
+    fail "Login failed (${code})"
+fi
+
+echo "Testing authenticated pages..."
+
+for ep in \
+    /dashboard \
+    /devices_page \
+    /actions_page \
+    /history_page \
+    /users_groups_page \
+    /roles_page \
+    /settings_page
+do
+    code=$(curl -s \
+        -b "$COOKIE_JAR" \
+        -o /dev/null \
+        -w "%{http_code}" \
+        "${SERVER_URL}${ep}")
+
+    if [[ "$code" == "200" ]]; then
+        pass "${ep} OK"
+    else
+        fail "${ep} failed (${code})"
+    fi
 done
 
 echo "Testing APIs..."
-for ep in /api/devices /api/actions /api/history; do
-    code=$(curl -s -b "$COOKIE_JAR" -o /dev/null -w "%{http_code}" "${SERVER_URL}${ep}")
-    [[ "$code" == "200" ]] && pass "$ep OK" || fail "$ep failed ($code)"
+
+for ep in \
+    /api/devices \
+    /api/actions \
+    /api/history
+do
+    code=$(curl -s \
+        -b "$COOKIE_JAR" \
+        -o /dev/null \
+        -w "%{http_code}" \
+        "${SERVER_URL}${ep}")
+
+    if [[ "$code" == "200" ]]; then
+        pass "${ep} OK"
+    else
+        fail "${ep} failed (${code})"
+    fi
 done
 
-echo "Checking DB..."
-[[ -f "$DB_PATH" ]] && pass "DB exists" || fail "DB missing"
+echo "Checking database..."
 
-sqlite3 "$DB_PATH" "SELECT 1;" >/dev/null 2>&1 && pass "SQLite OK" || fail "SQLite failed"
+if [[ -f "$DB_PATH" ]]; then
+    pass "Database exists"
+else
+    fail "Database missing"
+fi
+
+if sqlite3 "$DB_PATH" "SELECT 1;" >/dev/null 2>&1; then
+    pass "SQLite operational"
+else
+    fail "SQLite failure"
+fi
 
 echo "Checking integrity..."
-sqlite3 "$DB_PATH" "PRAGMA integrity_check;" | grep -q ok && pass "Integrity OK" || fail "Integrity failed"
 
-echo "Checking process..."
-ps -C commandpilot -o pid,%cpu,%mem,cmd >/dev/null 2>&1 && pass "Process running" || fail "Process missing"
+if sqlite3 "$DB_PATH" "PRAGMA integrity_check;" | grep -q ok; then
+    pass "Integrity OK"
+else
+    fail "Integrity failure"
+fi
+
+echo "Checking users..."
+
+USER_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM users;" 2>/dev/null || echo 0)
+
+if [[ "$USER_COUNT" -gt 0 ]]; then
+    pass "Users present (${USER_COUNT})"
+else
+    fail "No users found"
+fi
+
+echo "Checking admin user..."
+
+if sqlite3 "$DB_PATH" \
+    "SELECT username FROM users WHERE username='admin';" \
+    | grep -q admin; then
+    pass "Admin user exists"
+else
+    fail "Admin user missing"
+fi
 
 rm -rf "$TMP_DIR"
 

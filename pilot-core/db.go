@@ -8,7 +8,6 @@ import (
 )
 
 func initDB(db *sql.DB) {
-
 	db.Exec(`CREATE TABLE IF NOT EXISTS devices (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		hostname TEXT,
@@ -61,6 +60,12 @@ func initDB(db *sql.DB) {
 		value TEXT
 	)`)
 
+	db.Exec(`CREATE TABLE IF NOT EXISTS sessions (
+		token TEXT PRIMARY KEY,
+		username TEXT NOT NULL,
+		created_at TEXT DEFAULT CURRENT_TIMESTAMP
+	)`)
+
 	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN password_hash TEXT`)
 	_, _ = db.Exec(`ALTER TABLE history ADD COLUMN device_id INTEGER DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE history ADD COLUMN created_at TEXT`)
@@ -94,8 +99,7 @@ func initDB(db *sql.DB) {
 			_, _ = db.Exec(`
 				UPDATE history
 				SET created_at = timestamp
-				WHERE (created_at IS NULL OR created_at = '')
-				AND timestamp IS NOT NULL
+				WHERE (created_at IS NULL OR created_at = '') AND timestamp IS NOT NULL
 			`)
 		}
 	}
@@ -104,7 +108,7 @@ func initDB(db *sql.DB) {
 		SELECT id, password
 		FROM users
 		WHERE password IS NOT NULL
-		AND (password_hash IS NULL OR password_hash = '')
+		  AND (password_hash IS NULL OR password_hash = '')
 	`)
 	if err == nil {
 		defer rows.Close()
@@ -116,11 +120,7 @@ func initDB(db *sql.DB) {
 			if err := rows.Scan(&id, &password); err == nil {
 				hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 				if err == nil {
-					db.Exec(
-						`UPDATE users SET password_hash = ? WHERE id = ?`,
-						string(hashed),
-						id,
-					)
+					db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(hashed), id)
 				}
 			}
 		}
