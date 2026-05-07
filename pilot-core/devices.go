@@ -8,8 +8,9 @@ import (
 
 func (a *App) devicesPage(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(`
-		SELECT id, hostname, ip, os, IFNULL(last_seen, '') , approved
-		FROM devices ORDER BY id DESC
+		SELECT id, hostname, ip, os, IFNULL(last_seen, ''), approved
+		FROM devices
+		ORDER BY id DESC
 	`)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -18,15 +19,11 @@ func (a *App) devicesPage(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var devices []Device
-
 	for rows.Next() {
 		var d Device
-
-		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
-		if err != nil {
+		if err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved); err != nil {
 			continue
 		}
-
 		devices = append(devices, d)
 	}
 
@@ -49,12 +46,11 @@ func (a *App) deviceDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var d Device
-
 	err = a.DB.QueryRow(`
 		SELECT id, hostname, ip, os, IFNULL(last_seen, ''), approved
-		FROM devices WHERE id = ?
+		FROM devices
+		WHERE id = ?
 	`, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
-
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -85,7 +81,7 @@ func (a *App) approveDevice(w http.ResponseWriter, r *http.Request) {
 
 	_, err = tx.Exec("UPDATE devices SET approved = 1, last_seen = datetime('now') WHERE id = ?", id)
 	if err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -95,7 +91,6 @@ func (a *App) approveDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// log with device_id (matches new history schema)
 	_, _ = a.DB.Exec(`
 		INSERT INTO history (action, device_id, created_at)
 		VALUES (?, ?, datetime('now'))
@@ -124,7 +119,7 @@ func (a *App) rejectDevice(w http.ResponseWriter, r *http.Request) {
 
 	_, err = tx.Exec("DELETE FROM devices WHERE id = ?", id)
 	if err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -134,7 +129,6 @@ func (a *App) rejectDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// log with device_id
 	_, _ = a.DB.Exec(`
 		INSERT INTO history (action, device_id, created_at)
 		VALUES (?, ?, datetime('now'))
@@ -145,7 +139,8 @@ func (a *App) rejectDevice(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) apiDevices(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(`
-		SELECT id, hostname, ip, os, IFNULL(last_seen, ''), approved FROM devices
+		SELECT id, hostname, ip, os, IFNULL(last_seen, ''), approved
+		FROM devices
 	`)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -154,15 +149,11 @@ func (a *App) apiDevices(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var out []Device
-
 	for rows.Next() {
 		var d Device
-
-		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved)
-		if err != nil {
+		if err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.OS, &d.LastSeen, &d.Approved); err != nil {
 			continue
 		}
-
 		out = append(out, d)
 	}
 

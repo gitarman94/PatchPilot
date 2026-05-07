@@ -66,6 +66,23 @@ func initDB(db *sql.DB) {
 		created_at TEXT DEFAULT CURRENT_TIMESTAMP
 	)`)
 
+	db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version INTEGER PRIMARY KEY
+	)`)
+
+	db.Exec(`CREATE TABLE IF NOT EXISTS agent_updates (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		version TEXT NOT NULL,
+		platform TEXT NOT NULL,
+		arch TEXT NOT NULL,
+		filename TEXT NOT NULL,
+		original_name TEXT,
+		sha256 TEXT NOT NULL,
+		size_bytes INTEGER DEFAULT 0,
+		active INTEGER DEFAULT 0,
+		uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP
+	)`)
+
 	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN password_hash TEXT`)
 	_, _ = db.Exec(`ALTER TABLE history ADD COLUMN device_id INTEGER DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE history ADD COLUMN created_at TEXT`)
@@ -120,7 +137,7 @@ func initDB(db *sql.DB) {
 			if err := rows.Scan(&id, &password); err == nil {
 				hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 				if err == nil {
-					db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(hashed), id)
+					_, _ = db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(hashed), id)
 				}
 			}
 		}

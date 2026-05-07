@@ -87,6 +87,7 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil,
 	})
 
 	http.Redirect(w, r, "/dashboard", http.StatusFound)
@@ -104,6 +105,7 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil,
 	})
 
 	http.Redirect(w, r, "/", http.StatusFound)
@@ -136,17 +138,17 @@ func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
 	confirmPassword := r.FormValue("confirm_password")
 
 	if currentPassword == "" || newPassword == "" || confirmPassword == "" {
-		http.Error(w, "Missing password fields", http.StatusBadRequest)
+		http.Redirect(w, r, "/settings_page?error=missing", http.StatusSeeOther)
 		return
 	}
 
 	if newPassword != confirmPassword {
-		http.Error(w, "New passwords do not match", http.StatusBadRequest)
+		http.Redirect(w, r, "/settings_page?error=nomatch", http.StatusSeeOther)
 		return
 	}
 
 	if len(newPassword) < 8 {
-		http.Error(w, "New password must be at least 8 characters", http.StatusBadRequest)
+		http.Redirect(w, r, "/settings_page?error=short", http.StatusSeeOther)
 		return
 	}
 
@@ -156,18 +158,18 @@ func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
 		username,
 	).Scan(&hash)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusUnauthorized)
+		http.Redirect(w, r, "/settings_page?error=notfound", http.StatusSeeOther)
 		return
 	}
 
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(currentPassword)) != nil {
-		http.Error(w, "Current password is incorrect", http.StatusUnauthorized)
+		http.Redirect(w, r, "/settings_page?error=current", http.StatusSeeOther)
 		return
 	}
 
 	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Failed to hash new password", http.StatusInternalServerError)
+		http.Redirect(w, r, "/settings_page?error=hash", http.StatusSeeOther)
 		return
 	}
 
@@ -177,7 +179,7 @@ func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
 		username,
 	)
 	if err != nil {
-		http.Error(w, "Failed to update password", http.StatusInternalServerError)
+		http.Redirect(w, r, "/settings_page?error=update", http.StatusSeeOther)
 		return
 	}
 

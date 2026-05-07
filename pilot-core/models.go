@@ -3,12 +3,12 @@ package main
 import "time"
 
 type Device struct {
-	ID        int
-	Hostname  string
-	IP        string
-	OS        string
-	LastSeen  string
-	Approved  bool
+	ID       int
+	Hostname string
+	IP       string
+	OS       string
+	LastSeen string
+	Approved bool
 }
 
 type Action struct {
@@ -57,4 +57,17 @@ type Role struct {
 type Setting struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
+}
+
+type AgentUpdate struct {
+	ID           int    `json:"id"`
+	Version      string `json:"version"`
+	Platform     string `json:"platform"`
+	Arch         string `json:"arch"`
+	Filename     string `json:"filename"`
+	OriginalName string `json:"original_name"`
+	SHA256       string `json:"sha256"`
+	SizeBytes    int64  `json:"size_bytes"`
+	Active       bool   `json:"active"`
+	UploadedAt   string `json:"uploaded_at"`
 }

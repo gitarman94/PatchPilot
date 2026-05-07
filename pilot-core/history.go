@@ -8,7 +8,8 @@ import (
 func (a *App) historyPage(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(`
 		SELECT id, action, device_id, created_at
-		FROM history ORDER BY id DESC
+		FROM history
+		ORDER BY id DESC
 	`)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -17,11 +18,9 @@ func (a *App) historyPage(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var history []History
-
 	for rows.Next() {
 		var h History
-		err := rows.Scan(&h.ID, &h.Action, &h.DeviceID, &h.CreatedAt)
-		if err != nil {
+		if err := rows.Scan(&h.ID, &h.Action, &h.DeviceID, &h.CreatedAt); err != nil {
 			continue
 		}
 		history = append(history, h)
@@ -47,7 +46,8 @@ func (a *App) logHistory(action string) {
 func (a *App) apiHistory(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(`
 		SELECT id, action, device_id, created_at
-		FROM history ORDER BY id DESC
+		FROM history
+		ORDER BY id DESC
 	`)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -56,11 +56,9 @@ func (a *App) apiHistory(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var history []History
-
 	for rows.Next() {
 		var h History
-		err := rows.Scan(&h.ID, &h.Action, &h.DeviceID, &h.CreatedAt)
-		if err != nil {
+		if err := rows.Scan(&h.ID, &h.Action, &h.DeviceID, &h.CreatedAt); err != nil {
 			continue
 		}
 		history = append(history, h)

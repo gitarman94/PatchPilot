@@ -19,18 +19,16 @@ func (a *App) actionsPage(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var actions []Action
-
 	for rows.Next() {
 		var act Action
-		err := rows.Scan(
+		if err := rows.Scan(
 			&act.ID,
 			&act.Name,
 			&act.Status,
 			&act.DeviceID,
 			&act.CreatedAt,
 			&act.UpdatedAt,
-		)
-		if err != nil {
+		); err != nil {
 			continue
 		}
 		actions = append(actions, act)
@@ -64,7 +62,6 @@ func (a *App) submitAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ensure device exists before inserting action
 	var exists int
 	err = a.DB.QueryRow("SELECT COUNT(1) FROM devices WHERE id = ?", deviceID).Scan(&exists)
 	if err != nil || exists == 0 {
@@ -78,13 +75,11 @@ func (a *App) submitAction(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO actions (name, device_id, status, created_at, updated_at)
 		VALUES (?, ?, 'pending', ?, ?)
 	`, name, deviceID, now, now)
-
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Corrected history logging (includes device_id)
 	_, _ = a.DB.Exec(`
 		INSERT INTO history (action, device_id, created_at)
 		VALUES (?, ?, ?)
@@ -113,7 +108,6 @@ func (a *App) updateActionStatus(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 
-	// Get device_id for history logging
 	var deviceID int
 	err = a.DB.QueryRow("SELECT device_id FROM actions WHERE id = ?", id).Scan(&deviceID)
 	if err != nil {
@@ -126,13 +120,11 @@ func (a *App) updateActionStatus(w http.ResponseWriter, r *http.Request) {
 		SET status = ?, updated_at = ?
 		WHERE id = ?
 	`, status, now, id)
-
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Corrected history logging
 	_, _ = a.DB.Exec(`
 		INSERT INTO history (action, device_id, created_at)
 		VALUES (?, ?, ?)
@@ -148,31 +140,29 @@ func (a *App) apiActions(w http.ResponseWriter, r *http.Request) {
 		ORDER BY id DESC
 	`)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), 500)
 		return
 	}
 	defer rows.Close()
 
 	var out []Action
-
 	for rows.Next() {
 		var act Action
-		err := rows.Scan(
+		if err := rows.Scan(
 			&act.ID,
 			&act.Name,
 			&act.Status,
 			&act.DeviceID,
 			&act.CreatedAt,
 			&act.UpdatedAt,
-		)
-		if err != nil {
+		); err != nil {
 			continue
 		}
 		out = append(out, act)
 	}
 
 	if err := rows.Err(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), 500)
 		return
 	}
 
