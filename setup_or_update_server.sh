@@ -323,10 +323,18 @@ CURRENT_VERSION=$(sqlite3 "$DB_PATH" \
 
 if [[ "$CURRENT_VERSION" -lt 1 ]]; then
 
-    sqlite3 "$DB_PATH" <<EOF
-ALTER TABLE users ADD COLUMN password_hash TEXT;
-INSERT INTO schema_migrations(version) VALUES(1);
-EOF
+    if ! sqlite3 "$DB_PATH" \
+        "SELECT password_hash FROM users LIMIT 1;" >/dev/null 2>&1; then
+
+        sqlite3 "$DB_PATH" \
+            "ALTER TABLE users ADD COLUMN password_hash TEXT;" \
+            || true
+
+    fi
+
+    sqlite3 "$DB_PATH" \
+        "INSERT INTO schema_migrations(version) VALUES(1);" \
+        || true
 
     pass "Migration v1 applied"
 
@@ -352,7 +360,28 @@ ADMIN_EXISTS=$(sqlite3 "$DB_PATH" \
 
 if [[ "$MODE" == "install" && "$ADMIN_EXISTS" == "0" ]]; then
 
-    ADMIN_HASH='$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'
+    ADMIN_HASH=$(
+cat <<EOF | go run /dev/stdin 2>/dev/null
+package main
+
+import (
+    "fmt"
+    "golang.org/x/crypto/bcrypt"
+)
+
+func main() {
+    hash, _ := bcrypt.GenerateFromPassword(
+        []byte("${DEFAULT_ADMIN_PASS}"),
+        bcrypt.DefaultCost,
+    )
+
+    fmt.Print(string(hash))
+}
+EOF
+)
+
+    [[ -n "$ADMIN_HASH" ]] \
+        || fail "failed generating bcrypt hash"
 
     sqlite3 "$DB_PATH" <<EOF
 INSERT INTO users (
@@ -494,6 +523,13 @@ if [[ "$MODE" == "install" ]]; then
         -d "username=${DEFAULT_ADMIN_USER}&password=${DEFAULT_ADMIN_PASS}" \
         -o /dev/null
 
+    echo
+    echo "=== COOKIE JAR ==="
+
+    cat "$COOKIE_JAR" || true
+
+    echo
+
     LOGIN_CODE=$(curl -s \
         -b "$COOKIE_JAR" \
         -o /dev/null \
@@ -514,7 +550,7 @@ IP_ADDR=$(hostname -I | awk '{print $1}')
 
 echo
 echo "======================================"
-echo " CommandPilot deployment complete"
+echo " CommandPilot Deployment Complete"
 echo "======================================"
 echo "Mode: ${MODE}"
 echo "URL: http://${IP_ADDR}:8080"
