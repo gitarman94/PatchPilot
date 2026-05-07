@@ -7,8 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-
-	_ "github.com/mattn/go-sqlite3"
+	"strings"
 )
 
 type App struct {
@@ -25,10 +24,8 @@ func (a *App) renderTemplate(w http.ResponseWriter, name string, data interface{
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(true)
-
 	if err := enc.Encode(v); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -68,7 +65,6 @@ func main() {
 	mux.HandleFunc("/roles_page", app.requireAuth(app.rolesPage))
 	mux.HandleFunc("/settings_page", app.requireAuth(app.settingsPage))
 	mux.HandleFunc("/change_password", app.requireAuth(app.changePassword))
-
 	mux.HandleFunc("/approve_device", app.requireAuth(app.approveDevice))
 	mux.HandleFunc("/reject_device", app.requireAuth(app.rejectDevice))
 	mux.HandleFunc("/submit_action", app.requireAuth(app.submitAction))
@@ -76,11 +72,13 @@ func main() {
 	mux.HandleFunc("/create_user", app.requireAuth(app.createUser))
 	mux.HandleFunc("/create_role", app.requireAuth(app.createRole))
 	mux.HandleFunc("/update_setting", app.requireAuth(app.updateSetting))
-
 	mux.HandleFunc("/agent_updates_page", app.requireAuth(app.agentUpdatesPage))
 	mux.HandleFunc("/upload_agent_update", app.requireAuth(app.uploadAgentUpdate))
 	mux.HandleFunc("/activate_agent_update", app.requireAuth(app.activateAgentUpdate))
+
+	mux.HandleFunc("/api/agent/checkin", app.agentCheckinHandler)
 	mux.HandleFunc("/api/agent/update/check", app.apiAgentUpdateCheck)
+	mux.HandleFunc("/api/agent/update", app.apiAgentUpdateCheck)
 
 	mux.HandleFunc("/api/devices", app.requireAuth(app.apiDevices))
 	mux.HandleFunc("/api/actions", app.requireAuth(app.apiActions))
@@ -94,20 +92,97 @@ func main() {
 }
 
 func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
-	data := map[string]interface{}{}
+	data := DashboardData{}
 
-	var totalDevices int64
-	var approvedDevices int64
-	var totalActions int64
+	data.TotalDevices = queryCount(a.DB, `SELECT COUNT(*) FROM devices`)
+	data.ApprovedDevices = queryCount(a.DB, `SELECT COUNT(*) FROM devices WHERE approved = 1`)
+	data.PendingDevices = queryCount(a.DB, `SELECT COUNT(*) FROM devices WHERE approved = 0`)
+	data.OnlineDevices = queryCount(a.DB, `
+SELECT COUNT(*)
+FROM devices
+WHERE last_seen IS NOT NULL
+  AND last_seen <> ''
+  AND datetime(last_seen) >= datetime('now', '-5 minutes')
+`)
+	data.TotalActions = queryCount(a.DB, `SELECT COUNT(*) FROM actions`)
 
-	_ = a.DB.QueryRow("SELECT COUNT(*) FROM devices").Scan(&totalDevices)
-	_ = a.DB.QueryRow("SELECT COUNT(*) FROM devices WHERE approved=1").Scan(&approvedDevices)
-	_ = a.DB.QueryRow("SELECT COUNT(*) FROM actions").Scan(&totalActions)
+	devices, err := loadRecentDevices(a.DB, 10)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	data.Devices = devices
 
-	data["total_devices"] = totalDevices
-	data["approved_devices"] = approvedDevices
-	data["total_actions"] = totalActions
-	data["pending_devices"] = totalDevices - approvedDevices
+	actions, err := loadRecentActions(a.DB, 10)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	data.Actions = actions
 
 	a.renderTemplate(w, "dashboard.html", data)
+}
+
+func queryCount(db *sql.DB, query string, args ...any) int {
+	var count int
+	if err := db.QueryRow(query, args...).Scan(&count); err != nil {
+		return 0
+	}
+	return count
+}
+
+func (a *App) apiAgentUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	currentVersion := strings.TrimSpace(r.URL.Query().Get("version"))
+	reqPlatform := strings.TrimSpace(r.URL.Query().Get("platform"))
+	reqArch := strings.TrimSpace(r.URL.Query().Get("arch"))
+
+	var update AgentUpdate
+	err := a.DB.QueryRow(`
+SELECT id, version, platform, arch, filename, original_name, sha256, size_bytes, active, IFNULL(uploaded_at, '')
+FROM agent_updates
+WHERE active = 1
+ORDER BY id DESC
+LIMIT 1
+`).Scan(
+		&update.ID,
+		&update.Version,
+		&update.Platform,
+		&update.Arch,
+		&update.Filename,
+		&update.OriginalName,
+		&update.SHA256,
+		&update.SizeBytes,
+		&update.Active,
+		&update.UploadedAt,
+	)
+
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if reqPlatform != "" && !strings.EqualFold(reqPlatform, update.Platform) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if reqArch != "" && !strings.EqualFold(reqArch, update.Arch) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if currentVersion == "" || currentVersion == update.Version {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	writeJSON(w, AgentUpdateResponse{
+		Version: update.Version,
+		URL:     "/updates/" + update.Filename,
+	})
 }

@@ -1,180 +1,215 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Infrastructure Dashboard - CommandPilot</title>
-  <link rel="stylesheet" href="/static/styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script defer src="/static/app.js"></script>
-</head>
-<body>
-  {{ template "navbar.html" . }}
+{{ template "navbar.html" . }}
 
-  <main class="container">
-    <section class="page-header">
-      <div>
-        <h1>Infrastructure Dashboard</h1>
-        <p>Fleet visibility, operational health, and endpoint management</p>
-      </div>
+<div class="content">
 
-      <div class="header-actions">
-        <button class="btn btn-primary" onclick="window.location.reload()">
-          Refresh Dashboard
-        </button>
-      </div>
-    </section>
+    <div class="page-header">
+        <h1>Dashboard</h1>
+        <p class="muted">
+            Centralized infrastructure visibility and operational overview
+        </p>
+    </div>
 
-    <section class="stats-grid">
-      <div class="stat-card">
-        <span class="stat-label">Managed Devices</span>
-        <span class="stat-value" id="total-devices">0</span>
-      </div>
+    <div class="stats-grid">
 
-      <div class="stat-card">
-        <span class="stat-label">Online Devices</span>
-        <span class="stat-value" id="online-devices">0</span>
-      </div>
+        <div class="card stat-card">
+            <div class="stat-label">
+                Total Devices
+            </div>
 
-      <div class="stat-card">
-        <span class="stat-label">Pending Device Approval</span>
-        <span class="stat-value" id="pending-devices">0</span>
-      </div>
-
-      <div class="stat-card">
-        <span class="stat-label">Remote Actions</span>
-        <span class="stat-value" id="total-actions">0</span>
-      </div>
-
-      <div class="stat-card">
-        <span class="stat-label">High CPU Systems</span>
-        <span class="stat-value" id="high-cpu-devices">0</span>
-      </div>
-
-      <div class="stat-card">
-        <span class="stat-label">Low Disk Space</span>
-        <span class="stat-value" id="low-disk-devices">0</span>
-      </div>
-    </section>
-
-    <section class="dashboard-grid">
-
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Recent Endpoint Activity</h2>
-          <div class="panel-subtitle">
-            Recently active managed systems
-          </div>
+            <div class="stat-value">
+                {{ .TotalDevices }}
+            </div>
         </div>
 
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Hostname</th>
-              <th>IP Address</th>
-              <th>Operating System</th>
-              <th>CPU</th>
-              <th>Memory</th>
-              <th>Disk Free</th>
-              <th>Status</th>
-              <th>Last Check-In</th>
-            </tr>
-          </thead>
+        <div class="card stat-card">
+            <div class="stat-label">
+                Online Devices
+            </div>
 
-          <tbody id="recent-devices-body">
-            <tr>
-              <td colspan="8" class="empty-state">
-                No managed endpoints have checked in yet.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Recent Remote Actions</h2>
-          <div class="panel-subtitle">
-            Latest operational tasks and command execution requests
-          </div>
+            <div class="stat-value text-success">
+                {{ .OnlineDevices }}
+            </div>
         </div>
 
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Action</th>
-              <th>Target Device</th>
-              <th>Status</th>
-              <th>Created</th>
-            </tr>
-          </thead>
+        <div class="card stat-card">
+            <div class="stat-label">
+                Offline Devices
+            </div>
 
-          <tbody id="recent-actions-body">
-            <tr>
-              <td colspan="4" class="empty-state">
-                No remote actions have been executed recently.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Operating System Distribution</h2>
-          <div class="panel-subtitle">
-            Managed device platform breakdown
-          </div>
+            <div class="stat-value text-danger">
+                {{ .OfflineDevices }}
+            </div>
         </div>
 
-        <div style="padding: 24px;">
-          <canvas id="os-distribution-chart"></canvas>
-        </div>
-      </div>
+        <div class="card stat-card">
+            <div class="stat-label">
+                Pending Actions
+            </div>
 
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Remote Actions Over Time</h2>
-          <div class="panel-subtitle">
-            30 day execution activity
-          </div>
+            <div class="stat-value">
+                {{ .PendingActions }}
+            </div>
         </div>
 
-        <div style="padding: 24px;">
-          <canvas id="actions-over-time-chart"></canvas>
+    </div>
+
+    <div class="dashboard-grid">
+
+        <div class="card">
+
+            <div class="card-header">
+                <h2>Recently Seen Devices</h2>
+            </div>
+
+            {{ if .RecentDevices }}
+
+            <table class="table">
+
+                <thead>
+                    <tr>
+                        <th>Hostname</th>
+                        <th>Operating System</th>
+                        <th>IP Address</th>
+                        <th>Status</th>
+                        <th>Last Seen</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+
+                    {{ range .RecentDevices }}
+
+                    <tr>
+
+                        <td>
+                            <a href="/devices/{{ .ID }}">
+                                {{ .Hostname }}
+                            </a>
+                        </td>
+
+                        <td>
+                            {{ .OS }}
+                        </td>
+
+                        <td>
+                            {{ .IP }}
+                        </td>
+
+                        <td>
+
+                            {{ if .Online }}
+                                <span class="badge badge-success">
+                                    Online
+                                </span>
+                            {{ else }}
+                                <span class="badge badge-danger">
+                                    Offline
+                                </span>
+                            {{ end }}
+
+                        </td>
+
+                        <td>
+                            {{ .LastSeen }}
+                        </td>
+
+                    </tr>
+
+                    {{ end }}
+
+                </tbody>
+
+            </table>
+
+            {{ else }}
+
+            <div class="empty-state">
+                No devices registered yet.
+            </div>
+
+            {{ end }}
+
         </div>
-      </div>
 
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Devices Requiring Attention</h2>
-          <div class="panel-subtitle">
-            Systems nearing operational thresholds
-          </div>
+        <div class="card">
+
+            <div class="card-header">
+                <h2>Recent Actions</h2>
+            </div>
+
+            {{ if .RecentActions }}
+
+            <table class="table">
+
+                <thead>
+                    <tr>
+                        <th>Action</th>
+                        <th>Device</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+
+                    {{ range .RecentActions }}
+
+                    <tr>
+
+                        <td>
+                            {{ .Name }}
+                        </td>
+
+                        <td>
+                            {{ .DeviceName }}
+                        </td>
+
+                        <td>
+
+                            {{ if eq .Status "completed" }}
+
+                                <span class="badge badge-success">
+                                    Completed
+                                </span>
+
+                            {{ else if eq .Status "failed" }}
+
+                                <span class="badge badge-danger">
+                                    Failed
+                                </span>
+
+                            {{ else }}
+
+                                <span class="badge badge-warning">
+                                    Pending
+                                </span>
+
+                            {{ end }}
+
+                        </td>
+
+                        <td>
+                            {{ .CreatedAt }}
+                        </td>
+
+                    </tr>
+
+                    {{ end }}
+
+                </tbody>
+
+            </table>
+
+            {{ else }}
+
+            <div class="empty-state">
+                No actions available.
+            </div>
+
+            {{ end }}
+
         </div>
 
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Hostname</th>
-              <th>CPU Usage</th>
-              <th>Memory Usage</th>
-              <th>Disk Free</th>
-              <th>Status</th>
-            </tr>
-          </thead>
+    </div>
 
-          <tbody id="fleet-health-body">
-            <tr>
-              <td colspan="5" class="empty-state">
-                No infrastructure alerts detected.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-    </section>
-  </main>
-</body>
-</html>
+</div>

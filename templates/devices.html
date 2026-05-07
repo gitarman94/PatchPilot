@@ -1,231 +1,129 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Managed Devices - CommandPilot</title>
-  <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body>
-  {{ template "navbar.html" . }}
+{{ template "navbar.html" . }}
 
-  <main class="container">
+<div class="content">
 
-    <section class="page-header">
-      <div>
-        <h1>Managed Devices</h1>
-        <p>Fleet inventory, endpoint health, and approval management</p>
-      </div>
+    <div class="page-header">
 
-      <div class="header-actions">
-        <button class="btn btn-primary" onclick="window.location.reload()">
-          Refresh Inventory
-        </button>
-      </div>
-    </section>
+        <div>
+            <h1>Devices</h1>
 
-    <section class="stats-grid">
-
-      <div class="stat-card">
-        <span class="stat-label">Total Devices</span>
-        <span class="stat-value">{{ len .Devices }}</span>
-      </div>
-
-      <div class="stat-card">
-        <span class="stat-label">Approved Devices</span>
-        <span class="stat-value">{{ .ApprovedCount }}</span>
-      </div>
-
-      <div class="stat-card">
-        <span class="stat-label">Pending Approval</span>
-        <span class="stat-value">{{ .PendingCount }}</span>
-      </div>
-
-      <div class="stat-card">
-        <span class="stat-label">Online Systems</span>
-        <span class="stat-value">{{ .OnlineCount }}</span>
-      </div>
-
-    </section>
-
-    <section class="panel">
-
-      <div class="panel-header">
-        <h2>Endpoint Inventory</h2>
-
-        <div class="panel-subtitle">
-          Registered infrastructure endpoints and operational state
+            <p class="muted">
+                Registered CommandPilot agents and managed endpoints
+            </p>
         </div>
-      </div>
 
-      <table class="data-table">
+    </div>
 
-        <thead>
-          <tr>
-            <th>Hostname</th>
-            <th>IP Address</th>
-            <th>Operating System</th>
-            <th>Architecture</th>
-            <th>CPU Usage</th>
-            <th>Memory Usage</th>
-            <th>Disk Free</th>
-            <th>Last Check-In</th>
-            <th>Approval Status</th>
-            <th>Management</th>
-          </tr>
-        </thead>
+    <div class="card">
 
-        <tbody>
+        <div class="table-toolbar">
 
-          {{ range .Devices }}
+            <input
+                type="text"
+                id="deviceSearch"
+                class="form-control"
+                placeholder="Search hostname, IP, operating system..."
+                onkeyup="filterDevices()"
+            >
 
-          <tr>
+        </div>
 
-            <td>
-              <a href="/device_detail/{{ .ID }}">
-                {{ .Hostname }}
-              </a>
-            </td>
+        <table class="table" id="devicesTable">
 
-            <td>
-              {{ .IP }}
-            </td>
+            <thead>
 
-            <td>
-              {{ .OS }}
-            </td>
+                <tr>
+                    <th>Hostname</th>
+                    <th>Operating System</th>
+                    <th>IP Address</th>
+                    <th>Status</th>
+                    <th>CPU</th>
+                    <th>Memory</th>
+                    <th>Last Seen</th>
+                </tr>
 
-            <td>
-              {{ if .Architecture }}
-                {{ .Architecture }}
-              {{ else }}
-                Unknown
-              {{ end }}
-            </td>
+            </thead>
 
-            <td>
+            <tbody>
 
-              {{ if gt .CPUUsage 0.0 }}
+                {{ range .Devices }}
 
-                {{ printf "%.1f%%" .CPUUsage }}
+                <tr>
 
-              {{ else }}
+                    <td>
+                        <a href="/devices/{{ .ID }}">
+                            {{ .Hostname }}
+                        </a>
+                    </td>
 
-                <span class="muted">Unavailable</span>
+                    <td>
+                        {{ .OS }}
+                    </td>
 
-              {{ end }}
+                    <td>
+                        {{ .IP }}
+                    </td>
 
-            </td>
+                    <td>
 
-            <td>
+                        {{ if .Online }}
 
-              {{ if gt .RAMTotal 0 }}
+                            <span class="badge badge-success">
+                                Online
+                            </span>
 
-                {{ printf "%.0f%%" .RAMUsagePercent }}
+                        {{ else }}
 
-              {{ else }}
+                            <span class="badge badge-danger">
+                                Offline
+                            </span>
 
-                <span class="muted">Unavailable</span>
+                        {{ end }}
 
-              {{ end }}
+                    </td>
 
-            </td>
+                    <td>
+                        {{ .CPU }}
+                    </td>
 
-            <td>
+                    <td>
+                        {{ .Memory }}
+                    </td>
 
-              {{ if gt .DiskFree 0 }}
+                    <td>
+                        {{ .LastSeen }}
+                    </td>
 
-                {{ .DiskFreeHuman }}
-
-              {{ else }}
-
-                <span class="muted">Unavailable</span>
-
-              {{ end }}
-
-            </td>
-
-            <td>
-              {{ .LastSeen }}
-            </td>
-
-            <td>
-
-              {{ if .Approved }}
-
-                <span class="status-online">
-                  Approved
-                </span>
-
-              {{ else }}
-
-                <span class="status-pending">
-                  Pending Approval
-                </span>
-
-              {{ end }}
-
-            </td>
-
-            <td>
-
-              <div style="display:flex; gap:8px;">
-
-                {{ if not .Approved }}
-
-                <form method="POST" action="/approve_device">
-                  <input type="hidden" name="id" value="{{ .ID }}">
-
-                  <button
-                    type="submit"
-                    class="btn btn-primary"
-                    style="padding:8px 12px; width:auto;"
-                  >
-                    Approve
-                  </button>
-                </form>
+                </tr>
 
                 {{ end }}
 
-                <form method="POST" action="/reject_device">
-                  <input type="hidden" name="id" value="{{ .ID }}">
+            </tbody>
 
-                  <button
-                    type="submit"
-                    class="btn"
-                    style="
-                      padding:8px 12px;
-                      width:auto;
-                      background:#7f1d1d;
-                      color:white;
-                    "
-                  >
-                    Reject
-                  </button>
-                </form>
+        </table>
 
-              </div>
+    </div>
 
-            </td>
+</div>
 
-          </tr>
+<script>
+function filterDevices() {
 
-          {{ else }}
+    const input = document.getElementById("deviceSearch");
+    const filter = input.value.toLowerCase();
 
-          <tr>
-            <td colspan="10" class="empty-state">
-              No managed endpoints have checked in yet.
-            </td>
-          </tr>
+    const table = document.getElementById("devicesTable");
+    const rows = table.getElementsByTagName("tr");
 
-          {{ end }}
+    for (let i = 1; i < rows.length; i++) {
 
-        </tbody>
+        const row = rows[i];
 
-      </table>
-
-    </section>
-
-  </main>
-</body>
-</html>
+        if (row.innerText.toLowerCase().indexOf(filter) > -1) {
+            row.style.display = "";
+        } else {
+            row.style.display = "none";
+        }
+    }
+}
+</script>

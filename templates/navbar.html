@@ -1,83 +1,13 @@
 {{ define "navbar.html" }}
-
-<nav class="top_nav">
-
-  <div class="top_nav_inner">
-
-    <div class="top_nav_brand">
-
-      <a href="/dashboard">
-        CommandPilot
-      </a>
-
-      <span class="top_nav_environment">
-        Enterprise
-      </span>
-
-    </div>
-
-    <ul class="top_nav_links">
-
-      <li>
-        <a href="/dashboard">
-          Dashboard
-        </a>
-      </li>
-
-      <li>
-        <a href="/devices_page">
-          Devices
-        </a>
-      </li>
-
-      <li>
-        <a href="/actions_page">
-          Actions
-        </a>
-      </li>
-
-      <li>
-        <a href="/history_page">
-          History
-        </a>
-      </li>
-
-      <li>
-        <a href="/audit_page">
-          Audit Logs
-        </a>
-      </li>
-
-      <li>
-        <a href="/users_groups_page">
-          Users
-        </a>
-      </li>
-
-      <li>
-        <a href="/roles_page">
-          Roles
-        </a>
-      </li>
-
-      <li>
-        <a href="/settings_page">
-          Settings
-        </a>
-      </li>
-
-    </ul>
-
-    <div class="top_nav_actions">
-
-      <a href="/auth/logout">
-        Sign Out
-      </a>
-
-    </div>
-
-  </div>
-
+<nav style="margin-bottom: 24px;">
+  <a href="/dashboard">Dashboard</a> |
+  <a href="/devices_page">Devices</a> |
+  <a href="/actions_page">Actions</a> |
+  <a href="/history_page">History</a> |
+  <a href="/users_groups_page">Users</a> |
+  <a href="/roles_page">Roles</a> |
+  <a href="/settings_page">Settings</a> |
+  <a href="/agent_updates_page">Agent Updates</a> |
+  <a href="/auth/logout">Sign Out</a>
 </nav>
-
 {{ end }}
