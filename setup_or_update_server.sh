@@ -100,6 +100,7 @@ stage() {
 
 cleanup() {
     rm -f /tmp/go.tar.gz
+    rm -f /tmp/commandpilot_hashgen.go
 }
 
 trap cleanup EXIT
@@ -368,7 +369,7 @@ ADMIN_EXISTS=$(sqlite3 "$DB_PATH" \
 
 if [[ "$MODE" == "install" ]]; then
 
-    TMP_HASH_GEN="${BUILD_DIR}/.tmp_admin_hash.go"
+    TMP_HASH_GEN="/tmp/commandpilot_hashgen.go"
 
     cat > "$TMP_HASH_GEN" <<'EOF'
 package main
@@ -408,12 +409,9 @@ func main() {
 EOF
 
     ADMIN_HASH=$(
-        cd "$BUILD_DIR" && \
         ADMIN_PASSWORD="$DEFAULT_ADMIN_PASS" \
         go run "$TMP_HASH_GEN"
     )
-
-    rm -f "$TMP_HASH_GEN"
 
     [[ -n "$ADMIN_HASH" ]] \
         || fail "failed generating bcrypt hash"
