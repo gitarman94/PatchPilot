@@ -275,6 +275,12 @@ fi
 
 chown -R commandpilot:commandpilot "$RUNTIME_DIR"
 
+[[ -f "${RUNTIME_DIR}/pilot-core" ]] \
+    || fail "runtime binary missing"
+
+[[ -x "${RUNTIME_DIR}/pilot-core" ]] \
+    || fail "runtime binary not executable"
+
 pass "Runtime deployed"
 
 stage "Database"
@@ -323,8 +329,10 @@ CURRENT_VERSION=$(sqlite3 "$DB_PATH" \
 
 if [[ "$CURRENT_VERSION" -lt 1 ]]; then
 
-    if ! sqlite3 "$DB_PATH" \
-        "SELECT password_hash FROM users LIMIT 1;" >/dev/null 2>&1; then
+    HAS_PASSWORD_HASH=$(sqlite3 -noheader "$DB_PATH" \
+        "SELECT COUNT(1) FROM pragma_table_info('users') WHERE name='password_hash';")
+
+    if [[ "$HAS_PASSWORD_HASH" == "0" ]]; then
 
         sqlite3 "$DB_PATH" \
             "ALTER TABLE users ADD COLUMN password_hash TEXT;" \
@@ -333,7 +341,7 @@ if [[ "$CURRENT_VERSION" -lt 1 ]]; then
     fi
 
     sqlite3 "$DB_PATH" \
-        "INSERT INTO schema_migrations(version) VALUES(1);" \
+        "INSERT OR IGNORE INTO schema_migrations(version) VALUES(1);" \
         || true
 
     pass "Migration v1 applied"
@@ -358,32 +366,61 @@ ADMIN_ROLE_ID=$(sqlite3 "$DB_PATH" \
 ADMIN_EXISTS=$(sqlite3 "$DB_PATH" \
     "SELECT COUNT(*) FROM users WHERE username='${DEFAULT_ADMIN_USER}';")
 
-if [[ "$MODE" == "install" && "$ADMIN_EXISTS" == "0" ]]; then
+if [[ "$MODE" == "install" ]]; then
 
-    ADMIN_HASH=$(
-cat <<EOF | go run /dev/stdin 2>/dev/null
+    TMP_HASH_GEN="${BUILD_DIR}/.tmp_admin_hash.go"
+
+    cat > "$TMP_HASH_GEN" <<'EOF'
 package main
 
 import (
-    "fmt"
-    "golang.org/x/crypto/bcrypt"
+	"fmt"
+	"os"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
-    hash, _ := bcrypt.GenerateFromPassword(
-        []byte("${DEFAULT_ADMIN_PASS}"),
-        bcrypt.DefaultCost,
-    )
+	pass := os.Getenv("ADMIN_PASSWORD")
 
-    fmt.Print(string(hash))
+	if pass == "" {
+		panic("ADMIN_PASSWORD is empty")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword(
+		[]byte(pass),
+		bcrypt.DefaultCost,
+	)
+
+	if err != nil {
+		panic(err)
+	}
+
+	if bcrypt.CompareHashAndPassword(
+		hash,
+		[]byte(pass),
+	) != nil {
+		panic("bcrypt self-check failed")
+	}
+
+	fmt.Print(string(hash))
 }
 EOF
-)
+
+    ADMIN_HASH=$(
+        cd "$BUILD_DIR" && \
+        ADMIN_PASSWORD="$DEFAULT_ADMIN_PASS" \
+        go run "$TMP_HASH_GEN"
+    )
+
+    rm -f "$TMP_HASH_GEN"
 
     [[ -n "$ADMIN_HASH" ]] \
         || fail "failed generating bcrypt hash"
 
-    sqlite3 "$DB_PATH" <<EOF
+    if [[ "$ADMIN_EXISTS" == "0" ]]; then
+
+        sqlite3 "$DB_PATH" <<EOF
 INSERT INTO users (
     username,
     password_hash,
@@ -395,7 +432,21 @@ INSERT INTO users (
 );
 EOF
 
-    pass "Default admin user created"
+        pass "Default admin user created"
+
+    else
+
+        sqlite3 "$DB_PATH" <<EOF
+UPDATE users
+SET
+    password_hash='${ADMIN_HASH}',
+    role_id=${ADMIN_ROLE_ID}
+WHERE username='${DEFAULT_ADMIN_USER}';
+EOF
+
+        pass "Default admin user reset"
+
+    fi
 
 else
 
@@ -505,6 +556,11 @@ sqlite3 "$DB_PATH" "SELECT 1;" >/dev/null 2>&1 \
 
 pass "SQLite operational"
 
+sqlite3 "$DB_PATH" "PRAGMA integrity_check;" | grep -q ok \
+    || fail "database integrity failed"
+
+pass "Database integrity OK"
+
 USER_COUNT=$(sqlite3 "$DB_PATH" \
     "SELECT COUNT(*) FROM users;" 2>/dev/null || echo 0)
 
@@ -546,12 +602,47 @@ if [[ "$MODE" == "install" ]]; then
 
 fi
 
+if [[ "$VERYVERBOSE" -eq 1 ]]; then
+
+    echo
+    echo "=== PROCESS INFO ==="
+
+    ps aux | grep pilot-core || true
+
+    echo
+    echo "=== PORTS ==="
+
+    ss -tulpn | grep 8080 || true
+
+    echo
+    echo "=== SERVICE STATUS ==="
+
+    systemctl status "${SERVICE_NAME}" --no-pager || true
+
+    echo
+    echo "=== JOURNAL ==="
+
+    journalctl -u "${SERVICE_NAME}" -n 50 --no-pager || true
+
+    echo
+    echo "=== TEMPLATE FILES ==="
+
+    find "${RUNTIME_DIR}/templates" -type f || true
+
+    echo
+    echo "=== STATIC FILES ==="
+
+    find "${RUNTIME_DIR}/static" -type f || true
+
+fi
+
 IP_ADDR=$(hostname -I | awk '{print $1}')
 
 echo
 echo "======================================"
-echo " CommandPilot Deployment Complete"
+echo " CommandPilot deployment complete"
 echo "======================================"
+
 echo "Mode: ${MODE}"
 echo "URL: http://${IP_ADDR}:8080"
 echo "Service: ${SERVICE_NAME}"
