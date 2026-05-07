@@ -44,9 +44,7 @@ USERNAME="admin"
 PASSWORD="admin"
 
 echo "Testing login..."
-curl -s -c "$COOKIE_JAR" -X POST "${SERVER_URL}/auth/login" \
-    -d "username=${USERNAME}&password=${PASSWORD}" \
-    -o /dev/null
+curl -s -c "$COOKIE_JAR" -X POST "${SERVER_URL}/auth/login" -d "username=${USERNAME}&password=${PASSWORD}" -o /dev/null
 
 code=$(curl -s -b "$COOKIE_JAR" -o /dev/null -w "%{http_code}" "${SERVER_URL}/dashboard")
 [[ "$code" == "200" ]] && pass "Login works" || fail "Login failed ($code)"
